@@ -137,6 +137,19 @@ export class AutomatedSignalProcessor extends EventEmitter {
   async processSignals(signals: AgentSignal[], symbol: string, marketContext?: any): Promise<ProcessedSignal> {
     const now = Date.now();
 
+    // FIX: drop stale signals — stale consensus is a leading cause of losing trades
+    const MAX_SIGNAL_AGE_MS = 2000;
+    const freshSignals = signals.filter(s => now - ((s as any).timestamp ?? (s as any).createdAt ?? 0) <= MAX_SIGNAL_AGE_MS);
+    if (freshSignals.length === 0) {
+      return {
+        approved: false,
+        reason: 'All signals stale (>2s old)',
+        symbol,
+        signals: [],
+      };
+    }
+    signals = freshSignals;
+
     // Phase 19: Per-symbol debounce (was global boolean blocking all symbols)
     const lastProcessed = this.processingSymbols.get(symbol) || 0;
     const timeSinceLast = now - lastProcessed;

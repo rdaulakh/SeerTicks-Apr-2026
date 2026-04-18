@@ -107,7 +107,8 @@ export class LayeredProfitManager {
       const targetHit = this.isTargetHit(position.direction, currentPrice, target.price);
       
       if (targetHit) {
-        const reductionSize = position.initialSize * target.positionReduction;
+        // FIX: partial exits size from current remaining, not initial — prevents over-sell after first TP
+        const reductionSize = remainingSize * target.positionReduction;
         const actualReduction = Math.min(reductionSize, remainingSize);
         
         if (actualReduction > 0) {
@@ -141,8 +142,8 @@ export class LayeredProfitManager {
           });
         }
         
-        if (i === 1) {
-          // After second target: activate trailing stop for runner
+        if (i === 0) {
+          // FIX: trailing stop activates after TP1 to lock gains earlier
           const trailingStop = this.trailingStops.get(position.id);
           if (trailingStop) {
             trailingStop.active = true;

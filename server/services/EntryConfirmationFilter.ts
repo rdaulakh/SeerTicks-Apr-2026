@@ -48,10 +48,11 @@ export class EntryConfirmationFilter {
     // Phase 23: Align thresholds with AutomatedSignalProcessor (TradingConfig single source of truth)
     // Previous values (3, 0.70, 0.6) were unreachable with real agent confidence levels (5-20%)
     // Agents produce confidence in 0-1 range where 0.05-0.20 is typical for fast agents
+    // FIX: entry quality gate raised from stub values — prevents low-conviction trades
     this.config = {
-      minAgentAgreement: config?.minAgentAgreement ?? 2,
-      weightedThreshold: config?.weightedThreshold ?? 0.01,
-      minConfidenceScore: config?.minConfidenceScore ?? 0.03,
+      minAgentAgreement: config?.minAgentAgreement ?? 4,
+      weightedThreshold: config?.weightedThreshold ?? 0.08,
+      minConfidenceScore: config?.minConfidenceScore ?? 0.08,
       excludeNeutralAgents: config?.excludeNeutralAgents ?? true,
     };
   }

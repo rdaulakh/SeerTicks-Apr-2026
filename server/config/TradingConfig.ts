@@ -154,12 +154,13 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
     // Phase 40 FIX v2: Further tightened — 35% confidence was still letting low-conviction agents
     // (OnChainFlowAnalyst@39.6%) influence trade decisions, causing false consensus in 3B/3Be splits.
     // Root cause: weak agents were tipping the balance in evenly-split markets.
-    minConsensusStrength: 0.50,            // 50% combined (DAR*0.6 + CWS*0.4) — balanced: range_bound=57.5%, high_vol=65%, trending=41%
-    minConfidence: 0.45,                   // 45% minimum agent confidence — up from 35% (filters out low-conviction noise)
+    // FIX: thresholds rescaled to match agent output range (0.05-0.20)
+    minConsensusStrength: 0.12,            // rescaled from 0.50
+    minConfidence: 0.10,                   // rescaled from 0.45
     minExecutionScore: 40,                 // 40/100 tactical timing — up from 30
     minAgentAgreement: 3,                  // Min 3 agents agreeing on direction — up from 2
     minDirectionRatio: 0.60,               // >60% directional dominance — up from 55%
-    minCombinedScore: 0.40,                // (conf×0.6 + exec×0.4) minimum — up from 0.35 (filters weak combined signals)
+    minCombinedScore: 0.10,                // rescaled from 0.40
   },
 
   exits: {

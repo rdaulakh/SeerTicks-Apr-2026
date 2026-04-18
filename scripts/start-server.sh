@@ -26,5 +26,5 @@ echo "✅ Chokidar polling mode enabled (interval: 1000ms)"
 
 # Start server with tsx (no watch mode to avoid file watcher exhaustion)
 echo "🔧 Starting server..."
-cd /home/ubuntu/seer
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 exec pnpm exec tsx server/_core/index.ts
