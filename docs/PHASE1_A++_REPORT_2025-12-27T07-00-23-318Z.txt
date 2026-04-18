@@ -1,0 +1,46 @@
+
+A++ INSTITUTIONAL GRADE BACKTEST REPORT
+=======================================
+Generated: 2025-12-27T07:00:23.323Z
+Period: 2025-12-20T07:00:17.964Z to 2025-12-27T07:00:17.965Z
+
+COMBINED RESULTS
+================
+Total Trades: 12
+Win Rate: 16.67%
+Total P&L: $-679.05
+
+BTC-USD
+-------
+Trades: 9
+Win Rate: 22.22%
+P&L: $-411.78 (-0.82%)
+Max Drawdown: 0.85%
+Sharpe: -6.96
+Profit Factor: 0.40
+Trades Skipped: 76
+
+ETH-USD
+-------
+Trades: 3
+Win Rate: 0.00%
+P&L: $-267.27 (-0.53%)
+Max Drawdown: 0.50%
+Sharpe: -24.37
+Profit Factor: 0.00
+Trades Skipped: 27
+
+VERDICT: ❌ NOT PRODUCTION-READY
+Reasons: Win rate 16.7% below 45%, Significant losses: $-679.05
+
+A++ FEATURES ACTIVE:
+- Market Condition Filter
+- Intelligent Signal Quality Scoring
+- Breakeven Stop Mechanism
+- Profit Lock Trailing Stops
+- Partial Profit Taking
+- Circuit Breaker
+- Adaptive Learning
+- Regime-Aware Position Sizing
+- Time-Based Exit
+- 12 Intelligent Agents

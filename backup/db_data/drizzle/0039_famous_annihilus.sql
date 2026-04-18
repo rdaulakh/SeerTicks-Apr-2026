@@ -1,0 +1,2 @@
+ALTER TABLE `tradingModeConfig` ADD `autoTradeEnabled` boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE `tradingModeConfig` ADD `portfolioFunds` decimal(18,2) DEFAULT '10000.00' NOT NULL;

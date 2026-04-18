@@ -1,0 +1,973 @@
+{
+  "summary": {
+    "totalTrades": 8,
+    "winningTrades": 3,
+    "losingTrades": 5,
+    "winRate": 37.5,
+    "initialBalance": 50000,
+    "finalBalance": 50064.97640095925,
+    "totalPnl": 64.97640095924726,
+    "totalPnlPercent": 0.1299528019184945
+  },
+  "rootCauses": {
+    "WRONG_PREDICTION": 5
+  },
+  "improvements": {
+    "Only take trades with >50% consensus confidence": 4,
+    "Implement breakeven stop after any profit": 4,
+    "Require stronger agent agreement before trading": 4,
+    "Consider wider take-profit or trailing stop": 2,
+    "Avoid trend-following trades in ranging markets": 1,
+    "Reduce position size in uncertain conditions": 1
+  },
+  "trades": [
+    {
+      "tradeId": 1,
+      "symbol": "BTC-USD",
+      "side": "long",
+      "entryTime": "2024-12-24T19:00:00.000Z",
+      "entryPrice": 97552.82,
+      "positionSize": 4439.999999999999,
+      "positionSizePercent": 8.879999999999997,
+      "agentSignals": [
+        {
+          "agentName": "TechnicalAnalyst",
+          "signal": "bullish",
+          "confidence": 0.74,
+          "weight": 0.4,
+          "reasoning": "MACD bullish, Above SMAs"
+        },
+        {
+          "agentName": "PatternMatcher",
+          "signal": "neutral",
+          "confidence": 0.3,
+          "weight": 0.35,
+          "reasoning": "No clear pattern"
+        },
+        {
+          "agentName": "OrderFlowAnalyst",
+          "signal": "neutral",
+          "confidence": 0.5,
+          "weight": 0.25,
+          "reasoning": "Order flow data simulated"
+        }
+      ],
+      "consensusScore": 0.296,
+      "consensusConfidence": 0.296,
+      "executionScore": 29.599999999999998,
+      "stopLoss": 96278.09,
+      "stopLossPercent": 1.3067074842121533,
+      "takeProfit": 100102.28000000001,
+      "takeProfitPercent": 2.613414968424292,
+      "riskRewardRatio": 2,
+      "marketRegime": "trending_up",
+      "atr": 849.8200000000028,
+      "atrPercent": 0.8711383228080979,
+      "priceHistory": [
+        {
+          "time": "2024-12-24T19:00:00.000Z",
+          "price": 97552.82
+        },
+        {
+          "time": "2024-12-24T20:00:00.000Z",
+          "price": 97220.2
+        },
+        {
+          "time": "2024-12-24T21:00:00.000Z",
+          "price": 98320.74
+        },
+        {
+          "time": "2024-12-24T22:00:00.000Z",
+          "price": 98700
+        },
+        {
+          "time": "2024-12-24T23:00:00.000Z",
+          "price": 98594.47
+        },
+        {
+          "time": "2024-12-25T00:00:00.000Z",
+          "price": 98364.97
+        },
+        {
+          "time": "2024-12-25T01:00:00.000Z",
+          "price": 97913.25
+        },
+        {
+          "time": "2024-12-25T02:00:00.000Z",
+          "price": 98055.91
+        },
+        {
+          "time": "2024-12-25T03:00:00.000Z",
+          "price": 97948.22
+        },
+        {
+          "time": "2024-12-25T04:00:00.000Z",
+          "price": 98161.22
+        },
+        {
+          "time": "2024-12-25T05:00:00.000Z",
+          "price": 98196.01
+        },
+        {
+          "time": "2024-12-25T06:00:00.000Z",
+          "price": 97820.26
+        },
+        {
+          "time": "2024-12-25T07:00:00.000Z",
+          "price": 98015.24
+        },
+        {
+          "time": "2024-12-25T08:00:00.000Z",
+          "price": 98003.93
+        },
+        {
+          "time": "2024-12-25T09:00:00.000Z",
+          "price": 98104.84
+        },
+        {
+          "time": "2024-12-25T10:00:00.000Z",
+          "price": 98392.27
+        },
+        {
+          "time": "2024-12-25T11:00:00.000Z",
+          "price": 97824.84
+        },
+        {
+          "time": "2024-12-25T12:00:00.000Z",
+          "price": 98096.89
+        },
+        {
+          "time": "2024-12-25T13:00:00.000Z",
+          "price": 98380.57
+        },
+        {
+          "time": "2024-12-25T14:00:00.000Z",
+          "price": 98635.08
+        },
+        {
+          "time": "2024-12-25T15:00:00.000Z",
+          "price": 98441.84
+        },
+        {
+          "time": "2024-12-25T16:00:00.000Z",
+          "price": 98321.98
+        },
+        {
+          "time": "2024-12-25T17:00:00.000Z",
+          "price": 98466.49
+        },
+        {
+          "time": "2024-12-25T18:00:00.000Z",
+          "price": 98655.22
+        },
+        {
+          "time": "2024-12-25T19:00:00.000Z",
+          "price": 98918.48
+        },
+        {
+          "time": "2024-12-25T20:00:00.000Z",
+          "price": 99058.55
+        },
+        {
+          "time": "2024-12-25T21:00:00.000Z",
+          "price": 98435.29
+        },
+        {
+          "time": "2024-12-25T22:00:00.000Z",
+          "price": 98723.61
+        },
+        {
+          "time": "2024-12-25T23:00:00.000Z",
+          "price": 99346.28
+        },
+        {
+          "time": "2024-12-26T00:00:00.000Z",
+          "price": 98961.06
+        },
+        {
+          "time": "2024-12-26T01:00:00.000Z",
+          "price": 98980.61
+        },
+        {
+          "time": "2024-12-26T02:00:00.000Z",
+          "price": 98671.12
+        },
+        {
+          "time": "2024-12-26T03:00:00.000Z",
+          "price": 98909.68
+        },
+        {
+          "time": "2024-12-26T04:00:00.000Z",
+          "price": 98213.27
+        },
+        {
+          "time": "2024-12-26T05:00:00.000Z",
+          "price": 98279.53
+        },
+        {
+          "time": "2024-12-26T06:00:00.000Z",
+          "price": 98014.68
+        },
+        {
+          "time": "2024-12-26T07:00:00.000Z",
+          "price": 97667.54
+        },
+        {
+          "time": "2024-12-26T08:00:00.000Z",
+          "price": 95801.75
+        }
+      ],
+      "highestPrice": 99346.28,
+      "lowestPrice": 95801.75,
+      "maxDrawdown": -1.7949968027577337,
+      "maxProfit": 1.838450185243227,
+      "exitTime": "2024-12-26T08:00:00.000Z",
+      "exitPrice": 95801.75,
+      "exitReason": "time_exit",
+      "holdDuration": 2220,
+      "pnl": -79.69785804244334,
+      "pnlPercent": -1.7949968027577337,
+      "isWin": false,
+      "rootCause": "WRONG_PREDICTION",
+      "whatWentWrong": [
+        "Low consensus confidence (29.6%)",
+        "Was in profit (+1.84%) but did not exit",
+        "Agents were divided (1 bullish, 0 bearish)"
+      ],
+      "whatWentRight": [],
+      "improvements": [
+        "Only take trades with >50% consensus confidence",
+        "Implement breakeven stop after any profit",
+        "Require stronger agent agreement before trading"
+      ]
+    },
+    {
+      "tradeId": 2,
+      "symbol": "BTC-USD",
+      "side": "short",
+      "entryTime": "2024-12-26T15:00:00.000Z",
+      "entryPrice": 95962.27,
+      "positionSize": 4432.922830205831,
+      "positionSizePercent": 8.879999999999999,
+      "agentSignals": [
+        {
+          "agentName": "TechnicalAnalyst",
+          "signal": "bearish",
+          "confidence": 0.74,
+          "weight": 0.4,
+          "reasoning": "MACD bearish, Below SMAs"
+        },
+        {
+          "agentName": "PatternMatcher",
+          "signal": "neutral",
+          "confidence": 0.3,
+          "weight": 0.35,
+          "reasoning": "No clear pattern"
+        },
+        {
+          "agentName": "OrderFlowAnalyst",
+          "signal": "neutral",
+          "confidence": 0.5,
+          "weight": 0.25,
+          "reasoning": "Order flow data simulated"
+        }
+      ],
+      "consensusScore": -0.296,
+      "consensusConfidence": 0.296,
+      "executionScore": 29.599999999999998,
+      "stopLoss": 97077.70321428572,
+      "stopLossPercent": 1.1623664324382035,
+      "takeProfit": 93731.40357142857,
+      "takeProfitPercent": 2.324732864876407,
+      "riskRewardRatio": 2,
+      "marketRegime": "trending_down",
+      "atr": 743.6221428571433,
+      "atrPercent": 0.7749109549588012,
+      "priceHistory": [
+        {
+          "time": "2024-12-26T15:00:00.000Z",
+          "price": 95962.27
+        },
+        {
+          "time": "2024-12-26T16:00:00.000Z",
+          "price": 96444.26
+        },
+        {
+          "time": "2024-12-26T17:00:00.000Z",
+          "price": 95731.07
+        },
+        {
+          "time": "2024-12-26T18:00:00.000Z",
+          "price": 95662.18
+        },
+        {
+          "time": "2024-12-26T19:00:00.000Z",
+          "price": 96023.62
+        },
+        {
+          "time": "2024-12-26T20:00:00.000Z",
+          "price": 95470.16
+        },
+        {
+          "time": "2024-12-26T21:00:00.000Z",
+          "price": 95696.99
+        },
+        {
+          "time": "2024-12-26T22:00:00.000Z",
+          "price": 95706.17
+        },
+        {
+          "time": "2024-12-26T23:00:00.000Z",
+          "price": 95669.49
+        },
+        {
+          "time": "2024-12-27T00:00:00.000Z",
+          "price": 95667.84
+        }
+      ],
+      "highestPrice": 96444.26,
+      "lowestPrice": 95470.16,
+      "maxDrawdown": -0.5022703193661329,
+      "maxProfit": 0.5128161307563905,
+      "exitTime": "2024-12-27T00:00:00.000Z",
+      "exitPrice": 95667.84,
+      "exitReason": "time_exit",
+      "holdDuration": 540,
+      "pnl": 13.601027454827154,
+      "pnlPercent": 0.3068185027302997,
+      "isWin": true,
+      "rootCause": "CORRECT_PREDICTION",
+      "whatWentWrong": [
+        "Could have captured more profit (max: 0.51%, actual: 0.31%)"
+      ],
+      "whatWentRight": [
+        "Consensus was 29.6% confident",
+        "1/3 agents were correct"
+      ],
+      "improvements": [
+        "Consider wider take-profit or trailing stop"
+      ]
+    },
+    {
+      "tradeId": 3,
+      "symbol": "ETH-USD",
+      "side": "long",
+      "entryTime": "2024-12-22T14:00:00.000Z",
+      "entryPrice": 3275.3,
+      "positionSize": 7123.071287116676,
+      "positionSizePercent": 14.265,
+      "agentSignals": [
+        {
+          "agentName": "TechnicalAnalyst",
+          "signal": "bullish",
+          "confidence": 0.62,
+          "weight": 0.4,
+          "reasoning": "MACD bullish, Below BB lower"
+        },
+        {
+          "agentName": "PatternMatcher",
+          "signal": "bullish",
+          "confidence": 0.65,
+          "weight": 0.35,
+          "reasoning": "Near support"
+        },
+        {
+          "agentName": "OrderFlowAnalyst",
+          "signal": "neutral",
+          "confidence": 0.5,
+          "weight": 0.25,
+          "reasoning": "Order flow data simulated"
+        }
+      ],
+      "consensusScore": 0.4755,
+      "consensusConfidence": 0.4755,
+      "executionScore": 47.55,
+      "stopLoss": 3196.13,
+      "stopLossPercent": 2.417183158794616,
+      "takeProfit": 3433.6400000000003,
+      "takeProfitPercent": 4.834366317589232,
+      "riskRewardRatio": 2,
+      "marketRegime": "ranging",
+      "atr": 39.585000000000036,
+      "atrPercent": 1.208591579397308,
+      "priceHistory": [
+        {
+          "time": "2024-12-22T14:00:00.000Z",
+          "price": 3275.3
+        },
+        {
+          "time": "2024-12-22T15:00:00.000Z",
+          "price": 3299.72
+        },
+        {
+          "time": "2024-12-22T16:00:00.000Z",
+          "price": 3330.99
+        },
+        {
+          "time": "2024-12-22T17:00:00.000Z",
+          "price": 3312.92
+        },
+        {
+          "time": "2024-12-22T18:00:00.000Z",
+          "price": 3308.72
+        },
+        {
+          "time": "2024-12-22T19:00:00.000Z",
+          "price": 3244.35
+        }
+      ],
+      "highestPrice": 3330.99,
+      "lowestPrice": 3244.35,
+      "maxDrawdown": -0.9449516074863453,
+      "maxProfit": 1.7003022623881658,
+      "exitTime": "2024-12-22T19:00:00.000Z",
+      "exitPrice": 3244.35,
+      "exitReason": "time_exit",
+      "holdDuration": 300,
+      "pnl": -67.30957663000734,
+      "pnlPercent": -0.9449516074863453,
+      "isWin": false,
+      "rootCause": "WRONG_PREDICTION",
+      "whatWentWrong": [
+        "Trade taken in ranging market",
+        "Large position size (14.3%)",
+        "Was in profit (+1.70%) but did not exit"
+      ],
+      "whatWentRight": [],
+      "improvements": [
+        "Avoid trend-following trades in ranging markets",
+        "Reduce position size in uncertain conditions",
+        "Implement breakeven stop after any profit"
+      ]
+    },
+    {
+      "tradeId": 4,
+      "symbol": "ETH-USD",
+      "side": "short",
+      "entryTime": "2024-12-22T23:00:00.000Z",
+      "entryPrice": 3278.6,
+      "positionSize": 4428.153511039074,
+      "positionSizePercent": 8.879999999999999,
+      "agentSignals": [
+        {
+          "agentName": "TechnicalAnalyst",
+          "signal": "bearish",
+          "confidence": 0.74,
+          "weight": 0.4,
+          "reasoning": "MACD bearish, Below SMAs"
+        },
+        {
+          "agentName": "PatternMatcher",
+          "signal": "neutral",
+          "confidence": 0.3,
+          "weight": 0.35,
+          "reasoning": "No clear pattern"
+        },
+        {
+          "agentName": "OrderFlowAnalyst",
+          "signal": "neutral",
+          "confidence": 0.5,
+          "weight": 0.25,
+          "reasoning": "Order flow data simulated"
+        }
+      ],
+      "consensusScore": -0.296,
+      "consensusConfidence": 0.296,
+      "executionScore": 29.599999999999998,
+      "stopLoss": 3346.000357142857,
+      "stopLossPercent": 2.055766398549901,
+      "takeProfit": 3143.7992857142854,
+      "takeProfitPercent": 4.111532797099816,
+      "riskRewardRatio": 2,
+      "marketRegime": "trending_down",
+      "atr": 44.933571428571476,
+      "atrPercent": 1.370510932366604,
+      "priceHistory": [
+        {
+          "time": "2024-12-22T23:00:00.000Z",
+          "price": 3278.6
+        },
+        {
+          "time": "2024-12-23T00:00:00.000Z",
+          "price": 3251.99
+        },
+        {
+          "time": "2024-12-23T01:00:00.000Z",
+          "price": 3258.21
+        },
+        {
+          "time": "2024-12-23T02:00:00.000Z",
+          "price": 3278.46
+        },
+        {
+          "time": "2024-12-23T03:00:00.000Z",
+          "price": 3347.33
+        }
+      ],
+      "highestPrice": 3347.33,
+      "lowestPrice": 3251.99,
+      "maxDrawdown": -2.0963216006832193,
+      "maxProfit": 0.81162691392668,
+      "exitTime": "2024-12-23T03:00:00.000Z",
+      "exitPrice": 3347.33,
+      "exitReason": "stop_loss",
+      "holdDuration": 240,
+      "pnl": -92.82833856332448,
+      "pnlPercent": -2.0963216006832193,
+      "isWin": false,
+      "rootCause": "WRONG_PREDICTION",
+      "whatWentWrong": [
+        "Stop-loss correctly triggered - prediction was wrong",
+        "Low consensus confidence (29.6%)",
+        "Was in profit (+0.81%) but did not exit",
+        "Agents were divided (0 bullish, 1 bearish)"
+      ],
+      "whatWentRight": [],
+      "improvements": [
+        "Only take trades with >50% consensus confidence",
+        "Implement breakeven stop after any profit",
+        "Require stronger agent agreement before trading"
+      ]
+    },
+    {
+      "tradeId": 5,
+      "symbol": "ETH-USD",
+      "side": "long",
+      "entryTime": "2024-12-24T04:00:00.000Z",
+      "entryPrice": 3408.53,
+      "positionSize": 4419.910354574651,
+      "positionSizePercent": 8.879999999999999,
+      "agentSignals": [
+        {
+          "agentName": "TechnicalAnalyst",
+          "signal": "bullish",
+          "confidence": 0.74,
+          "weight": 0.4,
+          "reasoning": "MACD bullish, Above SMAs"
+        },
+        {
+          "agentName": "PatternMatcher",
+          "signal": "neutral",
+          "confidence": 0.3,
+          "weight": 0.35,
+          "reasoning": "No clear pattern"
+        },
+        {
+          "agentName": "OrderFlowAnalyst",
+          "signal": "neutral",
+          "confidence": 0.5,
+          "weight": 0.25,
+          "reasoning": "Order flow data simulated"
+        }
+      ],
+      "consensusScore": 0.296,
+      "consensusConfidence": 0.296,
+      "executionScore": 29.599999999999998,
+      "stopLoss": 3329.5753571428572,
+      "stopLossPercent": 2.3163839795202907,
+      "takeProfit": 3566.4392857142857,
+      "takeProfitPercent": 4.632767959040568,
+      "riskRewardRatio": 2,
+      "marketRegime": "trending_up",
+      "atr": 52.63642857142853,
+      "atrPercent": 1.544255986346857,
+      "priceHistory": [
+        {
+          "time": "2024-12-24T04:00:00.000Z",
+          "price": 3408.53
+        },
+        {
+          "time": "2024-12-24T05:00:00.000Z",
+          "price": 3419.22
+        },
+        {
+          "time": "2024-12-24T06:00:00.000Z",
+          "price": 3389.12
+        },
+        {
+          "time": "2024-12-24T07:00:00.000Z",
+          "price": 3396.1
+        },
+        {
+          "time": "2024-12-24T08:00:00.000Z",
+          "price": 3408.2
+        },
+        {
+          "time": "2024-12-24T09:00:00.000Z",
+          "price": 3394
+        }
+      ],
+      "highestPrice": 3419.22,
+      "lowestPrice": 3389.12,
+      "maxDrawdown": -0.5694536941144807,
+      "maxProfit": 0.3136249350893083,
+      "exitTime": "2024-12-24T09:00:00.000Z",
+      "exitPrice": 3394,
+      "exitReason": "time_exit",
+      "holdDuration": 300,
+      "pnl": -18.84134728225087,
+      "pnlPercent": -0.4262834711737963,
+      "isWin": false,
+      "rootCause": "WRONG_PREDICTION",
+      "whatWentWrong": [
+        "Low consensus confidence (29.6%)",
+        "Was in profit (+0.31%) but did not exit",
+        "Agents were divided (1 bullish, 0 bearish)"
+      ],
+      "whatWentRight": [],
+      "improvements": [
+        "Only take trades with >50% consensus confidence",
+        "Implement breakeven stop after any profit",
+        "Require stronger agent agreement before trading"
+      ]
+    },
+    {
+      "tradeId": 6,
+      "symbol": "ETH-USD",
+      "side": "long",
+      "entryTime": "2024-12-24T23:00:00.000Z",
+      "entryPrice": 3491.13,
+      "positionSize": 4418.2372429359875,
+      "positionSizePercent": 8.88,
+      "agentSignals": [
+        {
+          "agentName": "TechnicalAnalyst",
+          "signal": "bullish",
+          "confidence": 0.74,
+          "weight": 0.4,
+          "reasoning": "MACD bullish, Above SMAs"
+        },
+        {
+          "agentName": "PatternMatcher",
+          "signal": "neutral",
+          "confidence": 0.3,
+          "weight": 0.35,
+          "reasoning": "No clear pattern"
+        },
+        {
+          "agentName": "OrderFlowAnalyst",
+          "signal": "neutral",
+          "confidence": 0.5,
+          "weight": 0.25,
+          "reasoning": "Order flow data simulated"
+        }
+      ],
+      "consensusScore": 0.296,
+      "consensusConfidence": 0.296,
+      "executionScore": 29.599999999999998,
+      "stopLoss": 3437.030357142857,
+      "stopLossPercent": 1.5496312900734992,
+      "takeProfit": 3599.329285714286,
+      "takeProfitPercent": 3.0992625801469984,
+      "riskRewardRatio": 2,
+      "marketRegime": "trending_up",
+      "atr": 36.066428571428595,
+      "atrPercent": 1.033087526715665,
+      "priceHistory": [
+        {
+          "time": "2024-12-24T23:00:00.000Z",
+          "price": 3491.13
+        },
+        {
+          "time": "2024-12-25T00:00:00.000Z",
+          "price": 3480.21
+        },
+        {
+          "time": "2024-12-25T01:00:00.000Z",
+          "price": 3470.66
+        },
+        {
+          "time": "2024-12-25T02:00:00.000Z",
+          "price": 3482.49
+        },
+        {
+          "time": "2024-12-25T03:00:00.000Z",
+          "price": 3475.77
+        },
+        {
+          "time": "2024-12-25T04:00:00.000Z",
+          "price": 3486.36
+        }
+      ],
+      "highestPrice": 3491.13,
+      "lowestPrice": 3470.66,
+      "maxDrawdown": -0.5863431038088027,
+      "maxProfit": 0,
+      "exitTime": "2024-12-25T04:00:00.000Z",
+      "exitPrice": 3486.36,
+      "exitReason": "time_exit",
+      "holdDuration": 300,
+      "pnl": -6.036724971228393,
+      "pnlPercent": -0.13663197875759373,
+      "isWin": false,
+      "rootCause": "WRONG_PREDICTION",
+      "whatWentWrong": [
+        "Low consensus confidence (29.6%)",
+        "Agents were divided (1 bullish, 0 bearish)"
+      ],
+      "whatWentRight": [],
+      "improvements": [
+        "Only take trades with >50% consensus confidence",
+        "Require stronger agent agreement before trading"
+      ]
+    },
+    {
+      "tradeId": 7,
+      "symbol": "ETH-USD",
+      "side": "short",
+      "entryTime": "2024-12-25T10:00:00.000Z",
+      "entryPrice": 3512.64,
+      "positionSize": 7096.678756507388,
+      "positionSizePercent": 14.265,
+      "agentSignals": [
+        {
+          "agentName": "TechnicalAnalyst",
+          "signal": "bearish",
+          "confidence": 0.62,
+          "weight": 0.4,
+          "reasoning": "MACD bearish, Above BB upper"
+        },
+        {
+          "agentName": "PatternMatcher",
+          "signal": "bearish",
+          "confidence": 0.65,
+          "weight": 0.35,
+          "reasoning": "Near resistance"
+        },
+        {
+          "agentName": "OrderFlowAnalyst",
+          "signal": "neutral",
+          "confidence": 0.5,
+          "weight": 0.25,
+          "reasoning": "Order flow data simulated"
+        }
+      ],
+      "consensusScore": -0.4755,
+      "consensusConfidence": 0.4755,
+      "executionScore": 47.55,
+      "stopLoss": 3565.95,
+      "stopLossPercent": 1.51766192948893,
+      "takeProfit": 3406.0200000000004,
+      "takeProfitPercent": 3.035323858977847,
+      "riskRewardRatio": 2,
+      "marketRegime": "ranging",
+      "atr": 26.65499999999991,
+      "atrPercent": 0.7588309647444631,
+      "priceHistory": [
+        {
+          "time": "2024-12-25T10:00:00.000Z",
+          "price": 3512.64
+        },
+        {
+          "time": "2024-12-25T11:00:00.000Z",
+          "price": 3468.65
+        },
+        {
+          "time": "2024-12-25T12:00:00.000Z",
+          "price": 3475.04
+        },
+        {
+          "time": "2024-12-25T13:00:00.000Z",
+          "price": 3479.98
+        },
+        {
+          "time": "2024-12-25T14:00:00.000Z",
+          "price": 3487.76
+        },
+        {
+          "time": "2024-12-25T15:00:00.000Z",
+          "price": 3470.01
+        },
+        {
+          "time": "2024-12-25T16:00:00.000Z",
+          "price": 3451.3
+        },
+        {
+          "time": "2024-12-25T17:00:00.000Z",
+          "price": 3467.41
+        },
+        {
+          "time": "2024-12-25T18:00:00.000Z",
+          "price": 3467.42
+        },
+        {
+          "time": "2024-12-25T19:00:00.000Z",
+          "price": 3477.4
+        },
+        {
+          "time": "2024-12-25T20:00:00.000Z",
+          "price": 3470.74
+        },
+        {
+          "time": "2024-12-25T21:00:00.000Z",
+          "price": 3464.74
+        },
+        {
+          "time": "2024-12-25T22:00:00.000Z",
+          "price": 3472.68
+        },
+        {
+          "time": "2024-12-25T23:00:00.000Z",
+          "price": 3493.95
+        },
+        {
+          "time": "2024-12-26T00:00:00.000Z",
+          "price": 3479.41
+        },
+        {
+          "time": "2024-12-26T01:00:00.000Z",
+          "price": 3473.61
+        },
+        {
+          "time": "2024-12-26T02:00:00.000Z",
+          "price": 3457.91
+        },
+        {
+          "time": "2024-12-26T03:00:00.000Z",
+          "price": 3452.93
+        },
+        {
+          "time": "2024-12-26T04:00:00.000Z",
+          "price": 3438.73
+        },
+        {
+          "time": "2024-12-26T05:00:00.000Z",
+          "price": 3438.65
+        },
+        {
+          "time": "2024-12-26T06:00:00.000Z",
+          "price": 3436.34
+        },
+        {
+          "time": "2024-12-26T07:00:00.000Z",
+          "price": 3419.2
+        },
+        {
+          "time": "2024-12-26T08:00:00.000Z",
+          "price": 3363.42
+        }
+      ],
+      "highestPrice": 3512.64,
+      "lowestPrice": 3363.42,
+      "maxDrawdown": 0,
+      "maxProfit": 4.248086908991522,
+      "exitTime": "2024-12-26T08:00:00.000Z",
+      "exitPrice": 3363.42,
+      "exitReason": "take_profit",
+      "holdDuration": 1320,
+      "pnl": 301.4730812283727,
+      "pnlPercent": 4.248086908991522,
+      "isWin": true,
+      "rootCause": "CORRECT_PREDICTION",
+      "whatWentWrong": [],
+      "whatWentRight": [
+        "Consensus was 47.5% confident",
+        "2/3 agents were correct"
+      ],
+      "improvements": []
+    },
+    {
+      "tradeId": 8,
+      "symbol": "ETH-USD",
+      "side": "short",
+      "entryTime": "2024-12-26T16:00:00.000Z",
+      "entryPrice": 3354,
+      "positionSize": 4444.471991371622,
+      "positionSizePercent": 8.879999999999999,
+      "agentSignals": [
+        {
+          "agentName": "TechnicalAnalyst",
+          "signal": "bearish",
+          "confidence": 0.74,
+          "weight": 0.4,
+          "reasoning": "MACD bearish, Below SMAs"
+        },
+        {
+          "agentName": "PatternMatcher",
+          "signal": "neutral",
+          "confidence": 0.3,
+          "weight": 0.35,
+          "reasoning": "No clear pattern"
+        },
+        {
+          "agentName": "OrderFlowAnalyst",
+          "signal": "neutral",
+          "confidence": 0.5,
+          "weight": 0.25,
+          "reasoning": "Order flow data simulated"
+        }
+      ],
+      "consensusScore": -0.296,
+      "consensusConfidence": 0.296,
+      "executionScore": 29.599999999999998,
+      "stopLoss": 3396.3439285714285,
+      "stopLossPercent": 1.2624904165601813,
+      "takeProfit": 3269.312142857143,
+      "takeProfitPercent": 2.5249808331203627,
+      "riskRewardRatio": 2,
+      "marketRegime": "trending_down",
+      "atr": 28.229285714285684,
+      "atrPercent": 0.8416602777067884,
+      "priceHistory": [
+        {
+          "time": "2024-12-26T16:00:00.000Z",
+          "price": 3354
+        },
+        {
+          "time": "2024-12-26T17:00:00.000Z",
+          "price": 3324.69
+        },
+        {
+          "time": "2024-12-26T18:00:00.000Z",
+          "price": 3334.42
+        },
+        {
+          "time": "2024-12-26T19:00:00.000Z",
+          "price": 3337
+        },
+        {
+          "time": "2024-12-26T20:00:00.000Z",
+          "price": 3325.65
+        },
+        {
+          "time": "2024-12-26T21:00:00.000Z",
+          "price": 3333.01
+        },
+        {
+          "time": "2024-12-26T22:00:00.000Z",
+          "price": 3337.35
+        },
+        {
+          "time": "2024-12-26T23:00:00.000Z",
+          "price": 3330.86
+        },
+        {
+          "time": "2024-12-27T00:00:00.000Z",
+          "price": 3342.97
+        }
+      ],
+      "highestPrice": 3354,
+      "lowestPrice": 3324.69,
+      "maxDrawdown": 0,
+      "maxProfit": 0.8738819320214654,
+      "exitTime": "2024-12-27T00:00:00.000Z",
+      "exitPrice": 3342.97,
+      "exitReason": "time_exit",
+      "holdDuration": 480,
+      "pnl": 14.616137765304078,
+      "pnlPercent": 0.3288610614192069,
+      "isWin": true,
+      "rootCause": "CORRECT_PREDICTION",
+      "whatWentWrong": [
+        "Could have captured more profit (max: 0.87%, actual: 0.33%)"
+      ],
+      "whatWentRight": [
+        "Consensus was 29.6% confident",
+        "1/3 agents were correct"
+      ],
+      "improvements": [
+        "Consider wider take-profit or trailing stop"
+      ]
+    }
+  ]
+}

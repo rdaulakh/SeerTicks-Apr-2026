@@ -1,0 +1,122 @@
+
+COMPREHENSIVE INSTITUTIONAL-GRADE AUDIT REPORT
+==============================================
+Generated: 2025-12-27T07:56:33.152Z
+Period: 2025-12-20T07:55:33.195Z to 2025-12-27T07:55:33.195Z
+Data Points: 168 hourly candles
+
+EXECUTIVE SUMMARY
+-----------------
+Average Agent Accuracy: 39.1%
+Consensus Accuracy: 34.2%
+Agents Below 50% Accuracy: 8/12
+
+INDIVIDUAL AGENT PERFORMANCE
+----------------------------
+
+Stochastic_Agent
+  Accuracy: 100.0%
+  Signals: 8 (Bull: 4, Bear: 4)
+  Confidence When Correct: 23.8%
+  Confidence When Incorrect: 0.0%
+  Issues: Too few signals generated: 8
+
+BB_Agent
+  Accuracy: 63.8%
+  Signals: 47 (Bull: 25, Bear: 22)
+  Confidence When Correct: 70.0%
+  Confidence When Incorrect: 52.2%
+  Issues: None
+
+RSI_Agent
+  Accuracy: 61.9%
+  Signals: 21 (Bull: 13, Bear: 8)
+  Confidence When Correct: 24.3%
+  Confidence When Incorrect: 15.4%
+  Issues: Directional bias: Bullish accuracy 53.8% vs Bearish 75.0%
+
+SR_Agent
+  Accuracy: 53.0%
+  Signals: 100 (Bull: 62, Bear: 38)
+  Confidence When Correct: 70.0%
+  Confidence When Incorrect: 70.0%
+  Issues: None
+
+Volume_Agent
+  Accuracy: 41.4%
+  Signals: 29 (Bull: 10, Bear: 19)
+  Confidence When Correct: 71.9%
+  Confidence When Incorrect: 77.8%
+  Issues: Low accuracy: 41.4% (below 50%); Higher confidence when WRONG (77.8%) than when RIGHT (71.9%)
+
+EMA_Crossover_Agent
+  Accuracy: 36.8%
+  Signals: 114 (Bull: 51, Bear: 63)
+  Confidence When Correct: 50.0%
+  Confidence When Incorrect: 52.1%
+  Issues: Low accuracy: 36.8% (below 50%); Higher confidence when WRONG (52.1%) than when RIGHT (50.0%)
+
+Fibonacci_Agent
+  Accuracy: 35.5%
+  Signals: 107 (Bull: 41, Bear: 66)
+  Confidence When Correct: 70.0%
+  Confidence When Incorrect: 70.0%
+  Issues: Low accuracy: 35.5% (below 50%); Higher confidence when WRONG (70.0%) than when RIGHT (70.0%); Directional bias: Bullish accuracy 22.0% vs Bearish 43.9%
+
+ADX_Agent
+  Accuracy: 30.7%
+  Signals: 114 (Bull: 46, Bear: 68)
+  Confidence When Correct: 100.0%
+  Confidence When Incorrect: 100.0%
+  Issues: Low accuracy: 30.7% (below 50%); Directional bias: Bullish accuracy 17.4% vs Bearish 39.7%
+
+Pattern_Agent
+  Accuracy: 25.0%
+  Signals: 8 (Bull: 5, Bear: 3)
+  Confidence When Correct: 70.0%
+  Confidence When Incorrect: 71.7%
+  Issues: Low accuracy: 25.0% (below 50%); Higher confidence when WRONG (71.7%) than when RIGHT (70.0%); Too few signals generated: 8
+
+MACD_Agent
+  Accuracy: 21.4%
+  Signals: 56 (Bull: 31, Bear: 25)
+  Confidence When Correct: 74.8%
+  Confidence When Incorrect: 63.8%
+  Issues: Low accuracy: 21.4% (below 50%)
+
+Momentum_Agent
+  Accuracy: 0.0%
+  Signals: 2 (Bull: 0, Bear: 2)
+  Confidence When Correct: 0.0%
+  Confidence When Incorrect: 46.4%
+  Issues: Low accuracy: 0.0% (below 50%); Higher confidence when WRONG (46.4%) than when RIGHT (0.0%); Too few signals generated: 2
+
+VWAP_Agent
+  Accuracy: 0.0%
+  Signals: 0 (Bull: 0, Bear: 0)
+  Confidence When Correct: 0.0%
+  Confidence When Incorrect: 0.0%
+  Issues: Low accuracy: 0.0% (below 50%); Too few signals generated: 0
+
+CONSENSUS ANALYSIS
+------------------
+Overall Accuracy: 34.2%
+Strong Consensus Accuracy: 0.0%
+Weak Consensus Accuracy: 0.0%
+Conflicting Signals: 112
+
+ROOT CAUSES
+-----------
+1. 8/12 agents have <50% accuracy
+2. Average accuracy 39.1% is below random (50%)
+3. 5 agents have inverted confidence
+4. Consensus amplifies errors instead of filtering them
+
+RECOMMENDED FIXES
+-----------------
+1. Disable agents with <40% accuracy
+2. Invert signals for agents with <30% accuracy
+3. Reduce to top 5-6 agents only
+4. Add market regime filter
+5. Tighten entry to 80%+ agreement
+6. Implement immediate breakeven stops

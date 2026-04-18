@@ -1,0 +1,143 @@
+{
+  "agents": [
+    {
+      "name": "TechnicalAnalyst",
+      "signals": 1005340,
+      "confidence": 0.22161237
+    },
+    {
+      "name": "OrderFlowAnalyst",
+      "signals": 1005335,
+      "confidence": 0.71265442
+    },
+    {
+      "name": "PatternMatcher",
+      "signals": 228259,
+      "confidence": 0.90508647
+    },
+    {
+      "name": "OnChainFlowAnalyst",
+      "signals": 51967,
+      "confidence": 0.60972023
+    },
+    {
+      "name": "VolumeProfileAnalyzer",
+      "signals": 51960,
+      "confidence": 0.55990354
+    },
+    {
+      "name": "NewsSentinel",
+      "signals": 51894,
+      "confidence": 0.43166184
+    },
+    {
+      "name": "WhaleTracker",
+      "signals": 51888,
+      "confidence": 0.40053384
+    },
+    {
+      "name": "FundingRateAnalyst",
+      "signals": 51888,
+      "confidence": 0.0
+    },
+    {
+      "name": "OnChainAnalyst",
+      "signals": 51881,
+      "confidence": 0.64276704
+    },
+    {
+      "name": "LiquidationHeatmap",
+      "signals": 51876,
+      "confidence": 0.0
+    },
+    {
+      "name": "SentimentAnalyst",
+      "signals": 51848,
+      "confidence": 0.83905262
+    },
+    {
+      "name": "MacroAnalyst",
+      "signals": 51434,
+      "confidence": 0.36561034
+    },
+    {
+      "name": "WhaleAlertAgent",
+      "signals": 13011,
+      "confidence": 0.29895138
+    },
+    {
+      "name": "ForexCorrelationAgent",
+      "signals": 13007,
+      "confidence": 0.5
+    }
+  ],
+  "wallet": {
+    "balance": 9797.85,
+    "equity": 9797.85,
+    "pnl": 0.0,
+    "trades": 191,
+    "win_rate": 0.0
+  },
+  "positions": [
+    {
+      "id": 630009,
+      "symbol": "BTCUSDT",
+      "side": "long",
+      "entry": 92000.0,
+      "pnl": 0.0,
+      "status": "open"
+    }
+  ],
+  "patterns": [
+    {
+      "name": "Bullish Engulfing",
+      "trades": 8663,
+      "win_rate": 56.99999999999999
+    },
+    {
+      "name": "Bearish Engulfing",
+      "trades": 8540,
+      "win_rate": 56.99999999999999
+    },
+    {
+      "name": "Hammer",
+      "trades": 3576,
+      "win_rate": 55.00000000000001
+    },
+    {
+      "name": "Shooting Star",
+      "trades": 2587,
+      "win_rate": 55.00000000000001
+    },
+    {
+      "name": "Bullish Engulfing",
+      "trades": 197,
+      "win_rate": 57.9
+    },
+    {
+      "name": "Bearish Engulfing",
+      "trades": 183,
+      "win_rate": 57.4
+    },
+    {
+      "name": "Bullish Engulfing",
+      "trades": 39,
+      "win_rate": 79.5
+    },
+    {
+      "name": "Double Top",
+      "trades": 30,
+      "win_rate": 66.7
+    },
+    {
+      "name": "Double Bottom",
+      "trades": 30,
+      "win_rate": 90.0
+    },
+    {
+      "name": "Bearish Engulfing",
+      "trades": 25,
+      "win_rate": 60.0
+    }
+  ]
+}

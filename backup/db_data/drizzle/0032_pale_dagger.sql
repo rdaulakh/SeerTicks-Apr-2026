@@ -1,0 +1,1 @@
+ALTER TABLE `tradingModeConfig` ADD `portfolioFunds` decimal(18,2) DEFAULT '10000.00' NOT NULL;

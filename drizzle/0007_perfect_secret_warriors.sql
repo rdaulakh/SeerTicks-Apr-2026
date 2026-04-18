@@ -1,0 +1,1 @@
+ALTER TABLE `paperPositions` ADD `exitPrice` varchar(50);

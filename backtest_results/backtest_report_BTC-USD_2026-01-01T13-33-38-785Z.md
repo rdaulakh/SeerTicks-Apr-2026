@@ -1,0 +1,190 @@
+# SEER Trading Platform - 1-Year Backtest Report
+
+**Generated:** 2026-01-01T13:33:38.815Z  
+**Symbol:** BTC-USD  
+**Period:** 2025-01-01 to 2025-12-31  
+**Initial Capital:** $10,000
+
+---
+
+## Executive Summary
+
+| Metric | Value |
+|--------|-------|
+| **Status** | STOPPED_DRAWDOWN |
+| **Verdict** | FAILED |
+| **Total Trades** | 1040 |
+| **Win Rate** | 11.6% |
+| **Total P&L** | $-2521.28 (-25.21%) |
+| **Max Drawdown** | 25.02% |
+| **Sharpe Ratio** | -5.04 |
+| **Profit Factor** | 0.09 |
+
+**Verdict Reason:** Low win rate (11.6%); Negative profit factor (0.09); Negative Sharpe (-5.04); High drawdown (25.0% max DD); Negative returns (-25.2%)
+
+---
+
+## Performance Metrics
+
+### Trade Statistics
+
+| Metric | Value |
+|--------|-------|
+| Total Trades | 1040 |
+| Winning Trades | 121 |
+| Losing Trades | 919 |
+| Win Rate | 11.6% |
+| Avg Win | $1.99 (1.32%) |
+| Avg Loss | $3.00 (0.55%) |
+| Largest Win | $11.03 |
+| Largest Loss | $-34.49 |
+| Avg Holding Period | 8.5 hours |
+| Trades Per Month | 103.9 |
+
+### Risk Metrics
+
+| Metric | Value |
+|--------|-------|
+| Max Drawdown | 25.02% |
+| Sharpe Ratio | -5.04 |
+| Sortino Ratio | -4.79 |
+| Calmar Ratio | -1.01 |
+| Profit Factor | 0.09 |
+
+---
+
+## Position Tier Breakdown
+
+| Tier | Trades | Win Rate | Total P&L | Avg P&L |
+|------|--------|----------|-----------|---------|
+| SCOUT | 447 | 9.8% | $-654.04 | $-1.46 |
+| MODERATE | 290 | 15.9% | $-585.92 | $-2.02 |
+| STANDARD | 204 | 13.2% | $-676.32 | $-3.32 |
+| STRONG | 86 | 4.7% | $-459.71 | $-5.35 |
+| HIGH | 13 | 0.0% | $-145.28 | $-11.18 |
+
+---
+
+## Regime Breakdown
+
+| Regime | Trades | Win Rate | Total P&L |
+|--------|--------|----------|-----------|
+| trending_up | 560 | 15.0% | $-1213.30 |
+| trending_down | 430 | 7.7% | $-1192.85 |
+| ranging | 50 | 8.0% | $-115.13 |
+
+---
+
+## Monthly P&L
+
+| Month | P&L |
+|-------|-----|
+| 2025-01 | 🔴 $-324.81 |
+| 2025-02 | 🔴 $-260.15 |
+| 2025-03 | 🔴 $-360.31 |
+| 2025-04 | 🔴 $-384.38 |
+| 2025-05 | 🔴 $-191.13 |
+| 2025-06 | 🔴 $-220.75 |
+| 2025-07 | 🔴 $-192.37 |
+| 2025-08 | 🔴 $-230.24 |
+| 2025-09 | 🔴 $-137.40 |
+| 2025-10 | 🔴 $-219.74 |
+
+---
+
+## Agent Contribution Analysis
+
+| Agent | Mode | Signals | Acted On | Win Rate | Helped | Blocked | Neutral |
+|-------|------|---------|----------|----------|--------|---------|---------|
+| TechnicalAnalyst | ACTIVE | 15109 | 1041 | 11.6% | 1024 | 0 | 17 |
+| PatternMatcher | ACTIVE | 15109 | 1041 | 11.6% | 967 | 0 | 74 |
+| OrderFlowAnalyst | SHADOW | 15109 | 1041 | 11.6% | 328 | 0 | 713 |
+| WhaleTracker | SHADOW | 15109 | 1041 | 11.6% | 328 | 0 | 713 |
+| FundingRateAnalyst | SHADOW | 15109 | 1041 | 11.6% | 328 | 0 | 713 |
+| LiquidationHeatmap | SHADOW | 15109 | 1041 | 11.6% | 328 | 0 | 713 |
+| OnChainFlowAnalyst | SHADOW | 15109 | 1041 | 11.6% | 328 | 0 | 713 |
+| ForexCorrelationAgent | SHADOW | 15109 | 1041 | 11.6% | 328 | 0 | 713 |
+| NewsSentinel | SHADOW | 15109 | 1041 | 11.6% | 328 | 0 | 713 |
+| SentimentAnalyst | SHADOW | 15109 | 1041 | 11.6% | 328 | 0 | 713 |
+| MacroAnalyst | SHADOW | 15109 | 1041 | 11.6% | 328 | 0 | 713 |
+| VolumeProfileAnalyzer | ACTIVE | 15109 | 1041 | 11.6% | 121 | 28 | 892 |
+
+---
+
+## Backtest Validation
+
+This backtest was executed with the following characteristics:
+
+- **Data Source:** historicalOHLCV table (no external API calls)
+- **Timeframes Used:** 1m, 5m, 15m, 1h, 4h, 1d (all timeframes)
+- **Replay Method:** Candle-by-candle with no lookahead bias
+- **Agent Modes:**
+  - ACTIVE: TechnicalAnalyst, PatternMatcher, VolumeProfileAnalyzer
+  - SHADOW: OrderFlowAnalyst, WhaleTracker, FundingRateAnalyst, LiquidationHeatmap, OnChainFlowAnalyst, ForexCorrelationAgent, NewsSentinel, SentimentAnalyst, MacroAnalyst
+
+### Was this a real 1-year simulation?
+
+⚠️ **PARTIAL** - Simulation covered available data only.
+
+- Candles Processed: 7,216
+- Signals Generated: 86,604
+- Execution Time: 98.5 seconds
+
+### Trade Count Analysis
+
+
+✅ **Healthy trade count (1040)** - The system generated sufficient trades for statistical significance.
+
+
+### Drawdown Analysis
+
+
+⚠️ **Elevated drawdown** - Max drawdown of 25.02% may require parameter optimization.
+
+
+---
+
+## Configuration Used
+
+```json
+{
+  "symbol": "BTC-USD",
+  "startDate": "2025-01-01T00:00:00.000Z",
+  "endDate": "2025-12-31T23:59:59.000Z",
+  "initialCapital": 10000,
+  "commissionPercent": 0.001,
+  "slippagePercent": 0.0005,
+  "maxConcurrentPositions": 5,
+  "maxPositionSizePercent": 0.2,
+  "maxDrawdownPercent": 0.25,
+  "riskPerTradePercent": 0.02,
+  "consensusThreshold": 0.7,
+  "alphaThreshold": 0.75,
+  "minAgentsRequired": 4,
+  "breakevenActivationPercent": 0.5,
+  "partialProfitLevels": [
+    {
+      "pnlPercent": 1,
+      "exitPercent": 25
+    },
+    {
+      "pnlPercent": 1.5,
+      "exitPercent": 25
+    },
+    {
+      "pnlPercent": 2,
+      "exitPercent": 25
+    }
+  ],
+  "trailingActivationPercent": 1.5,
+  "trailingPercent": 0.5,
+  "maxHoldTimeHours": 24,
+  "primaryTimeframe": "1h",
+  "backtestMode": true,
+  "shadowAgentPenalty": 0.04
+}
+```
+
+---
+
+*Report generated by SEER Trading Platform Comprehensive Backtest Engine*

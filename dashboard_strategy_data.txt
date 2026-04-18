@@ -1,0 +1,63 @@
+Dashboard Strategy Tab Data (from StrategyOrchestratorViz component):
+=================================================================
+
+Weighted Consensus Breakdown:
+- Fast Agent Score: 49%
+- Slow Agent Bonus: +3%
+- Total Confidence: 53%
+- Threshold: 15%
+- Final Recommendation: BUY
+
+Fast Agents (100% Weight):
+- TechnicalAnalyst: bullish, Weight 35.0%, Confidence 95.0%
+- OrderFlowAnalyst: neutral, Weight 25.0%, Confidence 50.0%
+
+Slow Agents (20% Bonus Weight):
+- SentimentAnalyst: bullish, Weight 33.3%, Confidence 90.0%
+- NewsSentinel: bullish, Weight 33.3%, Confidence 52.3%
+- MacroAnalyst: neutral, Weight 33.3%, Confidence 50.0%
+- OnChainAnalyst: neutral, Weight 33.3%, Confidence 56.7%
+- WhaleTracker: neutral, Weight 33.3%, Confidence 40.0%
+
+Note: This data comes from trpc.seerMulti.getOrchestratorState() with no parameters
+
+
+Strategy Page Agent Breakdown Tab Data (from aggregatedOrchestratorData):
+=========================================================================
+
+Showing agent breakdown for: All Symbols
+
+Weighted Consensus:
+- Fast Agent Score: 0.0%
+- Slow Agent Bonus: +0.0%
+- Total Confidence: 0.0%
+- Threshold: 60%
+- Final Recommendation: HOLD
+
+Fast Agents (100% Weight):
+- Aggregate Bullish Signals: bullish, Weight 40.0%, Confidence 0.0%
+- Aggregate Bearish Signals: bearish, Weight 40.0%, Confidence 0.0%
+- Average Confidence: neutral, Weight 20.0%, Confidence 0.0%
+
+ROOT CAUSE ANALYSIS:
+====================
+The issue is clear now:
+
+1. Dashboard Strategy Tab (StrategyOrchestratorViz):
+   - Calls trpc.seerMulti.getOrchestratorState() with NO parameters
+   - Gets REAL agent data from the first orchestrator (TechnicalAnalyst, OrderFlowAnalyst, etc.)
+   - Shows: 49% Fast Score, 53% Total Confidence, 15% Threshold
+
+2. Strategy Page Agent Breakdown Tab:
+   - When "All Symbols" is selected, it uses aggregatedOrchestratorData
+   - This creates FAKE aggregated agents (Aggregate Bullish Signals, Aggregate Bearish Signals, Average Confidence)
+   - These are calculated from symbolStates.lastRecommendation, NOT from real agent signals
+   - Shows: 0% Fast Score, 0% Total Confidence, 60% Threshold
+
+The problem: When "All Symbols" is selected on Strategy page, it doesn't use the real orchestrator data.
+Instead, it creates synthetic aggregated data from symbol recommendations.
+
+FIX NEEDED:
+- When "All Symbols" is selected, Strategy page should call getOrchestratorState() without parameters
+  (same as Dashboard does) to get the real first orchestrator's agent data
+- OR aggregate the actual agent signals from all orchestrators

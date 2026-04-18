@@ -1,0 +1,1 @@
+ALTER TABLE `agentSignals` ADD `executionScore` int;

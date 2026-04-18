@@ -1,0 +1,130 @@
+{
+  "config": {
+    "startDate": "2025-12-20T05:02:05.280Z",
+    "endDate": "2025-12-27T05:02:05.280Z",
+    "symbols": [
+      "BTC-USD",
+      "ETH-USD"
+    ],
+    "initialCapital": 50000,
+    "maxRiskPerTrade": 0.02,
+    "maxDrawdown": 0.15,
+    "maxPositions": 10,
+    "slippagePercent": 0.1,
+    "feePercent": 0.25
+  },
+  "metrics": {
+    "totalTrades": 41,
+    "winningTrades": 13,
+    "losingTrades": 28,
+    "winRate": 31.70731707317073,
+    "totalPnL": -993.0304264329886,
+    "totalPnLPercent": -1.9860608528659773,
+    "maxDrawdown": 0,
+    "maxDrawdownPercent": 0,
+    "sharpeRatio": -11.950983033207256,
+    "sortinoRatio": -8.355656218663382,
+    "profitFactor": 0.22749988813415487,
+    "avgWin": 22.495820583782447,
+    "avgLoss": 45.909860500791446,
+    "avgHoldTime": 4.888211382113822,
+    "capitalUtilization": 39.29792149939612,
+    "tradeFrequency": 5.857142857142857,
+    "largestWin": 38.516121881933294,
+    "largestLoss": -98.03272630904428,
+    "consecutiveWins": 2,
+    "consecutiveLosses": 6
+  },
+  "validation": {
+    "isValid": true,
+    "errors": [],
+    "warnings": [],
+    "strategiesValidated": 61,
+    "agentsValidated": 12,
+    "duplicatesDetected": 0,
+    "budgetViolations": 0,
+    "riskViolations": 0
+  },
+  "strategyPerformance": [
+    {
+      "strategyName": "volume_expansion_breakout",
+      "trades": 4,
+      "winRate": 75,
+      "pnl": 38.48269152086074,
+      "sharpe": 0.3194877939031322
+    },
+    {
+      "strategyName": "rsi_trend_continuation",
+      "trades": 2,
+      "winRate": 50,
+      "pnl": -9.789803492147676,
+      "sharpe": -0.3164895273157397
+    },
+    {
+      "strategyName": "ema_crossover",
+      "trades": 5,
+      "winRate": 40,
+      "pnl": -42.20999898136867,
+      "sharpe": -0.5367948411025937
+    },
+    {
+      "strategyName": "adx_trend_strength",
+      "trades": 8,
+      "winRate": 50,
+      "pnl": -59.54537719255441,
+      "sharpe": -0.3990292857388348
+    },
+    {
+      "strategyName": "support_resistance_bounce",
+      "trades": 1,
+      "winRate": 0,
+      "pnl": -68.05772069349607,
+      "sharpe": 0
+    },
+    {
+      "strategyName": "macd_trend_ride",
+      "trades": 3,
+      "winRate": 33.33333333333333,
+      "pnl": -77.48842473213436,
+      "sharpe": -0.6870880721326261
+    },
+    {
+      "strategyName": "vwap_reversion",
+      "trades": 2,
+      "winRate": 0,
+      "pnl": -114.10073561538724,
+      "sharpe": -35.88603892291407
+    },
+    {
+      "strategyName": "false_breakout_trap",
+      "trades": 3,
+      "winRate": 0,
+      "pnl": -148.47908976797882,
+      "sharpe": -20.86212990348997
+    },
+    {
+      "strategyName": "bull_bear_flag",
+      "trades": 4,
+      "winRate": 25,
+      "pnl": -164.37237695734905,
+      "sharpe": -1.008560356898614
+    },
+    {
+      "strategyName": "intraday_mean_reversion",
+      "trades": 3,
+      "winRate": 0,
+      "pnl": -171.56275789781904,
+      "sharpe": -16.81860008316121
+    },
+    {
+      "strategyName": "vwap_trend_following",
+      "trades": 6,
+      "winRate": 16.666666666666664,
+      "pnl": -175.90683262361406,
+      "sharpe": -1.59235953129091
+    }
+  ],
+  "verdict": "NEEDS_IMPROVEMENT",
+  "verdictReason": "Win rate 31.71% below 50%; Sharpe ratio -11.95 below 1.0",
+  "tradeCount": 41
+}

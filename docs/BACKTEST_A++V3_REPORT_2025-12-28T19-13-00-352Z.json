@@ -1,0 +1,925 @@
+{
+  "timestamp": "2025-12-28T19:13:00.352Z",
+  "btcResult": {
+    "symbol": "BTC-USD",
+    "initialCapital": 50000,
+    "finalCapital": 78863.04851012825,
+    "totalPnl": -69.03691375743979,
+    "totalPnlPercent": -0.13807382751487957,
+    "totalTrades": 6,
+    "winningTrades": 1,
+    "losingTrades": 5,
+    "winRate": 0.16666666666666666,
+    "avgWin": 43.41877743909676,
+    "avgLoss": 22.49113823930731,
+    "profitFactor": 1.9304837744145216,
+    "maxDrawdown": 0.2247162443011168,
+    "sharpeRatio": -0.19238784980726467,
+    "strategyStats": {
+      "scalping": {
+        "trades": 6,
+        "winRate": 0.16666666666666666,
+        "pnl": -69.03691375743979
+      }
+    },
+    "regimeStats": {
+      "ranging": {
+        "trades": 6,
+        "winRate": 0.16666666666666666,
+        "pnl": -69.03691375743979
+      }
+    },
+    "trades": [
+      {
+        "id": "trade_1766949180255_r0rugszhd",
+        "symbol": "BTC-USD",
+        "direction": "short",
+        "strategy": "scalping",
+        "entryPrice": 89507.32,
+        "entryTime": 1766419200000,
+        "quantity": 0.034913345634748086,
+        "positionValue": 3125,
+        "consensus": 0.625,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bearish",
+            "confidence": 0.1,
+            "reasoning": "RSI: 67.3, MACD: 0.00, BB%: 63.7%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bullish",
+            "confidence": 0.3,
+            "reasoning": "Near range"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bearish",
+            "confidence": 0.4,
+            "reasoning": "Volume: 2.08x avg, Momentum: 0.42%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Price change: -0.21% vs avg 0.22%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: 0.43%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 1.9, Trend: up"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": true,
+        "partialExits": [
+          {
+            "price": 87996.17,
+            "quantity": 0.008728336408687021,
+            "pnlPercent": 1.6882976721903957,
+            "reason": "partial_1%"
+          },
+          {
+            "price": 88294.02,
+            "quantity": 0.008728336408687021,
+            "pnlPercent": 1.3555315922764786,
+            "reason": "partial_1%"
+          }
+        ],
+        "highestPrice": 89543.92,
+        "lowestPrice": 87853.86,
+        "exitPrice": 88294.02,
+        "exitTime": 1766433600000,
+        "pnl": 43.41877743909676,
+        "pnlPercent": 1.3894008780510962,
+        "exitReason": "time_exit_profitable_1.36%",
+        "holdTimeMs": 14400000
+      },
+      {
+        "id": "trade_1766949180260_c9z4zytz8",
+        "symbol": "BTC-USD",
+        "direction": "short",
+        "strategy": "scalping",
+        "entryPrice": 88220.24,
+        "entryTime": 1766437200000,
+        "quantity": 0.046355797941567106,
+        "positionValue": 4089.519619796556,
+        "consensus": 0.7692307692307692,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bullish",
+            "confidence": 0.30000000000000004,
+            "reasoning": "RSI: 38.9, MACD: 0.00, BB%: 11.8%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bearish",
+            "confidence": 0.7,
+            "reasoning": "Near support breakdown"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bearish",
+            "confidence": 0.3,
+            "reasoning": "Volume: 0.93x avg, Momentum: -2.17%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Price change: -0.08% vs avg 0.29%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: -0.90%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 5.4, Trend: down"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": false,
+        "partialExits": [],
+        "highestPrice": 88896.63,
+        "lowestPrice": 88058.88,
+        "exitPrice": 88149.99,
+        "exitTime": 1766455200000,
+        "pnl": -0.8297683195960719,
+        "pnlPercent": -0.02029011709784512,
+        "exitReason": "time_exit_profitable_0.08%",
+        "holdTimeMs": 18000000
+      },
+      {
+        "id": "trade_1766949180270_g65d4fjkn",
+        "symbol": "BTC-USD",
+        "direction": "short",
+        "strategy": "scalping",
+        "entryPrice": 86814.02,
+        "entryTime": 1766498400000,
+        "quantity": 0.0502428001632191,
+        "positionValue": 4361.779458225707,
+        "consensus": 0.7619047619047619,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bullish",
+            "confidence": 0.5,
+            "reasoning": "RSI: 18.5, MACD: -53.88, BB%: -5.9%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bearish",
+            "confidence": 0.7,
+            "reasoning": "Near support breakdown"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bearish",
+            "confidence": 0.4,
+            "reasoning": "Volume: 2.02x avg, Momentum: -1.01%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "bearish",
+            "confidence": 0.5,
+            "reasoning": "Price change: -0.86% vs avg 0.29%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: -1.97%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 6.1, Trend: down"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": false,
+        "partialExits": [],
+        "highestPrice": 88321.65,
+        "lowestPrice": 86645.99,
+        "exitPrice": 87613.32,
+        "exitTime": 1766520000000,
+        "pnl": -44.56100869885734,
+        "pnlPercent": -1.0216245256238599,
+        "exitReason": "time_exit_extended_-0.92%",
+        "holdTimeMs": 21600000
+      },
+      {
+        "id": "trade_1766949180272_skwuz6q8n",
+        "symbol": "BTC-USD",
+        "direction": "long",
+        "strategy": "scalping",
+        "entryPrice": 87613.32,
+        "entryTime": 1766520000000,
+        "quantity": 0.04215880329106192,
+        "positionValue": 3693.6727235568615,
+        "consensus": 0.6,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bullish",
+            "confidence": 0.3,
+            "reasoning": "RSI: 52.9, MACD: +61.77, BB%: 46.8%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bullish",
+            "confidence": 0.3,
+            "reasoning": "Near range"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bearish",
+            "confidence": 0.4,
+            "reasoning": "Volume: 1.51x avg, Momentum: -0.22%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Price change: -0.09% vs avg 0.35%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: -0.93%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 0.3, Trend: down"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": false,
+        "partialExits": [],
+        "highestPrice": 87799.99,
+        "lowestPrice": 86867.3,
+        "exitPrice": 87068.89,
+        "exitTime": 1766541600000,
+        "pnl": -26.623237482034266,
+        "pnlPercent": -0.7207795458498861,
+        "exitReason": "time_exit_extended_-0.62%",
+        "holdTimeMs": 21600000
+      },
+      {
+        "id": "trade_1766949180287_thci2zlnl",
+        "symbol": "BTC-USD",
+        "direction": "long",
+        "strategy": "scalping",
+        "entryPrice": 89107.99,
+        "entryTime": 1766714400000,
+        "quantity": 0.07319721595407133,
+        "positionValue": 6522.45678726323,
+        "consensus": 1,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bullish",
+            "confidence": 0.5,
+            "reasoning": "RSI: 68.1, MACD: +27.82, BB%: 125.1%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bullish",
+            "confidence": 0.7,
+            "reasoning": "Near resistance breakout"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bullish",
+            "confidence": 0.4,
+            "reasoning": "Volume: 4.86x avg, Momentum: 1.18%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "bullish",
+            "confidence": 0.5,
+            "reasoning": "Price change: 1.99% vs avg 0.28%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: 1.84%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 9.2, Trend: up"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": false,
+        "partialExits": [],
+        "highestPrice": 89496.07,
+        "lowestPrice": 88271.48,
+        "exitPrice": 88664.93,
+        "exitTime": 1766736000000,
+        "pnl": -38.92078452937436,
+        "pnlPercent": -0.5967196993221507,
+        "exitReason": "time_exit_extended_-0.50%",
+        "holdTimeMs": 21600000
+      },
+      {
+        "id": "trade_1766949180290_ni5nst7y2",
+        "symbol": "BTC-USD",
+        "direction": "short",
+        "strategy": "scalping",
+        "entryPrice": 87307.98,
+        "entryTime": 1766757600000,
+        "quantity": 0.08212488871988437,
+        "positionValue": 7170.15814185789,
+        "consensus": 1,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bearish",
+            "confidence": 0.3,
+            "reasoning": "RSI: 51.9, MACD: -82.68, BB%: 13.4%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bearish",
+            "confidence": 0.7,
+            "reasoning": "Near support breakdown"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bearish",
+            "confidence": 0.4,
+            "reasoning": "Volume: 2.75x avg, Momentum: -1.81%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "bearish",
+            "confidence": 0.5,
+            "reasoning": "Price change: -1.83% vs avg 0.41%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: -0.64%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 3.2, Trend: down"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": true,
+        "partialExits": [],
+        "highestPrice": 87375.72,
+        "lowestPrice": 86569.53,
+        "exitPrice": 87239.26,
+        "exitTime": 1766768400000,
+        "pnl": -1.5208921666745097,
+        "pnlPercent": -0.02121141732977768,
+        "exitReason": "breakeven_exit",
+        "holdTimeMs": 10800000
+      }
+    ]
+  },
+  "ethResult": {
+    "symbol": "ETH-USD",
+    "initialCapital": 50000,
+    "finalCapital": 107932.59962130658,
+    "totalPnl": -120.83691600279766,
+    "totalPnlPercent": -0.24167383200559533,
+    "totalTrades": 8,
+    "winningTrades": 4,
+    "losingTrades": 4,
+    "winRate": 0.5,
+    "avgWin": 13.845043891315091,
+    "avgLoss": 44.05427289201451,
+    "profitFactor": 0.31427244129648796,
+    "maxDrawdown": 0.2647731803378287,
+    "sharpeRatio": -0.3645169188227329,
+    "strategyStats": {
+      "scalping": {
+        "trades": 8,
+        "winRate": 0.5,
+        "pnl": -120.83691600279766
+      }
+    },
+    "regimeStats": {
+      "ranging": {
+        "trades": 8,
+        "winRate": 0.5,
+        "pnl": -120.83691600279766
+      }
+    },
+    "trades": [
+      {
+        "id": "trade_1766949180313_1szaleivt",
+        "symbol": "ETH-USD",
+        "direction": "short",
+        "strategy": "scalping",
+        "entryPrice": 2974.99,
+        "entryTime": 1766433600000,
+        "quantity": 1.4722744758451294,
+        "positionValue": 4380.001842894501,
+        "consensus": 0.8235294117647058,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bullish",
+            "confidence": 0.30000000000000004,
+            "reasoning": "RSI: 31.8, MACD: 0.00, BB%: -9.8%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bearish",
+            "confidence": 0.7,
+            "reasoning": "Near support breakdown"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bearish",
+            "confidence": 0.7,
+            "reasoning": "Volume: 1.60x avg, Momentum: -2.40%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Price change: -0.12% vs avg 0.32%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: -1.58%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 9.0, Trend: down"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": false,
+        "partialExits": [],
+        "highestPrice": 3033.98,
+        "lowestPrice": 2974.18,
+        "exitPrice": 2989.4,
+        "exitTime": 1766455200000,
+        "pnl": -25.616692515020198,
+        "pnlPercent": -0.5848557474142874,
+        "exitReason": "time_exit_extended_-0.48%",
+        "holdTimeMs": 21600000
+      },
+      {
+        "id": "trade_1766949180314_rzk0nq52a",
+        "symbol": "ETH-USD",
+        "direction": "short",
+        "strategy": "scalping",
+        "entryPrice": 2962.09,
+        "entryTime": 1766480400000,
+        "quantity": 1.9424035668144968,
+        "positionValue": 5753.574181225553,
+        "consensus": 1,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bearish",
+            "confidence": 0.3,
+            "reasoning": "RSI: 44.1, MACD: -4.62, BB%: 20.4%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bearish",
+            "confidence": 0.7,
+            "reasoning": "Near support breakdown"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bearish",
+            "confidence": 0.3,
+            "reasoning": "Volume: 0.37x avg, Momentum: -2.13%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Price change: 0.07% vs avg 0.38%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: -1.60%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 6.1, Trend: down"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": true,
+        "partialExits": [],
+        "highestPrice": 2973.81,
+        "lowestPrice": 2929.53,
+        "exitPrice": 2940,
+        "exitTime": 1766494800000,
+        "pnl": 37.1970283044979,
+        "pnlPercent": 0.6465029759392911,
+        "exitReason": "time_exit_profitable_0.75%",
+        "holdTimeMs": 14400000
+      },
+      {
+        "id": "trade_1766949180315_n6a1z5lwn",
+        "symbol": "ETH-USD",
+        "direction": "short",
+        "strategy": "scalping",
+        "entryPrice": 2915.48,
+        "entryTime": 1766498400000,
+        "quantity": 1.6547665616144067,
+        "positionValue": 4824.438815055571,
+        "consensus": 0.7619047619047619,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bullish",
+            "confidence": 0.5,
+            "reasoning": "RSI: 12.0, MACD: -4.79, BB%: -8.7%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bearish",
+            "confidence": 0.7,
+            "reasoning": "Near support breakdown"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bearish",
+            "confidence": 0.4,
+            "reasoning": "Volume: 2.18x avg, Momentum: -1.93%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "bearish",
+            "confidence": 0.5,
+            "reasoning": "Price change: -0.83% vs avg 0.40%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: -2.92%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 10.2, Trend: down"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": false,
+        "partialExits": [],
+        "highestPrice": 2986.81,
+        "lowestPrice": 2904.38,
+        "exitPrice": 2968.17,
+        "exitTime": 1766520000000,
+        "pnl": -92.10127859665022,
+        "pnlPercent": -1.909056827692183,
+        "exitReason": "time_exit_extended_-1.81%",
+        "holdTimeMs": 21600000
+      },
+      {
+        "id": "trade_1766949180317_3ei9ywwsz",
+        "symbol": "ETH-USD",
+        "direction": "long",
+        "strategy": "scalping",
+        "entryPrice": 2968.17,
+        "entryTime": 1766520000000,
+        "quantity": 2.2926002400552603,
+        "positionValue": 6804.827254524822,
+        "consensus": 1,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bullish",
+            "confidence": 0.3,
+            "reasoning": "RSI: 52.3, MACD: +2.09, BB%: 58.8%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bullish",
+            "confidence": 0.3,
+            "reasoning": "Near range"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bullish",
+            "confidence": 0.4,
+            "reasoning": "Volume: 2.35x avg, Momentum: -0.13%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Price change: 0.89% vs avg 0.50%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: -0.92%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 1.5, Trend: up"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": false,
+        "partialExits": [],
+        "highestPrice": 2978.42,
+        "lowestPrice": 2948.92,
+        "exitPrice": 2971.18,
+        "exitTime": 1766534400000,
+        "pnl": 0.08899874131840324,
+        "pnlPercent": 0.0013078765704041078,
+        "exitReason": "time_exit_profitable_0.10%",
+        "holdTimeMs": 14400000
+      },
+      {
+        "id": "trade_1766949180323_saajcxuxg",
+        "symbol": "ETH-USD",
+        "direction": "long",
+        "strategy": "scalping",
+        "entryPrice": 2938.9,
+        "entryTime": 1766592000000,
+        "quantity": 2.5467482381591693,
+        "positionValue": 7484.638397125983,
+        "consensus": 1,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bullish",
+            "confidence": 0.3,
+            "reasoning": "RSI: 52.4, MACD: +1.70, BB%: 51.7%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bullish",
+            "confidence": 0.3,
+            "reasoning": "Near range"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bullish",
+            "confidence": 0.4,
+            "reasoning": "Volume: 2.90x avg, Momentum: 0.29%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Price change: 0.53% vs avg 0.31%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: -0.76%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 3.8, Trend: up"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": false,
+        "partialExits": [],
+        "highestPrice": 2952.59,
+        "lowestPrice": 2927.48,
+        "exitPrice": 2940.89,
+        "exitTime": 1766606400000,
+        "pnl": -2.4216774321837287,
+        "pnlPercent": -0.03235530300453293,
+        "exitReason": "time_exit_profitable_0.07%",
+        "holdTimeMs": 14400000
+      },
+      {
+        "id": "trade_1766949180334_5s6npbx0w",
+        "symbol": "ETH-USD",
+        "direction": "long",
+        "strategy": "scalping",
+        "entryPrice": 2970.77,
+        "entryTime": 1766714400000,
+        "quantity": 2.3335042799304455,
+        "positionValue": 6932.304509688969,
+        "consensus": 0.8421052631578948,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bearish",
+            "confidence": 0.30000000000000004,
+            "reasoning": "RSI: 62.4, MACD: +0.05, BB%: 98.9%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bullish",
+            "confidence": 0.7,
+            "reasoning": "Near resistance breakout"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bullish",
+            "confidence": 0.4,
+            "reasoning": "Volume: 3.99x avg, Momentum: 0.68%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "bullish",
+            "confidence": 0.5,
+            "reasoning": "Price change: 1.86% vs avg 0.36%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: 1.18%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 5.9, Trend: up"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": false,
+        "partialExits": [],
+        "highestPrice": 2980,
+        "lowestPrice": 2950,
+        "exitPrice": 2974.36,
+        "exitTime": 1766728800000,
+        "pnl": 1.4365985748967196,
+        "pnlPercent": 0.02072324683500055,
+        "exitReason": "time_exit_profitable_0.12%",
+        "holdTimeMs": 14400000
+      },
+      {
+        "id": "trade_1766949180335_jq88g2bkh",
+        "symbol": "ETH-USD",
+        "direction": "long",
+        "strategy": "scalping",
+        "entryPrice": 2962.39,
+        "entryTime": 1766736000000,
+        "quantity": 3.012700044771644,
+        "positionValue": 8924.79248563107,
+        "consensus": 1,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bullish",
+            "confidence": 0.5,
+            "reasoning": "RSI: 51.5, MACD: +3.24, BB%: 68.5%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bullish",
+            "confidence": 0.4,
+            "reasoning": "Near resistance breakout"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bullish",
+            "confidence": 0.3,
+            "reasoning": "Volume: 0.40x avg, Momentum: 2.07%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Price change: 0.27% vs avg 0.39%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: 0.79%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 3.9, Trend: up"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": false,
+        "partialExits": [],
+        "highestPrice": 2974.3,
+        "lowestPrice": 2961.01,
+        "exitPrice": 2970.89,
+        "exitTime": 1766750400000,
+        "pnl": 16.65754994454734,
+        "pnlPercent": 0.18664355469738958,
+        "exitReason": "time_exit_profitable_0.29%",
+        "holdTimeMs": 14400000
+      },
+      {
+        "id": "trade_1766949180339_h6qvm3t4d",
+        "symbol": "ETH-USD",
+        "direction": "short",
+        "strategy": "scalping",
+        "entryPrice": 2914.83,
+        "entryTime": 1766757600000,
+        "quantity": 3.3683079321744556,
+        "positionValue": 9818.045009940068,
+        "consensus": 1,
+        "agentSignals": [
+          {
+            "agentName": "TechnicalAnalyst",
+            "direction": "bearish",
+            "confidence": 0.3,
+            "reasoning": "RSI: 52.8, MACD: -1.64, BB%: 13.5%"
+          },
+          {
+            "agentName": "PatternMatcher",
+            "direction": "bearish",
+            "confidence": 0.7,
+            "reasoning": "Near support breakdown"
+          },
+          {
+            "agentName": "OrderFlowAnalyst",
+            "direction": "bearish",
+            "confidence": 0.4,
+            "reasoning": "Volume: 2.84x avg, Momentum: -1.88%"
+          },
+          {
+            "agentName": "WhaleTracker",
+            "direction": "bearish",
+            "confidence": 0.5,
+            "reasoning": "Price change: -2.28% vs avg 0.47%"
+          },
+          {
+            "agentName": "VolumeProfileAnalyzer",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "Distance from avg: -0.98%"
+          },
+          {
+            "agentName": "SentimentAnalyst",
+            "direction": "neutral",
+            "confidence": 0,
+            "reasoning": "ADX: 4.9, Trend: down"
+          }
+        ],
+        "regime": "ranging",
+        "breakevenActivated": false,
+        "partialExits": [],
+        "highestPrice": 2936.59,
+        "lowestPrice": 2892.56,
+        "exitPrice": 2928.55,
+        "exitTime": 1766779200000,
+        "pnl": -56.07744302420389,
+        "pnlPercent": -0.5711671006542492,
+        "exitReason": "time_exit_extended_-0.47%",
+        "holdTimeMs": 21600000
+      }
+    ]
+  },
+  "combined": {
+    "totalTrades": 14,
+    "winRate": 0.35714285714285715,
+    "totalPnl": -189.87382976023747
+  }
+}

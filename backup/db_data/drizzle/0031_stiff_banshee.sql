@@ -1,0 +1,1 @@
+ALTER TABLE `tradingModeConfig` ADD `autoTradeEnabled` boolean DEFAULT false NOT NULL;

@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-01-02T21:42:46.725Z",
+  "wallet": {
+    "balance": 9797.85,
+    "equity": 9797.85,
+    "unrealizedPnL": 0,
+    "realizedPnL": 0,
+    "totalPnL": 0,
+    "totalTrades": 191,
+    "winningTrades": 0,
+    "losingTrades": 0,
+    "winRate": 0,
+    "totalCommission": 181.92
+  },
+  "openPositions": [],
+  "engine": {
+    "isRunning": true,
+    "config": {
+      "totalCapital": 272657,
+      "tickInterval": 5000,
+      "enableAutoTrading": true,
+      "enableLearning": true
+    },
+    "startedAt": "2026-01-03T02:41:03.000Z"
+  },
+  "activeSymbols": [
+    "BTC-USD",
+    "ETH-USD"
+  ]
+}

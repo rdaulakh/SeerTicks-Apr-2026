@@ -1,0 +1,15 @@
+{
+  "summary": {
+    "totalTrades": 0,
+    "winningTrades": 0,
+    "losingTrades": 0,
+    "winRate": null,
+    "initialBalance": 50000,
+    "finalBalance": 50000,
+    "totalPnl": 0,
+    "totalPnlPercent": 0
+  },
+  "rootCauses": {},
+  "improvements": {},
+  "trades": []
+}

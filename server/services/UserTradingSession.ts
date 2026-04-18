@@ -1,0 +1,1137 @@
+/**
+ * Phase 14B: UserTradingSession — Per-User Trade Decision Session
+ *
+ * Lightweight session that subscribes to global signals from GlobalMarketEngine
+ * and makes user-specific trade decisions based on per-user settings.
+ *
+ * What's per-user (this session owns):
+ * - Agent weights (AgentWeightManager)
+ * - Consensus threshold, confidence settings
+ * - AutomatedSignalProcessor (applies user weights → trade/no-trade decision)
+ * - EnhancedTradeExecutor (executes trades with user's risk limits)
+ * - IntelligentExitManager (manages exits for user's positions)
+ * - PaperTradingEngine (user's wallet, positions, trade history)
+ * - PositionManager + RiskManager
+ *
+ * What's shared globally (this session subscribes to):
+ * - GlobalMarketEngine → GlobalSymbolAnalyzer → raw agent signals
+ * - CoinbasePublicWS → price ticks (via priceFeedService)
+ * - PriceFabric → multi-source price data
+ *
+ * Replaces the heavy per-user SEERMultiEngine with:
+ * - NO SymbolOrchestrator per user (global now)
+ * - NO AgentManager per user (global now)
+ * - NO WebSocket subscription per user (global now)
+ * - Just signal consumption + trade decisions + position management
+ */
+
+import { EventEmitter } from 'events';
+import { priceFeedService } from './priceFeedService';
+import { GlobalSignal } from './GlobalSymbolAnalyzer';
+import { getTradingConfig } from '../config/TradingConfig';
+import { getDecisionEvaluator } from './DecisionEvaluator';
+import { getAgentRetriggerService } from './AgentRetriggerService';
+import { getScenarioEngine } from './ScenarioEngine';
+import { getMonteCarloSimulator } from './MonteCarloSimulator';
+
+export interface UserTradingSessionConfig {
+  userId: number;
+  autoTradingEnabled: boolean;
+  tradingMode: 'paper' | 'real';
+  subscribedSymbols: string[];
+  consensusThreshold?: number;
+  minConfidence?: number;
+}
+
+export interface UserTradingSessionStatus {
+  userId: number;
+  isRunning: boolean;
+  autoTradingEnabled: boolean;
+  tradingMode: 'paper' | 'real';
+  subscribedSymbols: string[];
+  positionCount: number;
+  lastSignalProcessed: number;
+  lastTradeExecuted: number;
+  totalTradesExecuted: number;
+  totalTradesRejected: number;
+  walletBalance: number;
+  exitManagerActive: boolean;
+}
+
+export class UserTradingSession extends EventEmitter {
+  private userId: number;
+  private autoTradingEnabled: boolean = false;
+  private tradingMode: 'paper' | 'real' = 'paper';
+  private subscribedSymbols: Set<string> = new Set();
+  private isRunning: boolean = false;
+  private priceUpdateHandler: ((data: { symbol: string; price: number }) => void) | null = null;
+
+  // Per-user components (lazy-initialized)
+  private signalProcessor: any = null;       // AutomatedSignalProcessor
+  private tradeExecutor: any = null;         // EnhancedTradeExecutor
+  private exitManager: any = null;           // IntelligentExitManager
+  private tradingEngine: any = null;         // PaperTradingEngine
+  private weightManager: any = null;         // AgentWeightManager
+  private positionManager: any = null;       // PositionManager
+  private riskManager: any = null;           // RiskManager
+
+  // Stats
+  private lastSignalProcessedMs: number = 0;
+  private lastTradeExecutedMs: number = 0;
+  private totalTradesExecuted: number = 0;
+  private totalTradesRejected: number = 0;
+
+  // Settings sync interval
+  private settingsSyncInterval: NodeJS.Timeout | null = null;
+  private readonly SETTINGS_SYNC_INTERVAL_MS = 30_000; // 30 seconds
+
+  // Phase 40 FIX: Paper position price update interval
+  // Updates paper position prices in DB every 10 seconds so the UI shows current P&L
+  private paperPriceUpdateInterval: NodeJS.Timeout | null = null;
+  private readonly PAPER_PRICE_UPDATE_INTERVAL_MS = 10_000; // 10 seconds
+
+  constructor(config: UserTradingSessionConfig) {
+    super();
+    this.userId = config.userId;
+    this.autoTradingEnabled = config.autoTradingEnabled;
+    this.tradingMode = config.tradingMode;
+    this.subscribedSymbols = new Set(config.subscribedSymbols);
+  }
+
+  /**
+   * Initialize all per-user components.
+   * Called once when session is created.
+   */
+  async initialize(): Promise<void> {
+    if (this.isRunning) return;
+
+    console.log(`[UserTradingSession] Initializing session for user ${this.userId}...`);
+
+    try {
+      // 1. Initialize AgentWeightManager (loads per-user weights from DB)
+      const { getAgentWeightManager } = await import('./AgentWeightManager');
+      this.weightManager = getAgentWeightManager(this.userId);
+      await this.weightManager.loadFromDatabase();
+
+      // 2. Initialize PaperTradingEngine (user's wallet)
+      const { PaperTradingEngine } = await import('../execution/PaperTradingEngine');
+      this.tradingEngine = new PaperTradingEngine({
+        userId: this.userId,
+        initialBalance: 10000,
+        exchange: 'coinbase',
+        enableSlippage: true,
+        enableCommission: true,
+        enableMarketImpact: true,
+        enableLatency: true,
+      });
+
+      // 3. Initialize PositionManager
+      const { PositionManager } = await import('../PositionManager');
+      this.positionManager = new PositionManager();
+
+      // Forward position price updates
+      this.positionManager.on('position_prices', (priceUpdates: any) => {
+        this.emit('position_prices', priceUpdates);
+      });
+
+      // 4. Initialize RiskManager (with wallet balance)
+      const { RiskManager } = await import('../RiskManager');
+      const wallet = this.tradingEngine.getWallet();
+      this.riskManager = new RiskManager(wallet?.balance || 10000);
+
+      // 5. Initialize AutomatedSignalProcessor — Phase 18: thresholds from TradingConfig
+      const { AutomatedSignalProcessor } = await import('./AutomatedSignalProcessor');
+      const consensusCfg = getTradingConfig().consensus;
+      this.signalProcessor = new AutomatedSignalProcessor(this.userId, {
+        minConfidence: consensusCfg.minConfidence,
+        minExecutionScore: consensusCfg.minExecutionScore,
+        consensusThreshold: consensusCfg.minConsensusStrength,
+      });
+
+      // 6. Initialize EnhancedTradeExecutor — Phase 18: limits from TradingConfig
+      const { EnhancedTradeExecutor } = await import('./EnhancedTradeExecutor');
+      const sizingCfg = getTradingConfig().positionSizing;
+      this.tradeExecutor = new EnhancedTradeExecutor(this.userId, {
+        requireEntryValidation: true,
+        useIntegratedExitManager: true,
+        useWeek9RiskManager: true,
+        maxPositionSize: sizingCfg.maxPositionSizePercent,
+        defaultStopLoss: Math.abs(getTradingConfig().exits.hardStopLossPercent) / 100,
+        defaultTakeProfit: getTradingConfig().exits.profitTargets[2] / 100,
+        maxPositions: sizingCfg.maxConcurrentPositions,
+      });
+
+      // Wire dependencies
+      this.tradeExecutor.setDependencies(
+        this.tradingEngine,
+        this.positionManager
+      );
+
+      // Phase 20: Sync existing open positions into the risk manager.
+      // Without this, the PositionLimitTracker starts empty on every restart
+      // and allows duplicate positions in the same symbol.
+      // NOTE: We use paperPositions table (via direct DB query) because
+      // PositionManager.getOpenPositions() uses the `positions` table which
+      // is for real trading — paper positions are in `paperPositions`.
+      try {
+        const { getDb } = await import('../db');
+        const db = await getDb();
+        if (db) {
+          const { eq, and } = await import('drizzle-orm');
+          const { paperPositions } = await import('../../drizzle/schema');
+          const existingPositions = await db
+            .select()
+            .from(paperPositions)
+            .where(and(
+              eq(paperPositions.userId, this.userId),
+              eq(paperPositions.status, 'open')
+            ));
+          // Deduplicate by symbol — only register one position per symbol
+          const symbolsSeen = new Set<string>();
+          for (const pos of existingPositions) {
+            if (symbolsSeen.has(pos.symbol)) continue;
+            symbolsSeen.add(pos.symbol);
+            const direction: 'long' | 'short' = (pos.side === 'short') ? 'short' : 'long';
+            const size = Math.abs(parseFloat(pos.quantity || '0') * parseFloat(pos.entryPrice || '0'));
+            this.tradeExecutor.registerExistingPosition(pos.symbol, size, direction);
+          }
+          if (symbolsSeen.size > 0) {
+            console.log(`[UserTradingSession] Synced ${symbolsSeen.size} existing positions into risk manager for user ${this.userId}: ${Array.from(symbolsSeen).join(', ')}`);
+          }
+        }
+      } catch (err) {
+        console.warn(`[UserTradingSession] Failed to sync existing positions:`, (err as Error)?.message);
+      }
+
+      // 7. Initialize IntelligentExitManager
+      const { IntelligentExitManager } = await import('./IntelligentExitManager');
+      this.exitManager = new IntelligentExitManager({
+        breakevenActivationPercent: 0.5,
+        breakevenBuffer: 0.1,
+        partialProfitLevels: [
+          { pnlPercent: 1.0, exitPercent: 25 },
+          { pnlPercent: 1.5, exitPercent: 25 },
+          { pnlPercent: 2.0, exitPercent: 50 },
+        ],
+        trailingActivationPercent: 1.5,
+        trailingPercent: 0.5,
+        useATRTrailing: true,
+        atrTrailingMultiplier: 2.0,
+        exitConsensusThreshold: 0.6,
+        maxHoldTimeHours: 4,
+        minProfitForTimeExit: 0,
+        agentCheckIntervalMs: 5000,
+        priceCheckIntervalMs: 100,
+        useHardExitRules: true,
+      });
+
+      // Set exit manager callbacks
+      this.exitManager.setCallbacks({
+        getAgentSignals: async (symbol: string, _position: any) => {
+          // Get agent signals from GlobalMarketEngine
+          try {
+            const { getGlobalMarketEngine } = await import('./GlobalMarketEngine');
+            const globalEngine = getGlobalMarketEngine();
+            const analyzer = globalEngine.getAnalyzer(symbol);
+            if (!analyzer) return [];
+
+            const agentManager = analyzer.getAgentManager();
+            const agents = agentManager.getAllAgentsWithSignals();
+
+            return agents
+              .filter((a: any) => a.latestSignal)
+              .map((a: any) => ({
+                agentName: a.agentName,
+                signal: a.latestSignal?.signal || 'neutral',
+                confidence: a.latestSignal?.confidence || 0,
+                exitRecommendation: a.latestSignal?.exitRecommendation,
+                evidence: a.latestSignal?.evidence,
+              }));
+          } catch {
+            return [];
+          }
+        },
+        getCurrentPrice: async (symbol: string) => {
+          const priceData = priceFeedService.getLatestPrice(symbol);
+          return priceData?.price || 0;
+        },
+        executeExit: async (positionId: string, quantity: number, reason: string) => {
+          if (!this.tradingEngine) return;
+          try {
+            // Phase 19: Look up position to get its actual symbol (was hardcoded 'BTC-USD')
+            const positions = this.tradingEngine.getPositions();
+            const position = positions.find((p: any) => p.id === positionId);
+            const symbol = position?.symbol || 'BTC-USD';
+            const priceData = priceFeedService.getLatestPrice(symbol);
+            const price = priceData?.price || 0;
+            if (price > 0) {
+              let closedViaEngine = false;
+              try {
+                await this.tradingEngine.closePositionById(positionId, price, `exit:${reason}`);
+                closedViaEngine = true;
+              } catch (engineErr) {
+                console.warn(`[UserTradingSession] PaperTradingEngine close failed for ${positionId}, falling back to DB close:`, (engineErr as Error)?.message);
+              }
+
+              // Phase 40 FIX: If engine close failed (ID mismatch), close directly in DB
+              if (!closedViaEngine) {
+                try {
+                  const { getDb } = await import('../db');
+                  const { paperPositions } = await import('../../drizzle/schema');
+                  const { eq, and } = await import('drizzle-orm');
+                  const db = await getDb();
+                  if (db) {
+                    // Try parsing positionId as numeric DB ID first
+                    let dbId = parseInt(positionId, 10);
+                    if (isNaN(dbId)) {
+                      // Look up by matching open positions for this user/symbol
+                      const openPos = await db.select().from(paperPositions).where(
+                        and(
+                          eq(paperPositions.userId, this.userId),
+                          eq(paperPositions.symbol, symbol),
+                          eq(paperPositions.status, 'open')
+                        )
+                      );
+                      if (openPos.length > 0) dbId = openPos[0].id;
+                    }
+                    if (dbId > 0) {
+                      const pnl = position ? 
+                        (position.side === 'short' ? 
+                          (parseFloat(position.entryPrice) - price) * parseFloat(position.quantity || '0') :
+                          (price - parseFloat(position.entryPrice)) * parseFloat(position.quantity || '0')
+                        ) : 0;
+                      await db.update(paperPositions).set({
+                        status: 'closed',
+                        exitPrice: price.toString(),
+                        exitTime: new Date(),
+                        realizedPnl: pnl.toString(),
+                        exitReason: `exit:${reason}`,
+                        currentPrice: price.toString(),
+                        updatedAt: new Date(),
+                      }).where(eq(paperPositions.id, dbId));
+                      console.log(`[UserTradingSession] ✅ DB fallback close for position ${dbId}: ${reason}, PnL: $${pnl.toFixed(4)}`);
+                    }
+                  }
+                } catch (dbErr) {
+                  console.error(`[UserTradingSession] DB fallback close also failed:`, (dbErr as Error)?.message);
+                }
+              }
+
+              this.emit('exit_executed', { positionId, reason, price, symbol });
+            }
+          } catch (err) {
+            console.error(`[UserTradingSession] Exit execution failed for user ${this.userId}:`, (err as Error)?.message);
+          }
+        },
+        getMarketRegime: async (symbol: string) => {
+          // Phase 37 FIX: Wire to actual MarketRegimeAI instead of hardcoded 'normal'
+          // Phase 41 FIX: Use getMarketContext (cached) instead of non-existent getLatestRegime
+          try {
+            const { getMarketRegimeAI } = await import('./MarketRegimeAI');
+            const regimeAI = getMarketRegimeAI();
+            const context = await regimeAI.getMarketContext(symbol);
+            if (context?.regime) {
+              return context.regime;
+            }
+          } catch { /* fallback to default */ }
+          return 'range_bound'; // Safer default than 'normal' — conservative exits
+        },
+      });
+
+      // Wire signal processor -> trade executor + forward events to EngineAdapter
+      // Phase 19: Wrap async handler in try/catch to prevent unhandled rejections
+      this.signalProcessor.on('signal_approved', async (signal: any) => {
+        // Forward to EngineAdapter listeners (PriceFeedService -> Socket.IO -> frontend)
+        this.emit('signal_approved', signal);
+        try {
+          if (!this.autoTradingEnabled) return;
+          if (this.tradeExecutor) {
+            // Phase 30: DecisionEvaluator pre-execution quality gate
+            const evaluator = getDecisionEvaluator(this.userId);
+            const evaluation = evaluator.evaluate(
+              signal.consensus,
+              signal.signals || [],
+              signal.symbol,
+              signal.marketContext
+            );
+
+            if (!evaluation.approved) {
+              console.log(`[UserTradingSession] DecisionEvaluator REJECTED ${signal.symbol}: ${evaluation.reasons.join('; ')}`);
+
+              // Phase 35: Agent re-trigger on rejection
+              // Instead of just logging and returning, attempt to re-run relevant agents
+              // with refined questions targeting the weak evaluation factor
+              try {
+                const retriggerService = getAgentRetriggerService();
+                const retriggerResult = await retriggerService.attemptRetrigger(
+                  signal.symbol,
+                  signal.signals || [],
+                  signal.consensus,
+                  evaluation,
+                  signal.marketContext || undefined,
+                  this.userId
+                );
+
+                if (retriggerResult.retriggered && retriggerResult.reEvaluation?.approved) {
+                  // Re-trigger succeeded — use the updated signals and evaluation
+                  console.log(`[UserTradingSession] ✅ Re-trigger RECOVERED ${signal.symbol} | Agents: ${retriggerResult.agentsRerun.join(', ')} | New score: ${(retriggerResult.reEvaluation.score * 100).toFixed(1)}%`);
+                  // Update signal with re-triggered data
+                  signal.signals = retriggerResult.updatedSignals;
+                  signal.evaluationScore = retriggerResult.reEvaluation.score;
+                  signal.evaluationWarnings = retriggerResult.reEvaluation.warnings;
+                  signal.retriggerRecovered = true;
+                  // Apply position size adjustment from re-evaluation
+                  if (signal.consensus && retriggerResult.reEvaluation.adjustments.positionSizeMultiplier !== 1.0) {
+                    signal.consensus.positionSize = (signal.consensus.positionSize || 0.05) * retriggerResult.reEvaluation.adjustments.positionSizeMultiplier;
+                  }
+                  // Fall through to continue with trade execution below
+                } else {
+                  // Re-trigger failed or wasn't attempted — reject as before
+                  this.totalTradesRejected++;
+                  this.emit('signal_rejected', {
+                    symbol: signal.symbol,
+                    reason: `DecisionEvaluator: ${evaluation.reasons[0]}`,
+                    evaluationScore: evaluation.score,
+                    warnings: evaluation.warnings,
+                    retriggerAttempted: retriggerResult.retriggered,
+                    retriggerReason: retriggerResult.reason,
+                  });
+                  return;
+                }
+              } catch (retriggerErr) {
+                console.warn(`[UserTradingSession] Re-trigger error for ${signal.symbol}:`, (retriggerErr as Error)?.message);
+                // Fall back to normal rejection
+                this.totalTradesRejected++;
+                this.emit('signal_rejected', {
+                  symbol: signal.symbol,
+                  reason: `DecisionEvaluator: ${evaluation.reasons[0]}`,
+                  evaluationScore: evaluation.score,
+                  warnings: evaluation.warnings,
+                });
+                return;
+              }
+            }
+
+            // Log warnings even for approved signals
+            if (evaluation.warnings.length > 0) {
+              console.log(`[UserTradingSession] DecisionEvaluator warnings for ${signal.symbol}: ${evaluation.warnings.join('; ')}`);
+            }
+
+            // Apply position size adjustment from evaluator
+            if (signal.consensus && evaluation.adjustments.positionSizeMultiplier !== 1.0) {
+              signal.consensus.positionSize = (signal.consensus.positionSize || 0.05) * evaluation.adjustments.positionSizeMultiplier;
+            }
+
+            // Attach evaluation metadata to signal for downstream tracking
+            signal.evaluationScore = evaluation.score;
+            signal.evaluationWarnings = evaluation.warnings;
+
+            // Phase 35: Monte Carlo simulation replaces formula-based ScenarioEngine
+            // Runs N random-walk simulations for probabilistic outcome projection
+            try {
+              const direction = signal.consensus?.direction === 'bullish' ? 'long' : 'short';
+              const currentPrice = signal.consensus?.entryPrice || signal.price || 0;
+              const regime = signal.marketContext?.regime || 'range_bound';
+              const atrPercent = signal.marketContext?.volatility || undefined;
+
+              // Run Monte Carlo simulation (500 paths)
+              const mcSimulator = getMonteCarloSimulator();
+              const mcResult = mcSimulator.simulate(
+                currentPrice,
+                direction as 'long' | 'short',
+                regime,
+                signal.consensus?.strength || 0.5,
+                atrPercent
+              );
+
+              // Convert to ScenarioProjection format for backward compatibility
+              const projection = mcSimulator.toScenarioProjection(
+                mcResult,
+                currentPrice,
+                direction as 'long' | 'short',
+                regime
+              );
+
+              // Attach both Monte Carlo result and projection to signal
+              signal.scenarioProjection = projection;
+              signal.monteCarloResult = {
+                probabilityOfProfit: mcResult.probabilityOfProfit,
+                expectedReturn: mcResult.expectedReturn,
+                valueAtRisk95: mcResult.valueAtRisk95,
+                conditionalVaR95: mcResult.conditionalVaR95,
+                p10: mcResult.p10,
+                p50: mcResult.p50,
+                p90: mcResult.p90,
+                sharpeRatio: mcResult.sharpeRatio,
+                optimalExitStep: mcResult.optimalExitStep,
+                maxDrawdown: mcResult.maxDrawdown,
+              };
+
+              // Use Monte Carlo-based stop-loss and take-profit
+              if (signal.consensus) {
+                if (!signal.consensus.stopLoss || projection.suggestedStopLoss) {
+                  signal.consensus.suggestedStopLoss = projection.suggestedStopLoss;
+                }
+                if (!signal.consensus.takeProfit || projection.suggestedTakeProfit) {
+                  signal.consensus.suggestedTakeProfit = projection.suggestedTakeProfit;
+                }
+                signal.consensus.riskRewardRatio = projection.riskRewardRatio;
+                signal.consensus.expectedValue = projection.expectedValue;
+              }
+
+              console.log(`[UserTradingSession] MonteCarlo: ${signal.symbol} ${direction} | P(profit)=${(mcResult.probabilityOfProfit * 100).toFixed(0)}% | EV=${mcResult.expectedReturn}% | VaR95=${mcResult.valueAtRisk95}% | P10/P50/P90: ${mcResult.p10}%/${mcResult.p50}%/${mcResult.p90}% | Sharpe=${mcResult.sharpeRatio}`);
+
+              // Also run formula-based ScenarioEngine as fallback/comparison
+              try {
+                const scenarioEngine = getScenarioEngine();
+                const formulaProjection = scenarioEngine.project(
+                  currentPrice,
+                  direction as 'long' | 'short',
+                  signal.consensus?.strength || 0.5,
+                  regime,
+                  atrPercent ? { atrPercent } : undefined,
+                  evaluation.score
+                );
+                signal.formulaProjection = formulaProjection;
+              } catch { /* formula fallback non-critical */ }
+            } catch (err) {
+              console.warn(`[UserTradingSession] MonteCarlo error, falling back to ScenarioEngine:`, (err as Error)?.message);
+              // Fallback to formula-based ScenarioEngine
+              try {
+                const scenarioEngine = getScenarioEngine();
+                const direction = signal.consensus?.direction === 'bullish' ? 'long' : 'short';
+                const currentPrice = signal.consensus?.entryPrice || signal.price || 0;
+                const projection = scenarioEngine.project(
+                  currentPrice,
+                  direction as 'long' | 'short',
+                  signal.consensus?.strength || 0.5,
+                  signal.marketContext?.regime || 'range_bound',
+                  signal.marketContext?.volatility ? { atrPercent: signal.marketContext.volatility } : undefined,
+                  evaluation.score
+                );
+                signal.scenarioProjection = projection;
+              } catch { /* both failed, continue without projection */ }
+            }
+
+            await this.tradeExecutor.queueSignal(signal);
+          }
+        } catch (err) {
+          console.error(`[UserTradingSession] Signal queue failed for user ${this.userId}:`, (err as Error)?.message);
+        }
+      });
+      this.signalProcessor.on('signal_rejected', (signal: any) => {
+        this.totalTradesRejected++;
+        // Forward to EngineAdapter listeners
+        this.emit('signal_rejected', signal);
+      });
+
+      // Phase 37 FIX: Listen to tradingEngine position_opened (the ACTUAL position event)
+      // Previously we tried to register from trade_executed which doesn't include position data.
+      // The PaperTradingEngine emits position_opened with the full PaperPosition + dbPositionId.
+      this.tradingEngine.on('position_opened', (posData: any) => {
+        if (!this.exitManager) return;
+        try {
+          // Phase 40 FIX: Keep in-memory ID for position tracking (closePositionById needs it)
+          // but pass dbPositionId separately so DB sync can update the correct row
+          console.log(`[UserTradingSession] 📌 Position opened: ${posData.symbol} ${posData.side} @ $${posData.entryPrice} (memId: ${posData.id}, dbId: ${posData.dbPositionId})`);
+          this.exitManager.addPosition({
+            id: posData.id, // Keep in-memory ID — closePositionById needs this
+            symbol: posData.symbol,
+            side: posData.side || 'long',
+            entryPrice: posData.entryPrice,
+            currentPrice: posData.currentPrice || posData.entryPrice,
+            quantity: posData.quantity,
+            remainingQuantity: posData.quantity,
+            unrealizedPnl: 0,
+            unrealizedPnlPercent: 0,
+            entryTime: posData.entryTime ? new Date(posData.entryTime).getTime() : Date.now(),
+            originalConsensus: 0.65, // Will be updated by agent signals
+            marketRegime: 'unknown', // Will be updated by getMarketRegime callback
+            stopLoss: posData.stopLoss,
+            takeProfit: posData.takeProfit,
+            dbPositionId: posData.dbPositionId, // Phase 40: Store DB ID for DB sync
+          });
+        } catch (err) {
+          console.warn(`[UserTradingSession] Failed to register position with exit manager:`, (err as Error)?.message);
+        }
+      });
+
+      // Also listen to position_closed to clean up exit manager
+      this.tradingEngine.on('position_closed', (closedData: any) => {
+        if (!this.exitManager) return;
+        try {
+          // Remove from exit manager if it was closed externally (not by exit manager)
+          if (closedData.id || closedData.positionId) {
+            this.exitManager.removePosition(String(closedData.id || closedData.positionId));
+          }
+        } catch { /* non-critical */ }
+      });
+
+      // Wire trade executor events
+      this.tradeExecutor.on('trade_executed', (data: any) => {
+        this.totalTradesExecuted++;
+        this.lastTradeExecutedMs = Date.now();
+        this.emit('trade_executed', data);
+
+        // Record agent accuracy for weight adjustment
+        this.recordTradeForWeightAdjustment(data);
+
+        // Phase 30: Record trade entry in DecisionEvaluator for outcome tracking
+        try {
+          const evaluator = getDecisionEvaluator(this.userId);
+          evaluator.recordTradeEntry(
+            data.symbol,
+            data.side || (data.signal?.consensus?.direction === 'bullish' ? 'long' : 'short'),
+            data.price || data.entryPrice || 0,
+            data.signal?.consensus,
+            data.signal?.signals || [],
+            data.entryRegime || 'unknown',
+            data.signal?.evaluationScore || 0.5,
+            data.signal?.signalId
+          );
+        } catch (err) {
+          console.warn(`[UserTradingSession] Failed to record trade entry in DecisionEvaluator:`, (err as Error)?.message);
+        }
+      });
+
+      this.tradeExecutor.on('trade_rejected', (data: any) => {
+        this.totalTradesRejected++;
+        this.emit('trade_rejected', data);
+      });
+
+      this.tradeExecutor.on('exit_executed', (data: any) => {
+        this.emit('exit_executed', data);
+
+        // Phase 30: CRITICAL — Feed trade outcome back to DecisionEvaluator
+        // This was the MISSING feedback loop — agents never learned from trade results
+        try {
+          const evaluator = getDecisionEvaluator(this.userId);
+          evaluator.recordTradeOutcome(
+            data.symbol,
+            data.pnl || data.realizedPnl || 0,
+            data.exitPrice || data.price || 0,
+            data.reason || data.exitReason || 'unknown'
+          ).catch((err: Error) => {
+            console.warn(`[UserTradingSession] Failed to record trade outcome:`, err?.message);
+          });
+        } catch (err) {
+          console.warn(`[UserTradingSession] DecisionEvaluator outcome error:`, (err as Error)?.message);
+        }
+      });
+
+      // Start exit manager
+      this.exitManager.start();
+
+      // Phase 21: Sync existing open positions into IntelligentExitManager
+      // Without this, the exit manager starts empty on every restart and never
+      // monitors/closes positions that were opened before the restart.
+      try {
+        const { getDb: getDbExit } = await import('../db');
+        const dbForExit = await getDbExit();
+        if (dbForExit) {
+          const { eq: eqE, and: andE } = await import('drizzle-orm');
+          const { paperPositions: ppE } = await import('../../drizzle/schema');
+          const existingForExit = await dbForExit
+            .select()
+            .from(ppE)
+            .where(andE(
+              eqE(ppE.userId, this.userId),
+              eqE(ppE.status, 'open')
+            ));
+
+          for (const pos of existingForExit) {
+            try {
+              const entryPrice = parseFloat(pos.entryPrice || '0');
+              const currentPrice = parseFloat(pos.currentPrice || pos.entryPrice || '0');
+              const quantity = parseFloat(pos.quantity || '0');
+              if (entryPrice <= 0 || quantity <= 0) continue;
+              this.exitManager.addPosition({
+                id: String(pos.id),
+                symbol: pos.symbol,
+                side: (pos.side === 'short' ? 'short' : 'long') as 'long' | 'short',
+                entryPrice,
+                currentPrice,
+                quantity,
+                remainingQuantity: quantity,
+                unrealizedPnl: parseFloat(pos.unrealizedPnL || '0'),
+                unrealizedPnlPercent: parseFloat(pos.unrealizedPnLPercent || '0'),
+                entryTime: pos.entryTime ? new Date(pos.entryTime).getTime() : Date.now(),
+                originalConsensus: parseFloat(pos.originalConsensus || '0.65'),
+                marketRegime: 'unknown',
+                // Phase 32: TP/SL from DB if available
+                stopLoss: (pos as any).stopLoss ? parseFloat((pos as any).stopLoss) : undefined,
+                takeProfit: (pos as any).takeProfit ? parseFloat((pos as any).takeProfit) : undefined,
+                // Phase 40: Store DB ID for sync (numeric string ID will also parseInt correctly)
+                dbPositionId: pos.id,
+              });
+            } catch (addErr) {
+              console.warn(`[UserTradingSession] Failed to add position ${pos.id} to exit manager:`, (addErr as Error)?.message);
+            }
+          }
+          if (existingForExit.length > 0) {
+            console.log(`[UserTradingSession] Synced ${existingForExit.length} existing positions into exit manager for user ${this.userId}`);
+          }
+        }
+      } catch (exitSyncErr) {
+        console.warn(`[UserTradingSession] Failed to sync positions into exit manager:`, (exitSyncErr as Error)?.message);
+      }
+
+      // Start settings sync loop
+      this.startSettingsSync();
+
+      // Phase 40 CRITICAL FIX: Wire price feed to exit manager
+      // Without this, the exit manager NEVER receives price updates, so SL/TP never trigger
+      // and positions sit as zombies with currentPrice = entryPrice forever.
+      try {
+        const { priceFeedService } = await import('./priceFeedService');
+        this.priceUpdateHandler = (priceData: { symbol: string; price: number }) => {
+          if (this.exitManager && this.isRunning) {
+            this.exitManager.onPriceTick(priceData.symbol, priceData.price).catch(() => {});
+          }
+        };
+        priceFeedService.on('price_update', this.priceUpdateHandler);
+        console.log(`[UserTradingSession] 🔗 Price feed wired to exit manager for user ${this.userId}`);
+      } catch (priceErr) {
+        console.error(`[UserTradingSession] Failed to wire price feed to exit manager:`, (priceErr as Error)?.message);
+      }
+
+      // Phase 40 FIX: Periodic paper position price update in DB
+      // Without this, paper positions show stale prices in the UI because
+      // PaperTradingEngine.updatePositionPrices() was never called periodically.
+      this.paperPriceUpdateInterval = setInterval(async () => {
+        try {
+          const { getDb } = await import('../db');
+          const { paperPositions } = await import('../../drizzle/schema');
+          const { eq, and } = await import('drizzle-orm');
+          const db = await getDb();
+          if (!db) return;
+
+          const openPositions = await db
+            .select()
+            .from(paperPositions)
+            .where(and(
+              eq(paperPositions.userId, this.userId),
+              eq(paperPositions.status, 'open')
+            ));
+
+          for (const pos of openPositions) {
+            const priceData = priceFeedService.getLatestPrice(pos.symbol);
+            if (!priceData?.price) continue;
+
+            const currentPrice = priceData.price;
+            const entryPrice = parseFloat(pos.entryPrice || '0');
+            const quantity = parseFloat(pos.quantity || '0');
+            if (entryPrice <= 0 || quantity <= 0) continue;
+
+            const pnlMultiplier = pos.side === 'long' ? 1 : -1;
+            const unrealizedPnL = pnlMultiplier * (currentPrice - entryPrice) * quantity;
+            const unrealizedPnLPercent = pnlMultiplier * ((currentPrice - entryPrice) / entryPrice) * 100;
+
+            // HARD STOP-LOSS & TAKE-PROFIT SAFETY NET
+            // Tuned for crypto volatility and >80% win rate target:
+            // - Wider stop-loss (0.8%) to avoid noise-triggered exits
+            // - Lower take-profit (0.4%) for faster profit-taking
+            // - Trailing stop: once profit exceeds 0.15%, trail at 50% of peak
+            // - Shorter max hold (15 min) to avoid regime changes
+            // Phase 45 FIX: Widened safety exit parameters to let PriorityExitManager handle exits.
+            // Previous values caused premature exits: 15min time_exit killed 6/20 recent trades at a loss.
+            // The PriorityExitManager has smarter regime-aware exits — these are LAST RESORT safety nets only.
+            const HARD_STOP_LOSS_PERCENT = -1.5;  // Phase 45: widened from -0.8% — let ATR stop handle normal exits
+            const TAKE_PROFIT_PERCENT = 1.0;      // Phase 45: raised from 0.4% — let trailing stop capture more profit
+            const MAX_HOLD_MINUTES = 45;           // Phase 45: raised from 15min — PriorityExitManager handles time-based exits
+            const TRAILING_ACTIVATION = 0.30;      // Phase 45: raised from 0.15% — avoid locking in tiny profits
+            const TRAILING_RATIO = 0.40;           // Phase 45: tightened from 0.50 — keep 60% of peak profit
+
+            const holdTimeMinutes = pos.entryTime ? (Date.now() - new Date(pos.entryTime).getTime()) / 60000 : 0;
+            let shouldClose = false;
+            let closeReason = '';
+
+            // Track peak PnL for trailing stop
+            const peakKey = `peak_${pos.id}`;
+            const prevPeak = (this as any)[peakKey] || 0;
+            const currentPeak = Math.max(prevPeak, unrealizedPnLPercent);
+            (this as any)[peakKey] = currentPeak;
+
+            if (unrealizedPnLPercent <= HARD_STOP_LOSS_PERCENT) {
+              shouldClose = true;
+              closeReason = `hard_stop_loss:${unrealizedPnLPercent.toFixed(3)}%`;
+            } else if (unrealizedPnLPercent >= TAKE_PROFIT_PERCENT) {
+              shouldClose = true;
+              closeReason = `take_profit:${unrealizedPnLPercent.toFixed(3)}%`;
+            } else if (currentPeak >= TRAILING_ACTIVATION && unrealizedPnLPercent < currentPeak * TRAILING_RATIO) {
+              // Trailing stop: if we reached +0.15% but now dropped to less than 50% of peak
+              shouldClose = true;
+              closeReason = `trailing_stop:peak=${currentPeak.toFixed(3)}%,now=${unrealizedPnLPercent.toFixed(3)}%`;
+            } else if (holdTimeMinutes >= MAX_HOLD_MINUTES && unrealizedPnLPercent < 0.05) {
+              // Time exit: close if held too long without meaningful profit
+              shouldClose = true;
+              closeReason = `time_exit:${holdTimeMinutes.toFixed(0)}min,pnl=${unrealizedPnLPercent.toFixed(3)}%`;
+            }
+
+            if (shouldClose) {
+              // ✅ FIX: Use correct property name 'realizedPnl' (lowercase 'l') matching Drizzle schema
+              await db.update(paperPositions).set({
+                status: 'closed',
+                exitPrice: currentPrice.toString(),
+                exitTime: new Date(),
+                realizedPnl: unrealizedPnL.toFixed(8),  // FIX: was 'realizedPnL' (wrong case)
+                currentPrice: currentPrice.toString(),
+                unrealizedPnL: '0',
+                unrealizedPnLPercent: '0',
+                exitReason: closeReason,
+                updatedAt: new Date(),
+              }).where(eq(paperPositions.id, pos.id));
+              console.log(`[UserTradingSession] 🚨 SAFETY EXIT #${pos.id} ${pos.symbol} ${pos.side}: ${closeReason} | PnL=$${unrealizedPnL.toFixed(4)}`);
+
+              // ✅ FIX: Update wallet balance with realized PnL
+              try {
+                if (this.tradingEngine) {
+                  const wallet = this.tradingEngine.getWallet();
+                  if (wallet) {
+                    wallet.balance += unrealizedPnL;
+                    wallet.realizedPnL += unrealizedPnL;
+                    wallet.totalPnL += unrealizedPnL;
+                    if (unrealizedPnL > 0) wallet.winningTrades++;
+                    else wallet.losingTrades++;
+                    const totalTrades = wallet.winningTrades + wallet.losingTrades;
+                    wallet.winRate = totalTrades > 0 ? (wallet.winningTrades / totalTrades) * 100 : 0;
+                  }
+                }
+              } catch { /* non-critical */ }
+
+              // ✅ FIX: Remove from PaperTradingEngine in-memory map WITHOUT re-closing via closePositionById
+              // (closePositionById would overwrite the DB record and create a race condition)
+              try {
+                if (this.tradingEngine) {
+                  const positions = this.tradingEngine.getPositions();
+                  const memPos = positions.find((p: any) => p.symbol === pos.symbol && p.userId === this.userId);
+                  if (memPos) {
+                    // Remove from in-memory map directly to avoid double-close
+                    const posKey = `${pos.symbol}_${pos.exchange || 'coinbase'}`;
+                    (this.tradingEngine as any).positions?.delete(posKey);
+                  }
+                }
+              } catch { /* non-critical */ }
+
+              // Emit position_closed event for UI updates
+              try {
+                if (this.tradingEngine) {
+                  this.tradingEngine.emit('position_closed', {
+                    symbol: pos.symbol,
+                    side: pos.side,
+                    exitPrice: currentPrice,
+                    realizedPnL: unrealizedPnL,
+                    exitReason: closeReason,
+                  });
+                }
+              } catch { /* non-critical */ }
+
+              continue; // Skip the price update since position is now closed
+            }
+
+            await db.update(paperPositions).set({
+              currentPrice: currentPrice.toString(),
+              unrealizedPnL: unrealizedPnL.toString(),
+              unrealizedPnLPercent: unrealizedPnLPercent.toString(),
+              updatedAt: new Date(),
+            }).where(eq(paperPositions.id, pos.id));
+          }
+        } catch (err) {
+          // Non-critical — don't crash the session for price display updates
+        }
+      }, this.PAPER_PRICE_UPDATE_INTERVAL_MS);
+      console.log(`[UserTradingSession] 📊 Paper position price updater started (every ${this.PAPER_PRICE_UPDATE_INTERVAL_MS / 1000}s) for user ${this.userId}`);
+
+      this.isRunning = true;
+      console.log(`[UserTradingSession] ✅ Session initialized for user ${this.userId} (auto-trade: ${this.autoTradingEnabled}, symbols: ${Array.from(this.subscribedSymbols).join(', ')})`);
+    } catch (err) {
+      console.error(`[UserTradingSession] Failed to initialize session for user ${this.userId}:`, (err as Error)?.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Handle incoming global signals from GlobalMarketEngine.
+   * This is the main entry point — called by UserSessionManager when signals arrive.
+   */
+  async onGlobalSignals(symbol: string, signals: GlobalSignal[], marketContext?: any): Promise<void> {
+    // Skip if symbol not in user's subscribed symbols
+    if (!this.subscribedSymbols.has(symbol)) return;
+
+    // Skip if auto-trading is disabled (signals are still available for dashboard display)
+    if (!this.autoTradingEnabled) return;
+
+    // Skip if session not fully initialized
+    if (!this.signalProcessor || !this.isRunning) return;
+
+    this.lastSignalProcessedMs = Date.now();
+
+    try {
+      // Apply per-user agent weights
+      const weightedSignals = this.applyUserWeights(signals);
+
+      // Feed to signal processor for consensus and trade decision
+      // Phase 30: Pass market context for regime-aware consensus
+      await this.signalProcessor.processSignals(weightedSignals, symbol, marketContext);
+    } catch (err) {
+      console.error(`[UserTradingSession] Signal processing error for user ${this.userId}:`, (err as Error)?.message);
+    }
+  }
+
+  /**
+   * Handle price tick for exit manager.
+   * Called by UserSessionManager when new prices arrive.
+   */
+  async onPriceTick(symbol: string, price: number): Promise<void> {
+    if (!this.exitManager || !this.isRunning) return;
+
+    try {
+      await this.exitManager.onPriceTick(symbol, price);
+    } catch {
+      // Non-critical — exit manager handles its own errors
+    }
+  }
+
+  /**
+   * Apply per-user agent weights to raw global signals.
+   * Transforms GlobalSignal[] to weighted AgentSignal[] format.
+   */
+  private applyUserWeights(signals: GlobalSignal[]): any[] {
+    if (!this.weightManager) return signals;
+
+    const consensusWeights = this.weightManager.getConsensusWeights();
+
+    return signals.map(signal => {
+      const userWeight = consensusWeights[signal.agentName] || 1.0;
+
+      return {
+        agentName: signal.agentName,
+        signal: signal.signal,
+        // Phase 40 FIX: Do NOT multiply confidence by weight — confidence is the agent's
+        // own assessment of signal quality. The weight field controls the agent's influence
+        // in consensus calculation. Multiplying destroyed confidence (95% * 0.3 = 28.5%)
+        // causing ALL signals to fail the 35% confidence filter.
+        confidence: signal.confidence,
+        strength: signal.strength,
+        reasoning: signal.reasoning,
+        qualityScore: signal.qualityScore,
+        evidence: signal.evidence,
+        timestamp: signal.timestamp,
+        weight: userWeight,
+        isSyntheticData: false,
+      };
+    });
+  }
+
+  /**
+   * Record trade outcome for agent weight adjustment.
+   */
+  private recordTradeForWeightAdjustment(tradeData: any): void {
+    if (!this.weightManager) return;
+
+    try {
+      // Non-blocking — weight adjustment is background work
+      import('./AgentWeightManager').then(({ getAgentWeightManager }) => {
+        const wm = getAgentWeightManager(this.userId);
+        // Trade outcome recording happens when position closes, not on entry
+        // This is just to track which agents contributed to the entry
+      }).catch(() => { /* non-critical */ });
+    } catch {
+      // Non-critical
+    }
+  }
+
+  // ========================================
+  // Settings sync
+  // ========================================
+
+  private startSettingsSync(): void {
+    this.settingsSyncInterval = setInterval(async () => {
+      await this.syncSettings();
+    }, this.SETTINGS_SYNC_INTERVAL_MS);
+
+    if (this.settingsSyncInterval.unref) {
+      this.settingsSyncInterval.unref();
+    }
+  }
+
+  /**
+   * Sync session settings from database.
+   * Called periodically and after user changes settings via UI.
+   */
+  async syncSettings(): Promise<void> {
+    try {
+      const { getDb } = await import('../db');
+      const db = await getDb();
+      if (!db) return;
+
+      const { tradingModeConfig, tradingSymbols } = await import('../../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+
+      // Get trading mode config
+      const modeResult = await db.select().from(tradingModeConfig)
+        .where(eq(tradingModeConfig.userId, this.userId))
+        .limit(1);
+
+      if (modeResult.length > 0) {
+        const config = modeResult[0];
+        this.autoTradingEnabled = config.autoTradeEnabled ?? false;
+        this.tradingMode = (config.mode as 'paper' | 'real') || 'paper';
+      }
+
+      // Get user's subscribed symbols
+      const symbolResult = await db.select().from(tradingSymbols)
+        .where(and(eq(tradingSymbols.userId, this.userId), eq(tradingSymbols.isActive, true)));
+
+      if (symbolResult.length > 0) {
+        this.subscribedSymbols = new Set(symbolResult.map(s => s.symbol));
+      }
+    } catch (err) {
+      // Non-critical — use existing settings
+    }
+  }
+
+  // ========================================
+  // Public API
+  // ========================================
+
+  getUserId(): number {
+    return this.userId;
+  }
+
+  getSubscribedSymbols(): string[] {
+    return Array.from(this.subscribedSymbols);
+  }
+
+  isAutoTradingEnabled(): boolean {
+    return this.autoTradingEnabled;
+  }
+
+  getTradingMode(): 'paper' | 'real' {
+    return this.tradingMode;
+  }
+
+  /**
+   * Get session status for health dashboards and API.
+   */
+  getStatus(): UserTradingSessionStatus {
+    const wallet = this.tradingEngine?.getWallet();
+    const positions = this.tradingEngine?.getPositions() || [];
+
+    return {
+      userId: this.userId,
+      isRunning: this.isRunning,
+      autoTradingEnabled: this.autoTradingEnabled,
+      tradingMode: this.tradingMode,
+      subscribedSymbols: Array.from(this.subscribedSymbols),
+      positionCount: positions.length,
+      lastSignalProcessed: this.lastSignalProcessedMs,
+      lastTradeExecuted: this.lastTradeExecutedMs,
+      totalTradesExecuted: this.totalTradesExecuted,
+      totalTradesRejected: this.totalTradesRejected,
+      walletBalance: wallet?.balance || 0,
+      exitManagerActive: this.exitManager?.isMonitoringActive() || false,
+    };
+  }
+
+  /**
+   * Get user's positions (for API).
+   */
+  getPositions(): any[] {
+    return this.tradingEngine?.getPositions() || [];
+  }
+
+  /**
+   * Get user's wallet (for API).
+   */
+  getWallet(): any {
+    return this.tradingEngine?.getWallet() || null;
+  }
+
+  /**
+   * Get user's trade history (for API).
+   */
+  getTradeHistory(): any[] {
+    return this.tradingEngine?.getTradeHistory() || [];
+  }
+
+  /**
+   * Get agent weight configuration for this user.
+   */
+  getAgentWeights(): Record<string, number> {
+    return this.weightManager?.getConsensusWeights() || {};
+  }
+
+  /**
+   * Update a specific setting.
+   */
+  updateAutoTrading(enabled: boolean): void {
+    this.autoTradingEnabled = enabled;
+    console.log(`[UserTradingSession] User ${this.userId} auto-trading: ${enabled}`);
+  }
+
+  /**
+   * Add a symbol to observation.
+   */
+  addSymbol(symbol: string): void {
+    this.subscribedSymbols.add(symbol);
+    console.log(`[UserTradingSession] User ${this.userId} added symbol: ${symbol}`);
+  }
+
+  /**
+   * Remove a symbol from observation.
+   */
+  removeSymbol(symbol: string): void {
+    this.subscribedSymbols.delete(symbol);
+    console.log(`[UserTradingSession] User ${this.userId} removed symbol: ${symbol}`);
+  }
+
+  /**
+   * Stop the session. Called during cleanup or user account deletion.
+   */
+  async stop(): Promise<void> {
+    if (!this.isRunning) return;
+
+    console.log(`[UserTradingSession] Stopping session for user ${this.userId}`);
+
+    // Stop settings sync
+    if (this.settingsSyncInterval) {
+      clearInterval(this.settingsSyncInterval);
+      this.settingsSyncInterval = null;
+    }
+
+    // Stop paper position price updater
+    if (this.paperPriceUpdateInterval) {
+      clearInterval(this.paperPriceUpdateInterval);
+      this.paperPriceUpdateInterval = null;
+    }
+
+    // Phase 40: Unsubscribe from price feed
+    if (this.priceUpdateHandler) {
+      try {
+        const { priceFeedService } = await import('./priceFeedService');
+        priceFeedService.off('price_update', this.priceUpdateHandler);
+      } catch {}
+      this.priceUpdateHandler = null;
+    }
+
+    // Stop exit manager
+    if (this.exitManager) {
+      this.exitManager.stop();
+    }
+
+    // Save agent weights
+    if (this.weightManager) {
+      try {
+        await this.weightManager.saveToDatabase();
+      } catch {
+        // Non-critical
+      }
+    }
+
+    this.isRunning = false;
+    this.removeAllListeners();
+
+    console.log(`[UserTradingSession] Session stopped for user ${this.userId}`);
+  }
+}

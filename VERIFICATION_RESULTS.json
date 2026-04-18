@@ -1,0 +1,215 @@
+{
+  "1. Heartbeat Status (Last Hour)": [
+    {
+      "heartbeats": 89,
+      "first_beat": "2026-02-06T12:51:58.000Z",
+      "last_beat": "2026-02-06T13:31:52.000Z",
+      "minutes_tracked": 39,
+      "avg_cpu": "0.71",
+      "avg_memory_mb": "472"
+    }
+  ],
+  "2. Service Events (Recent)": [
+    {
+      "serviceName": "SEERMultiEngine",
+      "eventType": "start",
+      "timestamp": "2026-02-06T13:31:52.000Z",
+      "reason": "Paper trading engine started",
+      "version": "unknown"
+    },
+    {
+      "serviceName": "MonitoringFramework",
+      "eventType": "start",
+      "timestamp": "2026-02-06T13:31:52.000Z",
+      "reason": "Complete logging framework initialized",
+      "version": "unknown"
+    },
+    {
+      "serviceName": "SEERMultiEngine",
+      "eventType": "start",
+      "timestamp": "2026-02-06T13:31:03.000Z",
+      "reason": "Paper trading engine started",
+      "version": "unknown"
+    },
+    {
+      "serviceName": "SEERMultiEngine",
+      "eventType": "start",
+      "timestamp": "2026-02-06T13:30:30.000Z",
+      "reason": "Paper trading engine started",
+      "version": "unknown"
+    },
+    {
+      "serviceName": "MonitoringFramework",
+      "eventType": "start",
+      "timestamp": "2026-02-06T13:30:29.000Z",
+      "reason": "Complete logging framework initialized",
+      "version": "unknown"
+    },
+    {
+      "serviceName": "SEERMultiEngine",
+      "eventType": "start",
+      "timestamp": "2026-02-06T13:20:51.000Z",
+      "reason": "Paper trading engine started",
+      "version": "1.0.0"
+    },
+    {
+      "serviceName": "MonitoringFramework",
+      "eventType": "start",
+      "timestamp": "2026-02-06T13:19:49.000Z",
+      "reason": "Complete logging framework initialized",
+      "version": "1.0.0"
+    },
+    {
+      "serviceName": "SEERMultiEngine",
+      "eventType": "start",
+      "timestamp": "2026-02-06T13:19:49.000Z",
+      "reason": "Paper trading engine started",
+      "version": "1.0.0"
+    },
+    {
+      "serviceName": "SEERMultiEngine",
+      "eventType": "start",
+      "timestamp": "2026-02-06T13:08:06.000Z",
+      "reason": "Paper trading engine started",
+      "version": "unknown"
+    },
+    {
+      "serviceName": "SEERMultiEngine",
+      "eventType": "start",
+      "timestamp": "2026-02-06T13:07:35.000Z",
+      "reason": "Paper trading engine started",
+      "version": "unknown"
+    }
+  ],
+  "3. API Connection Health (Last Hour)": [
+    {
+      "apiName": "coinapi_ws",
+      "connectionStatus": "disconnected",
+      "attempts": 148,
+      "avg_response_ms": null,
+      "last_attempt": "2026-02-06T13:31:53.000Z"
+    }
+  ],
+  "4. Capital Utilization (Recent)": [],
+  "5. Exit Decisions (Last Hour)": [
+    {
+      "total_exits": 0,
+      "unique_exit_types": 0
+    }
+  ],
+  "6. Daily System Health Dashboard": [
+    {
+      "metric": "System Heartbeats",
+      "value": "89"
+    },
+    {
+      "metric": "Service Restarts",
+      "value": "0"
+    },
+    {
+      "metric": "Avg CPU Usage",
+      "value": "0.7%"
+    },
+    {
+      "metric": "API Failures",
+      "value": "148"
+    },
+    {
+      "metric": "Avg Memory Usage",
+      "value": "472 MB"
+    }
+  ],
+  "7. 24/7 Operations (Hourly Heartbeats)": [
+    {
+      "date": "2026-02-06T05:00:00.000Z",
+      "hour": 8,
+      "heartbeats": 80,
+      "status": "✅ HEALTHY"
+    },
+    {
+      "date": "2026-02-06T05:00:00.000Z",
+      "hour": 7,
+      "heartbeats": 9,
+      "status": "⚠️ DEGRADED"
+    }
+  ],
+  "8. Connection Health Report": [
+    {
+      "apiName": "coinapi_ws",
+      "date": "2026-02-06T05:00:00.000Z",
+      "total_attempts": 148,
+      "successful": "0",
+      "failed": "148",
+      "success_rate": "0.00",
+      "avg_response_ms": null
+    }
+  ],
+  "9. WebSocket Health (Recent)": [
+    {
+      "websocketName": "CoinbaseWS",
+      "connectionStatus": "disconnected",
+      "records": 82,
+      "avg_msgs_per_min": "0",
+      "last_update": "2026-02-06T13:31:49.000Z"
+    },
+    {
+      "websocketName": "CoinAPI",
+      "connectionStatus": "disconnected",
+      "records": 82,
+      "avg_msgs_per_min": "0",
+      "last_update": "2026-02-06T13:31:49.000Z"
+    }
+  ],
+  "10. Alert History": [
+    {
+      "alertType": "websocket_error",
+      "severity": "warning",
+      "title": "CoinAPI WebSocket Error",
+      "message": "Connection error: Unexpected server response: 403",
+      "timestamp": "2026-02-06T13:31:23.000Z"
+    },
+    {
+      "alertType": "websocket_error",
+      "severity": "warning",
+      "title": "CoinAPI WebSocket Error",
+      "message": "Connection error: Unexpected server response: 403",
+      "timestamp": "2026-02-06T13:31:08.000Z"
+    },
+    {
+      "alertType": "websocket_error",
+      "severity": "warning",
+      "title": "CoinAPI WebSocket Error",
+      "message": "Connection error: Unexpected server response: 403",
+      "timestamp": "2026-02-06T13:28:58.000Z"
+    },
+    {
+      "alertType": "websocket_error",
+      "severity": "warning",
+      "title": "CoinAPI WebSocket Error",
+      "message": "Connection error: Unexpected server response: 403",
+      "timestamp": "2026-02-06T13:26:14.000Z"
+    },
+    {
+      "alertType": "websocket_error",
+      "severity": "warning",
+      "title": "CoinAPI WebSocket Error",
+      "message": "Connection error: Unexpected server response: 403",
+      "timestamp": "2026-02-06T13:23:51.000Z"
+    },
+    {
+      "alertType": "websocket_error",
+      "severity": "warning",
+      "title": "CoinAPI WebSocket Error",
+      "message": "Connection error: Unexpected server response: 403",
+      "timestamp": "2026-02-06T13:18:42.000Z"
+    }
+  ],
+  "11. Entry Validation Log (Recent)": {
+    "error": "Unknown column 'result' in 'where clause'"
+  },
+  "12. Position Sizing Log (Recent)": [
+    {
+      "total_sizing_decisions": 0
+    }
+  ]
+}

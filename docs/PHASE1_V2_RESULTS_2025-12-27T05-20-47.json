@@ -1,0 +1,123 @@
+{
+  "config": {
+    "startDate": "2025-12-20T05:20:34.309Z",
+    "endDate": "2025-12-27T05:20:34.309Z",
+    "symbols": [
+      "BTC-USD",
+      "ETH-USD"
+    ],
+    "initialCapital": 50000,
+    "maxRiskPerTrade": 0.02,
+    "maxDrawdown": 0.15,
+    "maxPositions": 10,
+    "slippagePercent": 0.1,
+    "feePercent": 0.25
+  },
+  "metrics": {
+    "totalTrades": 30,
+    "winningTrades": 11,
+    "losingTrades": 19,
+    "winRate": 36.666666666666664,
+    "totalPnL": -490.04209957783434,
+    "totalPnLPercent": -0.9800841991556687,
+    "maxDrawdown": 0,
+    "maxDrawdownPercent": 0,
+    "sharpeRatio": -12.879200907131194,
+    "sortinoRatio": -8.12092202822137,
+    "profitFactor": 0.12655971648584824,
+    "avgWin": 6.455100111728128,
+    "avgLoss": 29.528852674044412,
+    "avgHoldTime": 8.791666666666666,
+    "capitalUtilization": 17.26916418733498,
+    "tradeFrequency": 4.285714285714286,
+    "largestWin": 21.933742035052184,
+    "largestLoss": -61.38957594987552,
+    "consecutiveWins": 3,
+    "consecutiveLosses": 6
+  },
+  "validation": {
+    "isValid": true,
+    "errors": [],
+    "warnings": [],
+    "strategiesValidated": 22,
+    "agentsValidated": 12,
+    "duplicatesDetected": 0,
+    "budgetViolations": 0,
+    "riskViolations": 0
+  },
+  "strategyPerformance": [
+    {
+      "strategyName": "mean_reversion",
+      "trades": 3,
+      "winRate": 66.66666666666666,
+      "pnl": -16.05646669372666,
+      "sharpe": -0.2447694190203359
+    },
+    {
+      "strategyName": "grid_trading",
+      "trades": 2,
+      "winRate": 50,
+      "pnl": -17.7169179140435,
+      "sharpe": -0.7505543057025953
+    },
+    {
+      "strategyName": "support_resistance_bounce",
+      "trades": 2,
+      "winRate": 50,
+      "pnl": -23.250393504564997,
+      "sharpe": -0.9993166129109643
+    },
+    {
+      "strategyName": "range_trading",
+      "trades": 5,
+      "winRate": 40,
+      "pnl": -29.645345975682027,
+      "sharpe": -0.28981771035628606
+    },
+    {
+      "strategyName": "vwap_reversion",
+      "trades": 5,
+      "winRate": 40,
+      "pnl": -44.58645284676326,
+      "sharpe": -0.6701251881766945
+    },
+    {
+      "strategyName": "intraday_mean_reversion",
+      "trades": 2,
+      "winRate": 0,
+      "pnl": -80.35736189189697,
+      "sharpe": -772.7274999991151
+    },
+    {
+      "strategyName": "rsi_extreme_reversion",
+      "trades": 5,
+      "winRate": 40,
+      "pnl": -132.03922184219863,
+      "sharpe": -1.0087236889882865
+    },
+    {
+      "strategyName": "bollinger_mean_reversion",
+      "trades": 6,
+      "winRate": 16.666666666666664,
+      "pnl": -146.38993890895827,
+      "sharpe": -1.5248980093977718
+    }
+  ],
+  "regimeStats": {
+    "ranging": {
+      "trades": 30,
+      "wins": 11,
+      "pnl": -490.04209957783434
+    }
+  },
+  "verdict": "NEEDS_IMPROVEMENT",
+  "verdictReason": "Win rate 36.67% below 45%; Sharpe ratio -12.88 below 0.5; Profit factor 0.13 below 1.0",
+  "tradeCount": 30,
+  "enhancements": [
+    "Enhanced regime detection",
+    "Dynamic consensus thresholds",
+    "Intelligent position management",
+    "Regime-appropriate strategies",
+    "Trailing stops"
+  ]
+}

@@ -1,0 +1,659 @@
+/**
+ * AgentWeightManager - Manages configurable agent weights for consensus algorithm
+ *
+ * This service provides:
+ * 1. Configurable weights for all agents (core + Phase 2)
+ * 2. Category multipliers for fast/slow/phase2 agent groups
+ * 3. Performance-based weight adjustment with Brier score calibration
+ * 4. Database persistence for user-specific configurations
+ * 5. Automatic weight recalculation from trade outcomes
+ */
+
+import { EventEmitter } from "events";
+import { getDb } from "../db";
+import { agentWeights } from "../../drizzle/schema";
+import { eq } from "drizzle-orm";
+import { agentLogger } from '../utils/logger';
+
+// Agent category definitions
+export const AGENT_CATEGORIES = {
+  FAST: ['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst'],
+  SLOW: ['SentimentAnalyst', 'NewsSentinel', 'MacroAnalyst', 'OnChainAnalyst'],
+  PHASE2: ['WhaleTracker', 'FundingRateAnalyst', 'LiquidationHeatmap', 'OnChainFlowAnalyst', 'VolumeProfileAnalyzer', 'ForexCorrelationAgent'],
+} as const;
+
+// All agent names
+export const ALL_AGENTS = [
+  ...AGENT_CATEGORIES.FAST,
+  ...AGENT_CATEGORIES.SLOW,
+  ...AGENT_CATEGORIES.PHASE2,
+] as const;
+
+export type AgentName = typeof ALL_AGENTS[number];
+export type AgentCategory = keyof typeof AGENT_CATEGORIES;
+
+// Default weights for each agent (within their category)
+export const DEFAULT_AGENT_WEIGHTS: Record<AgentName, number> = {
+  // Fast agents (weights should sum to 100 within category)
+  TechnicalAnalyst: 40,
+  PatternMatcher: 35,
+  OrderFlowAnalyst: 25,
+  
+  // Slow agents (weights should sum to 100 within category)
+  SentimentAnalyst: 33.33,
+  NewsSentinel: 33.33,
+  MacroAnalyst: 33.34,
+  OnChainAnalyst: 0, // Optional, disabled by default
+  
+  // Phase 2 agents (weights should sum to 100 within category)
+  WhaleTracker: 14,
+  FundingRateAnalyst: 14,
+  LiquidationHeatmap: 14,
+  OnChainFlowAnalyst: 14,
+  VolumeProfileAnalyzer: 18,
+  ForexCorrelationAgent: 12,
+};
+
+// Phase 15B FIX: Rebalanced category multipliers.
+// Previous values (FAST=1.0, SLOW=0.2) caused 100% bullish bias because
+// fast agents (tick-driven, high noise) dominated macro/sentiment agents
+// that actually provide higher-quality directional signals.
+// Audit data: 267K consensus records → 100% bullish despite mixed signals.
+export const DEFAULT_CATEGORY_MULTIPLIERS = {
+  FAST: 0.70,   // Reduced from 1.0 — technical noise should not dominate
+  SLOW: 0.50,   // Increased from 0.20 — macro/sentiment signals are higher quality
+  PHASE2: 0.60, // Increased from 0.50 — whale/funding/liquidation are valuable
+};
+
+export interface AgentWeightConfig {
+  userId: number;
+  weights: Record<AgentName, number>;
+  categoryMultipliers: Record<AgentCategory, number>;
+  timeframeBonus: number;
+  isActive: boolean;
+}
+
+export interface WeightedAgentScore {
+  agentName: AgentName;
+  category: AgentCategory;
+  baseWeight: number;
+  categoryMultiplier: number;
+  finalWeight: number;
+  performanceAdjustment: number;
+}
+
+/**
+ * Tracks per-agent performance with Brier score for confidence calibration
+ */
+export interface AgentPerformanceRecord {
+  wasCorrect: boolean;
+  predictedConfidence: number; // The confidence the agent reported (0-1)
+  timestamp: number;
+}
+
+/**
+ * Computed performance metrics for an agent
+ */
+export interface AgentPerformanceMetrics {
+  accuracy: number;          // Win rate (0-1)
+  brierScore: number;        // Brier score (0=perfect, 1=worst) - lower is better
+  calibration: number;       // How well confidence matches accuracy (0=perfect)
+  samples: number;           // Number of recorded outcomes
+  recentAccuracy: number;    // Accuracy of last 20 trades
+  weightAdjustment: number;  // Computed weight multiplier (0.5-1.5)
+}
+
+export class AgentWeightManager extends EventEmitter {
+  private userId: number;
+  private weights: Map<AgentName, number> = new Map();
+  private categoryMultipliers: Map<AgentCategory, number> = new Map();
+  private timeframeBonus: number = 10;
+  private isActive: boolean = true;
+  private performanceHistory: Map<AgentName, number[]> = new Map(); // Legacy binary accuracy
+  private detailedPerformance: Map<AgentName, AgentPerformanceRecord[]> = new Map(); // Full performance with confidence
+  private readonly PERFORMANCE_WINDOW = 200; // Track last 200 signals per agent
+  private readonly MIN_SAMPLES_FOR_ADJUSTMENT = 10; // Need at least 10 trades before adjusting
+  // Phase 15B FIX: Reduced from 50 to 10. Poor agents dominated for 50+ trades before correction.
+  private readonly WEIGHT_RECALC_INTERVAL = 10; // Recalculate weights every 10 new records
+  private recordsSinceLastRecalc: number = 0;
+
+  constructor(userId: number = 1) {
+    super();
+    this.userId = userId;
+    this.initializeDefaults();
+  }
+  
+  /**
+   * Initialize with default weights
+   */
+  private initializeDefaults(): void {
+    // Set default agent weights
+    for (const [agent, weight] of Object.entries(DEFAULT_AGENT_WEIGHTS)) {
+      this.weights.set(agent as AgentName, weight);
+    }
+    
+    // Set default category multipliers
+    for (const [category, multiplier] of Object.entries(DEFAULT_CATEGORY_MULTIPLIERS)) {
+      this.categoryMultipliers.set(category as AgentCategory, multiplier);
+    }
+    
+    // Initialize performance history
+    for (const agent of ALL_AGENTS) {
+      this.performanceHistory.set(agent, []);
+      this.detailedPerformance.set(agent, []);
+    }
+  }
+  
+  /**
+   * Load weights from database
+   */
+  async loadFromDatabase(): Promise<boolean> {
+    try {
+      const db = await getDb();
+      if (!db) {
+        agentLogger.warn('Database not available, using defaults');
+        return false;
+      }
+      
+      const result = await db
+        .select()
+        .from(agentWeights)
+        .where(eq(agentWeights.userId, this.userId))
+        .limit(1);
+      
+      if (result.length === 0) {
+        agentLogger.info('No saved weights found, using defaults');
+        return false;
+      }
+      
+      const config = result[0];
+      
+      // Load agent weights
+      this.weights.set('TechnicalAnalyst', parseFloat(config.technicalWeight || '40'));
+      this.weights.set('PatternMatcher', parseFloat(config.patternWeight || '35'));
+      this.weights.set('OrderFlowAnalyst', parseFloat(config.orderFlowWeight || '25'));
+      this.weights.set('SentimentAnalyst', parseFloat(config.sentimentWeight || '33.33'));
+      this.weights.set('NewsSentinel', parseFloat(config.newsWeight || '33.33'));
+      this.weights.set('MacroAnalyst', parseFloat(config.macroWeight || '33.34'));
+      this.weights.set('OnChainAnalyst', parseFloat(config.onChainWeight || '0'));
+      this.weights.set('WhaleTracker', parseFloat(config.whaleTrackerWeight || '15'));
+      this.weights.set('FundingRateAnalyst', parseFloat(config.fundingRateWeight || '15'));
+      this.weights.set('LiquidationHeatmap', parseFloat(config.liquidationWeight || '15'));
+      this.weights.set('OnChainFlowAnalyst', parseFloat(config.onChainFlowWeight || '15'));
+      this.weights.set('VolumeProfileAnalyzer', parseFloat(config.volumeProfileWeight || '20'));
+      
+      // Load category multipliers
+      this.categoryMultipliers.set('FAST', parseFloat(config.fastAgentMultiplier || '1.0'));
+      this.categoryMultipliers.set('SLOW', parseFloat(config.slowAgentMultiplier || '0.20'));
+      this.categoryMultipliers.set('PHASE2', parseFloat(config.phase2AgentMultiplier || '0.50'));
+      
+      // Load other settings
+      this.timeframeBonus = parseFloat(config.timeframeBonus || '10');
+      this.isActive = config.isActive ?? true;
+      
+      agentLogger.info('Loaded weights from database');
+      this.emit('weights_loaded', this.getConfig());
+      return true;
+    } catch (error) {
+      agentLogger.error('Failed to load weights', { error: (error as Error)?.message });
+      return false;
+    }
+  }
+  
+  /**
+   * Save weights to database
+   */
+  async saveToDatabase(): Promise<boolean> {
+    try {
+      const db = await getDb();
+      if (!db) {
+        agentLogger.warn('Database not available');
+        return false;
+      }
+      
+      const data = {
+        userId: this.userId,
+        technicalWeight: this.weights.get('TechnicalAnalyst')?.toString() || '40',
+        patternWeight: this.weights.get('PatternMatcher')?.toString() || '35',
+        orderFlowWeight: this.weights.get('OrderFlowAnalyst')?.toString() || '25',
+        sentimentWeight: this.weights.get('SentimentAnalyst')?.toString() || '33.33',
+        newsWeight: this.weights.get('NewsSentinel')?.toString() || '33.33',
+        macroWeight: this.weights.get('MacroAnalyst')?.toString() || '33.34',
+        onChainWeight: this.weights.get('OnChainAnalyst')?.toString() || '0',
+        whaleTrackerWeight: this.weights.get('WhaleTracker')?.toString() || '15',
+        fundingRateWeight: this.weights.get('FundingRateAnalyst')?.toString() || '15',
+        liquidationWeight: this.weights.get('LiquidationHeatmap')?.toString() || '15',
+        onChainFlowWeight: this.weights.get('OnChainFlowAnalyst')?.toString() || '15',
+        volumeProfileWeight: this.weights.get('VolumeProfileAnalyzer')?.toString() || '20',
+        fastAgentMultiplier: this.categoryMultipliers.get('FAST')?.toString() || '1.0',
+        slowAgentMultiplier: this.categoryMultipliers.get('SLOW')?.toString() || '0.20',
+        phase2AgentMultiplier: this.categoryMultipliers.get('PHASE2')?.toString() || '0.50',
+        timeframeBonus: this.timeframeBonus.toString(),
+        isActive: this.isActive,
+      };
+      
+      // Check if exists
+      const existing = await db
+        .select()
+        .from(agentWeights)
+        .where(eq(agentWeights.userId, this.userId))
+        .limit(1);
+      
+      if (existing.length > 0) {
+        await db
+          .update(agentWeights)
+          .set(data)
+          .where(eq(agentWeights.userId, this.userId));
+      } else {
+        await db.insert(agentWeights).values(data);
+      }
+      
+      agentLogger.info('Saved weights to database');
+      this.emit('weights_saved', this.getConfig());
+      return true;
+    } catch (error) {
+      agentLogger.error('Failed to save weights', { error: (error as Error)?.message });
+      return false;
+    }
+  }
+  
+  /**
+   * Get the category for an agent
+   */
+  getAgentCategory(agentName: string): AgentCategory | null {
+    if (AGENT_CATEGORIES.FAST.includes(agentName as any)) return 'FAST';
+    if (AGENT_CATEGORIES.SLOW.includes(agentName as any)) return 'SLOW';
+    if (AGENT_CATEGORIES.PHASE2.includes(agentName as any)) return 'PHASE2';
+    return null;
+  }
+  
+  /**
+   * Calculate the final weight for an agent
+   * Formula: baseWeight * categoryMultiplier * performanceAdjustment
+   */
+  calculateAgentWeight(agentName: string, historicalAccuracy?: number): WeightedAgentScore | null {
+    const category = this.getAgentCategory(agentName);
+    if (!category) {
+      agentLogger.warn('Unknown agent', { agentName });
+      return null;
+    }
+    
+    const baseWeight = this.weights.get(agentName as AgentName) || 0;
+    const categoryMultiplier = this.categoryMultipliers.get(category) || 1.0;
+    
+    // Calculate performance adjustment (0.5 to 1.5 based on recent accuracy)
+    let performanceAdjustment = 1.0;
+    if (historicalAccuracy !== undefined) {
+      // Scale accuracy (0-1) to adjustment (0.5-1.5)
+      performanceAdjustment = 0.5 + historicalAccuracy;
+    } else {
+      // Use internal performance history if available
+      const history = this.performanceHistory.get(agentName as AgentName);
+      if (history && history.length > 0) {
+        const avgAccuracy = history.reduce((a, b) => a + b, 0) / history.length;
+        performanceAdjustment = 0.5 + avgAccuracy;
+      }
+    }
+    
+    // Calculate final weight
+    const finalWeight = (baseWeight / 100) * categoryMultiplier * performanceAdjustment;
+    
+    return {
+      agentName: agentName as AgentName,
+      category,
+      baseWeight,
+      categoryMultiplier,
+      finalWeight,
+      performanceAdjustment,
+    };
+  }
+  
+  /**
+   * Get all agent weights with their calculated final values
+   */
+  getAllWeights(historicalAccuracies?: Map<string, number>): WeightedAgentScore[] {
+    const scores: WeightedAgentScore[] = [];
+    
+    for (const agent of ALL_AGENTS) {
+      const accuracy = historicalAccuracies?.get(agent);
+      const score = this.calculateAgentWeight(agent, accuracy);
+      if (score) {
+        scores.push(score);
+      }
+    }
+    
+    return scores;
+  }
+  
+  /**
+   * Update weight for a specific agent
+   */
+  setAgentWeight(agentName: AgentName, weight: number): void {
+    if (!ALL_AGENTS.includes(agentName)) {
+      agentLogger.warn('Unknown agent', { agentName });
+      return;
+    }
+    
+    // Clamp weight to 0-100
+    const clampedWeight = Math.max(0, Math.min(100, weight));
+    this.weights.set(agentName, clampedWeight);
+    
+    this.emit('weight_updated', { agentName, weight: clampedWeight });
+  }
+  
+  /**
+   * Update category multiplier
+   */
+  setCategoryMultiplier(category: AgentCategory, multiplier: number): void {
+    // Clamp multiplier to 0-2
+    const clampedMultiplier = Math.max(0, Math.min(2, multiplier));
+    this.categoryMultipliers.set(category, clampedMultiplier);
+    
+    this.emit('multiplier_updated', { category, multiplier: clampedMultiplier });
+  }
+  
+  /**
+   * Record agent performance for adaptive weighting
+   * Enhanced with confidence tracking for Brier score calibration
+   */
+  recordPerformance(agentName: AgentName, wasCorrect: boolean, predictedConfidence?: number): void {
+    // Legacy binary tracking
+    const history = this.performanceHistory.get(agentName);
+    if (!history) return;
+
+    history.push(wasCorrect ? 1 : 0);
+    if (history.length > this.PERFORMANCE_WINDOW) {
+      history.shift();
+    }
+
+    // Detailed performance tracking with confidence
+    const detailed = this.detailedPerformance.get(agentName);
+    if (detailed) {
+      detailed.push({
+        wasCorrect,
+        predictedConfidence: predictedConfidence ?? 0.5,
+        timestamp: Date.now(),
+      });
+      if (detailed.length > this.PERFORMANCE_WINDOW) {
+        detailed.shift();
+      }
+    }
+
+    const recentAccuracy = history.reduce((a, b) => a + b, 0) / history.length;
+
+    this.emit('performance_recorded', {
+      agentName,
+      wasCorrect,
+      recentAccuracy,
+    });
+
+    // Trigger weight recalculation periodically
+    this.recordsSinceLastRecalc++;
+    if (this.recordsSinceLastRecalc >= this.WEIGHT_RECALC_INTERVAL) {
+      this.recalculateWeightsFromPerformance();
+      this.recordsSinceLastRecalc = 0;
+    }
+  }
+
+  /**
+   * Record a complete trade outcome for all participating agents
+   * Called when a trade closes — evaluates each agent's signal against the outcome
+   */
+  recordTradeOutcome(
+    agentSignals: Array<{ agentName: string; signal: 'bullish' | 'bearish' | 'neutral'; confidence: number }>,
+    tradeSide: 'long' | 'short',
+    wasProfit: boolean,
+    pnlAfterCosts?: number // Phase 5: cost-aware profitability
+  ): void {
+    // Phase 5: Use pnlAfterCosts as the primary profitability signal when available.
+    // Small winners that become losers after fees (commission + slippage) should penalize agents.
+    const actuallyProfit = pnlAfterCosts !== undefined ? pnlAfterCosts > 0 : wasProfit;
+
+    for (const agentSignal of agentSignals) {
+      const agentName = agentSignal.agentName as AgentName;
+      if (!ALL_AGENTS.includes(agentName)) continue;
+
+      // Agent was correct if its signal direction matched the profitable trade outcome
+      let wasCorrect = false;
+      if (tradeSide === 'long') {
+        wasCorrect = (agentSignal.signal === 'bullish' && actuallyProfit) ||
+                     (agentSignal.signal === 'bearish' && !actuallyProfit);
+      } else {
+        wasCorrect = (agentSignal.signal === 'bearish' && actuallyProfit) ||
+                     (agentSignal.signal === 'bullish' && !actuallyProfit);
+      }
+
+      // Neutral signals are neither correct nor incorrect — skip them
+      if (agentSignal.signal === 'neutral') continue;
+
+      this.recordPerformance(agentName, wasCorrect, agentSignal.confidence);
+    }
+  }
+
+  /**
+   * Calculate Brier score for an agent
+   * Brier score measures how well an agent's confidence matches actual outcomes
+   * Score of 0 = perfect calibration, 1 = worst possible
+   */
+  calculateBrierScore(agentName: AgentName): number {
+    const records = this.detailedPerformance.get(agentName);
+    if (!records || records.length === 0) return 0.25; // Default: random baseline
+
+    let sumSquaredErrors = 0;
+    for (const record of records) {
+      const outcome = record.wasCorrect ? 1 : 0;
+      const forecast = record.predictedConfidence;
+      sumSquaredErrors += (forecast - outcome) ** 2;
+    }
+
+    return sumSquaredErrors / records.length;
+  }
+
+  /**
+   * Get comprehensive performance metrics for an agent
+   */
+  getAgentMetrics(agentName: AgentName): AgentPerformanceMetrics {
+    const history = this.performanceHistory.get(agentName) || [];
+    const detailed = this.detailedPerformance.get(agentName) || [];
+
+    const samples = history.length;
+    const accuracy = samples > 0 ? history.reduce((a, b) => a + b, 0) / samples : 0.5;
+
+    // Recent accuracy (last 20 trades)
+    const recent = history.slice(-20);
+    const recentAccuracy = recent.length > 0 ? recent.reduce((a, b) => a + b, 0) / recent.length : 0.5;
+
+    // Brier score
+    const brierScore = this.calculateBrierScore(agentName);
+
+    // Calibration: average confidence vs actual accuracy
+    let avgConfidence = 0.5;
+    if (detailed.length > 0) {
+      avgConfidence = detailed.reduce((sum, r) => sum + r.predictedConfidence, 0) / detailed.length;
+    }
+    const calibration = Math.abs(avgConfidence - accuracy);
+
+    // Weight adjustment: combine accuracy and calibration
+    const weightAdjustment = this.computeWeightAdjustment(accuracy, brierScore, samples);
+
+    return { accuracy, brierScore, calibration, samples, recentAccuracy, weightAdjustment };
+  }
+
+  /**
+   * Compute weight adjustment multiplier from performance metrics
+   * Range: 0.5 (worst) to 1.5 (best)
+   *
+   * Uses a combination of:
+   * - Accuracy: agents with >70% get boosted, <40% get halved
+   * - Brier score: well-calibrated agents get extra boost
+   * - Minimum samples: need MIN_SAMPLES_FOR_ADJUSTMENT before adjusting
+   */
+  private computeWeightAdjustment(accuracy: number, brierScore: number, samples: number): number {
+    if (samples < this.MIN_SAMPLES_FOR_ADJUSTMENT) {
+      return 1.0; // Not enough data, use default weight
+    }
+
+    // Base adjustment from accuracy (0.5 at 0% accuracy, 1.0 at 50%, 1.5 at 100%)
+    let adjustment = 0.5 + accuracy;
+
+    // Brier score bonus/penalty (good calibration = lower brier score)
+    // Perfect Brier = 0 → +0.1 bonus, Terrible Brier = 0.5+ → -0.1 penalty
+    const brierAdjustment = 0.1 * (1 - brierScore * 4); // Maps 0→+0.1, 0.25→0, 0.5→-0.1
+    adjustment += Math.max(-0.1, Math.min(0.1, brierAdjustment));
+
+    // Phase 15B: Hard penalty for agents performing worse than random
+    // An agent with <40% accuracy is actively harmful — halve its weight
+    if (accuracy < 0.40 && samples >= this.MIN_SAMPLES_FOR_ADJUSTMENT) {
+      adjustment *= 0.5;
+    }
+
+    // Clamp to safe range
+    return Math.max(0.25, Math.min(1.5, adjustment)); // Lowered floor from 0.5 to 0.25 for poor agents
+  }
+
+  /**
+   * Recalculate all agent weights based on accumulated performance data
+   * Called periodically (every WEIGHT_RECALC_INTERVAL recordings)
+   * Persists updated weights to database
+   */
+  recalculateWeightsFromPerformance(): void {
+    let adjustmentsMade = 0;
+
+    for (const agentName of ALL_AGENTS) {
+      const metrics = this.getAgentMetrics(agentName);
+
+      if (metrics.samples < this.MIN_SAMPLES_FOR_ADJUSTMENT) continue;
+
+      const currentWeight = this.weights.get(agentName) || 0;
+      if (currentWeight === 0) continue; // Don't adjust disabled agents
+
+      const category = this.getAgentCategory(agentName);
+      if (!category) continue;
+
+      // Get default weight for this agent
+      const defaultWeight = DEFAULT_AGENT_WEIGHTS[agentName];
+
+      // New weight = default weight * performance adjustment
+      const newWeight = defaultWeight * metrics.weightAdjustment;
+      const clampedWeight = Math.max(0, Math.min(100, newWeight));
+
+      if (Math.abs(clampedWeight - currentWeight) > 0.5) {
+        this.weights.set(agentName, clampedWeight);
+        adjustmentsMade++;
+
+        agentLogger.info('Weight adjusted', { agentName, oldWeight: currentWeight.toFixed(1), newWeight: clampedWeight.toFixed(1), accuracyPct: (metrics.accuracy * 100).toFixed(1), brierScore: metrics.brierScore.toFixed(3), samples: metrics.samples });
+      }
+    }
+
+    if (adjustmentsMade > 0) {
+      agentLogger.info('Recalculated agent weights from performance data', { adjustmentsMade });
+      this.emit('weights_recalculated', this.getConfig());
+
+      // Persist to database (async, non-blocking)
+      this.saveToDatabase().catch(err => {
+        agentLogger.error('Failed to persist recalculated weights', { error: (err as Error)?.message });
+      });
+    }
+  }
+
+  /**
+   * Get consensus weights formatted for AutomatedSignalProcessor
+   * Returns normalized weights (0-1 range) for all agents
+   * This is the single source of truth for agent weights across the system
+   */
+  getConsensusWeights(): Record<string, number> {
+    const weights: Record<string, number> = {};
+
+    for (const agentName of ALL_AGENTS) {
+      const score = this.calculateAgentWeight(agentName);
+      if (score) {
+        weights[agentName] = score.finalWeight;
+      }
+    }
+
+    return weights;
+  }
+  
+  /**
+   * Get current configuration
+   */
+  getConfig(): AgentWeightConfig {
+    const weights: Record<string, number> = {};
+    for (const [agent, weight] of this.weights.entries()) {
+      weights[agent] = weight;
+    }
+    
+    const categoryMultipliers: Record<string, number> = {};
+    for (const [category, multiplier] of this.categoryMultipliers.entries()) {
+      categoryMultipliers[category] = multiplier;
+    }
+    
+    return {
+      userId: this.userId,
+      weights: weights as Record<AgentName, number>,
+      categoryMultipliers: categoryMultipliers as Record<AgentCategory, number>,
+      timeframeBonus: this.timeframeBonus,
+      isActive: this.isActive,
+    };
+  }
+  
+  /**
+   * Update configuration from object
+   */
+  updateConfig(config: Partial<AgentWeightConfig>): void {
+    if (config.weights) {
+      for (const [agent, weight] of Object.entries(config.weights)) {
+        this.setAgentWeight(agent as AgentName, weight);
+      }
+    }
+    
+    if (config.categoryMultipliers) {
+      for (const [category, multiplier] of Object.entries(config.categoryMultipliers)) {
+        this.setCategoryMultiplier(category as AgentCategory, multiplier);
+      }
+    }
+    
+    if (config.timeframeBonus !== undefined) {
+      this.timeframeBonus = config.timeframeBonus;
+    }
+    
+    if (config.isActive !== undefined) {
+      this.isActive = config.isActive;
+    }
+    
+    this.emit('config_updated', this.getConfig());
+  }
+  
+  /**
+   * Reset to default weights
+   */
+  resetToDefaults(): void {
+    this.initializeDefaults();
+    this.emit('config_reset', this.getConfig());
+  }
+  
+  /**
+   * Get performance summary for all agents (enhanced with Brier score)
+   */
+  getPerformanceSummary(): Record<AgentName, AgentPerformanceMetrics> {
+    const summary: Record<string, AgentPerformanceMetrics> = {};
+
+    for (const agent of ALL_AGENTS) {
+      summary[agent] = this.getAgentMetrics(agent);
+    }
+
+    return summary as Record<AgentName, AgentPerformanceMetrics>;
+  }
+}
+
+// Singleton instance
+let agentWeightManagerInstance: AgentWeightManager | null = null;
+
+export function getAgentWeightManager(userId: number = 1): AgentWeightManager {
+  if (!agentWeightManagerInstance || agentWeightManagerInstance['userId'] !== userId) {
+    agentWeightManagerInstance = new AgentWeightManager(userId);
+  }
+  return agentWeightManagerInstance;
+}
+
+export default AgentWeightManager;

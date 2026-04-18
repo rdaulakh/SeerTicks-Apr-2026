@@ -1,0 +1,1 @@
+ALTER TABLE `strategyPerformance` ADD `calmarRatio` varchar(50);

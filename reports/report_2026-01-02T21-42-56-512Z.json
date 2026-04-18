@@ -1,0 +1,31 @@
+{
+  "reportPeriod": {
+    "start": "2026-01-02T09:42:53.276Z",
+    "end": "2026-01-02T21:42:53.275Z",
+    "durationHours": 12
+  },
+  "summary": {
+    "startingBalance": 9797.85,
+    "endingBalance": 9797.85,
+    "totalRealizedPnL": 0,
+    "totalUnrealizedPnL": 0,
+    "netPnL": 0,
+    "returnPercent": "0.00"
+  },
+  "trades": {
+    "totalClosed": 0,
+    "winning": 0,
+    "losing": 0,
+    "breakEven": 0,
+    "winRate": "0.00",
+    "avgPnLPerTrade": "0.00"
+  },
+  "bySymbol": {},
+  "openPositions": [],
+  "engineStatus": {
+    "isRunning": true,
+    "autoTradingEnabled": true,
+    "startedAt": "2026-01-03T02:41:03.000Z"
+  },
+  "generatedAt": "2026-01-02T21:42:56.511Z"
+}

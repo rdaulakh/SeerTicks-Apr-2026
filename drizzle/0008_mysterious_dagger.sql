@@ -1,0 +1,2 @@
+ALTER TABLE `archived_ticks` MODIFY COLUMN `source` enum('coinapi','coinbase','binance','coingecko') NOT NULL DEFAULT 'coinbase';--> statement-breakpoint
+ALTER TABLE `ticks` MODIFY COLUMN `source` enum('coinapi','coinbase','binance','coingecko') NOT NULL DEFAULT 'coinbase';

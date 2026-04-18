@@ -1,0 +1,1 @@
+ALTER TABLE `positions` ADD `exitPrice` varchar(50);

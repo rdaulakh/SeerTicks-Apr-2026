@@ -1,0 +1,138 @@
+{
+  "config": {
+    "startDate": "2025-12-20T05:05:38.924Z",
+    "endDate": "2025-12-27T05:05:38.924Z",
+    "symbols": [
+      "BTC-USD",
+      "ETH-USD"
+    ],
+    "initialCapital": 50000,
+    "maxRiskPerTrade": 0.02,
+    "maxDrawdown": 0.15,
+    "maxPositions": 10,
+    "slippagePercent": 0.1,
+    "feePercent": 0.25
+  },
+  "metrics": {
+    "totalTrades": 69,
+    "winningTrades": 13,
+    "losingTrades": 56,
+    "winRate": 18.84057971014493,
+    "totalPnL": -2944.77317661954,
+    "totalPnLPercent": -5.889546353239081,
+    "maxDrawdown": 0,
+    "maxDrawdownPercent": 0,
+    "sharpeRatio": -16.99971295608989,
+    "sortinoRatio": -10.650168984749575,
+    "profitFactor": 0.1072685078376142,
+    "avgWin": 27.218230044053396,
+    "avgLoss": 58.90375298557563,
+    "avgHoldTime": 2.8466183574879227,
+    "capitalUtilization": 127.84148058559543,
+    "tradeFrequency": 9.857142857142858,
+    "largestWin": 68.75647473505913,
+    "largestLoss": -182.58777086454683,
+    "consecutiveWins": 2,
+    "consecutiveLosses": 10
+  },
+  "validation": {
+    "isValid": true,
+    "errors": [],
+    "warnings": [],
+    "strategiesValidated": 61,
+    "agentsValidated": 12,
+    "duplicatesDetected": 0,
+    "budgetViolations": 0,
+    "riskViolations": 0
+  },
+  "strategyPerformance": [
+    {
+      "strategyName": "adx_trend_strength",
+      "trades": 4,
+      "winRate": 75,
+      "pnl": 109.50646079259805,
+      "sharpe": 0.6394753445794719
+    },
+    {
+      "strategyName": "volume_expansion_breakout",
+      "trades": 6,
+      "winRate": 16.666666666666664,
+      "pnl": -29.224674098064405,
+      "sharpe": -0.87123712967441
+    },
+    {
+      "strategyName": "macd_trend_ride",
+      "trades": 5,
+      "winRate": 40,
+      "pnl": -29.88217906446077,
+      "sharpe": -0.43485181114107435
+    },
+    {
+      "strategyName": "vwap_reversion",
+      "trades": 3,
+      "winRate": 0,
+      "pnl": -204.71562074840153,
+      "sharpe": -5.820832844640932
+    },
+    {
+      "strategyName": "bull_bear_flag",
+      "trades": 7,
+      "winRate": 42.857142857142854,
+      "pnl": -205.24819859913248,
+      "sharpe": -0.6218572835289718
+    },
+    {
+      "strategyName": "intraday_mean_reversion",
+      "trades": 4,
+      "winRate": 25,
+      "pnl": -211.64029993031482,
+      "sharpe": -1.3468311039685328
+    },
+    {
+      "strategyName": "rsi_trend_continuation",
+      "trades": 5,
+      "winRate": 0,
+      "pnl": -256.4259117761296,
+      "sharpe": -1.3111437707506712
+    },
+    {
+      "strategyName": "vwap_trend_following",
+      "trades": 5,
+      "winRate": 20,
+      "pnl": -333.2846845210281,
+      "sharpe": -1.047385796526828
+    },
+    {
+      "strategyName": "support_resistance_bounce",
+      "trades": 5,
+      "winRate": 0,
+      "pnl": -333.9204826871217,
+      "sharpe": -6.2107183320393196
+    },
+    {
+      "strategyName": "trend_pullback",
+      "trades": 6,
+      "winRate": 16.666666666666664,
+      "pnl": -422.2587079167993,
+      "sharpe": -0.90840769948114
+    },
+    {
+      "strategyName": "false_breakout_trap",
+      "trades": 9,
+      "winRate": 11.11111111111111,
+      "pnl": -461.1194823553796,
+      "sharpe": -1.439817021194565
+    },
+    {
+      "strategyName": "ema_crossover",
+      "trades": 10,
+      "winRate": 0,
+      "pnl": -566.559395715306,
+      "sharpe": -3.5738177614277586
+    }
+  ],
+  "verdict": "NEEDS_IMPROVEMENT",
+  "verdictReason": "Win rate 18.84% below 50%; Sharpe ratio -17.00 below 1.0",
+  "tradeCount": 69,
+  "dataSource": "Coinbase Exchange API"
+}

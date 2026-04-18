@@ -1,0 +1,1 @@
+ALTER TABLE `tradingSymbols` ADD `exchangeName` enum('binance','coinbase') DEFAULT 'coinbase' NOT NULL;

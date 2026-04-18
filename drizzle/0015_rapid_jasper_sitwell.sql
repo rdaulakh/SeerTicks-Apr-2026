@@ -1,0 +1,1 @@
+ALTER TABLE `tradeDecisionLogs` MODIFY COLUMN `userId` int NOT NULL DEFAULT 1;

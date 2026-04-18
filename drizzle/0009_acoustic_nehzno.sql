@@ -1,0 +1,1 @@
+ALTER TABLE `strategyPerformance` ADD `sortinoRatio` varchar(50);

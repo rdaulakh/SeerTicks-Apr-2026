@@ -1,0 +1,1 @@
+ALTER TABLE `learnedParameters` MODIFY COLUMN `value` text NOT NULL;

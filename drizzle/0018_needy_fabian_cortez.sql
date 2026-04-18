@@ -1,0 +1,1 @@
+ALTER TABLE `tradingPipelineLog` MODIFY COLUMN `action` varchar(20);

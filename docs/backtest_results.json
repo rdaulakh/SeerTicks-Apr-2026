@@ -1,0 +1,3475 @@
+{
+  "timestamp": "2025-12-29T05:23:40.267Z",
+  "config": {
+    "period": {
+      "start": "2025-10-30T05:22:05.749Z",
+      "end": "2025-12-29T05:22:05.749Z"
+    },
+    "symbols": [
+      "BTC-USD",
+      "ETH-USD"
+    ],
+    "consensusThreshold": 0.6,
+    "initialCapital": 50000
+  },
+  "results": [
+    {
+      "symbol": "BTC-USD",
+      "period": {
+        "start": "2025-10-30T05:22:05.749Z",
+        "end": "2025-12-29T05:22:05.749Z"
+      },
+      "initialCapital": 50000,
+      "finalCapital": 49947.471408247075,
+      "totalPnl": -51.787371786827265,
+      "totalPnlPercent": -0.10357474357365452,
+      "totalTrades": 6,
+      "winningTrades": 2,
+      "losingTrades": 4,
+      "winRate": 0.3333333333333333,
+      "avgWin": 7.897358449564883,
+      "avgLoss": 16.895522171489258,
+      "profitFactor": 0.4674231651088869,
+      "maxDrawdown": 1.5214072374841812,
+      "sharpeRatio": -0.29220409949545084,
+      "tradesByRegime": {
+        "trending_up": {
+          "trades": 0,
+          "winRate": 0,
+          "pnl": 0
+        },
+        "trending_down": {
+          "trades": 6,
+          "winRate": 0.3333333333333333,
+          "pnl": -51.787371786827265
+        },
+        "ranging": {
+          "trades": 0,
+          "winRate": 0,
+          "pnl": 0
+        },
+        "volatile": {
+          "trades": 0,
+          "winRate": 0,
+          "pnl": 0
+        },
+        "choppy": {
+          "trades": 0,
+          "winRate": 0,
+          "pnl": 0
+        }
+      },
+      "tradesByAgent": {
+        "TechnicalAnalyst": {
+          "trades": 6,
+          "winRate": 0.3333333333333333,
+          "pnl": -51.787371786827265
+        },
+        "PatternMatcher": {
+          "trades": 6,
+          "winRate": 0.3333333333333333,
+          "pnl": -51.787371786827265
+        },
+        "OrderFlowAnalyst": {
+          "trades": 6,
+          "winRate": 0.3333333333333333,
+          "pnl": -51.787371786827265
+        },
+        "SentimentAnalyst": {
+          "trades": 6,
+          "winRate": 0.3333333333333333,
+          "pnl": -51.787371786827265
+        },
+        "MacroAnalyst": {
+          "trades": 6,
+          "winRate": 0.3333333333333333,
+          "pnl": -51.787371786827265
+        },
+        "WhaleTracker": {
+          "trades": 6,
+          "winRate": 0.3333333333333333,
+          "pnl": -51.787371786827265
+        }
+      },
+      "tradesByHour": {
+        "12": {
+          "trades": 1,
+          "winRate": 0,
+          "pnl": -0.002848029444136202
+        },
+        "18": {
+          "trades": 2,
+          "winRate": 0,
+          "pnl": -67.5763597991637
+        },
+        "19": {
+          "trades": 2,
+          "winRate": 0.5,
+          "pnl": 9.882683242142956
+        },
+        "20": {
+          "trades": 1,
+          "winRate": 1,
+          "pnl": 5.909152799637612
+        }
+      },
+      "winningTradeFactors": {
+        "trending_market": 2,
+        "strong_agent_agreement": 1,
+        "partial_profit_taking": 1,
+        "breakeven_protected": 1
+      },
+      "losingTradeFactors": {
+        "stop_loss_hit": 1,
+        "low_confidence": 3,
+        "agent_disagreement": 2,
+        "weak_consensus": 1
+      },
+      "trades": [
+        {
+          "id": "BTC-USD-1766985732600-xn3k2u5zg",
+          "symbol": "BTC-USD",
+          "direction": "long",
+          "entryPrice": 101294.09,
+          "entryTime": 1762279200000,
+          "quantity": 0.031442648674764026,
+          "positionValue": 3184.954484699928,
+          "stopLoss": 99268.2082,
+          "takeProfit": 105345.8536,
+          "consensus": 0.5649490287639167,
+          "confidence": 0.6369908969399855,
+          "regime": "trending_down",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.6784299860011062,
+              "reasoning": "RSI oversold at 22.2, downtrend confirmed",
+              "executionScore": 69,
+              "timestamp": 1762279200000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Double bottom pattern detected",
+              "executionScore": 70,
+              "timestamp": 1762279200000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.8500000000000001,
+              "reasoning": "High volume (3.1x avg) with bullish price action, volume trend increasing",
+              "executionScore": 85,
+              "timestamp": 1762279200000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bearish",
+              "confidence": 0.5984639185585922,
+              "reasoning": "Negative momentum (-2.42%) suggesting bearish sentiment",
+              "executionScore": 48,
+              "timestamp": 1762279200000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bearish",
+              "confidence": 0.7,
+              "reasoning": "Price below 50 SMA with 20 SMA below 50 SMA - bearish macro trend, strong trend (5.1% from 50 SMA)",
+              "executionScore": 49,
+              "timestamp": 1762279200000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.55,
+              "reasoning": "Possible whale activity (2.4 std dev volume)",
+              "executionScore": 47,
+              "timestamp": 1762279200000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": false,
+          "highestPrice": 101675.09,
+          "lowestPrice": 98892.97,
+          "exitPrice": 99268.2082,
+          "exitTime": 1766985732648,
+          "pnl": -66.82034508900458,
+          "pnlPercent": -2.0980000000000025,
+          "exitReason": "stop_loss",
+          "holdTimeMs": 4706532648,
+          "losingFactors": [
+            "stop_loss_hit"
+          ]
+        },
+        {
+          "id": "BTC-USD-1766985732985-3fdxcwdhx",
+          "symbol": "BTC-USD",
+          "direction": "long",
+          "entryPrice": 98629.96,
+          "entryTime": 1763060400000,
+          "quantity": 0.02920874497909477,
+          "positionValue": 2880.857348938318,
+          "stopLoss": 98728.58996,
+          "takeProfit": 102575.15840000001,
+          "consensus": 0.5085728568928296,
+          "confidence": 0.576942499726228,
+          "regime": "trending_down",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.6864781364268562,
+              "reasoning": "RSI oversold at 21.4, downtrend confirmed",
+              "executionScore": 69,
+              "timestamp": 1763060400000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Double bottom pattern detected",
+              "executionScore": 70,
+              "timestamp": 1763060400000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.7117289103930692,
+              "reasoning": "High volume (2.3x avg) with bullish price action, volume trend increasing",
+              "executionScore": 71,
+              "timestamp": 1763060400000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bearish",
+              "confidence": 0.6342257300845249,
+              "reasoning": "Negative momentum (-4.21%) suggesting bearish sentiment",
+              "executionScore": 51,
+              "timestamp": 1763060400000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bearish",
+              "confidence": 0.6,
+              "reasoning": "Price below 50 SMA with 20 SMA below 50 SMA - bearish macro trend",
+              "executionScore": 42,
+              "timestamp": 1763060400000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "BTC-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No significant whale activity detected",
+              "executionScore": 43,
+              "timestamp": 1763060400000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": true,
+          "highestPrice": 99887.45,
+          "lowestPrice": 97870,
+          "exitPrice": 98728.58996,
+          "exitTime": 1766985732997,
+          "pnl": -0.002880857349198074,
+          "pnlPercent": -0.00010000000000901662,
+          "exitReason": "breakeven_stop",
+          "holdTimeMs": 3925332997,
+          "losingFactors": [
+            "low_confidence",
+            "agent_disagreement"
+          ]
+        },
+        {
+          "id": "BTC-USD-1766985733096-fkzjxjar1",
+          "symbol": "BTC-USD",
+          "direction": "long",
+          "entryPrice": 91787.28,
+          "entryTime": 1763409600000,
+          "quantity": 0.03345043115430778,
+          "positionValue": 3070.324090481171,
+          "stopLoss": 89951.5344,
+          "takeProfit": 95458.7712,
+          "consensus": 0.5468807778184103,
+          "confidence": 0.6148865922098867,
+          "regime": "trending_down",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.6444568936281645,
+              "reasoning": "RSI oversold at 25.6, downtrend confirmed",
+              "executionScore": 67,
+              "timestamp": 1763409600000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Double bottom pattern detected",
+              "executionScore": 70,
+              "timestamp": 1763409600000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.7974605301219493,
+              "reasoning": "High volume (2.7x avg) with bullish price action, volume trend increasing",
+              "executionScore": 80,
+              "timestamp": 1763409600000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bearish",
+              "confidence": 0.6275610545347728,
+              "reasoning": "Negative momentum (-3.88%) suggesting bearish sentiment",
+              "executionScore": 50,
+              "timestamp": 1763409600000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bearish",
+              "confidence": 0.6,
+              "reasoning": "Price below 50 SMA with 20 SMA below 50 SMA - bearish macro trend",
+              "executionScore": 42,
+              "timestamp": 1763409600000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.55,
+              "reasoning": "Possible whale activity (2.3 std dev volume)",
+              "executionScore": 47,
+              "timestamp": 1763409600000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": false,
+          "highestPrice": 92294.98,
+          "lowestPrice": 91087.79,
+          "exitPrice": 92055.99,
+          "exitTime": 1766985733103,
+          "pnl": 5.909152799637612,
+          "pnlPercent": 0.19246022978348024,
+          "exitReason": "time_exit_profitable_0.29%",
+          "holdTimeMs": 3576133103,
+          "winningFactors": [
+            "trending_market",
+            "strong_agent_agreement"
+          ]
+        },
+        {
+          "id": "BTC-USD-1766985733241-gfu2wklxr",
+          "symbol": "BTC-USD",
+          "direction": "long",
+          "entryPrice": 86796.05,
+          "entryTime": 1763665200000,
+          "quantity": 0.033703478810793136,
+          "positionValue": 2925.3288320355414,
+          "stopLoss": 86882.84605,
+          "takeProfit": 90267.892,
+          "consensus": 0.5161576089975023,
+          "confidence": 0.5857794106044162,
+          "regime": "trending_down",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.783018268551848,
+              "reasoning": "RSI oversold at 11.7, downtrend confirmed",
+              "executionScore": 74,
+              "timestamp": 1763665200000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Double bottom pattern detected",
+              "executionScore": 70,
+              "timestamp": 1763665200000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.6000000000000001,
+              "reasoning": "Above average volume (1.8x) with bullish candle, volume trend increasing",
+              "executionScore": 60,
+              "timestamp": 1763665200000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bearish",
+              "confidence": 0.6571630021630135,
+              "reasoning": "Negative momentum (-5.36%) suggesting bearish sentiment",
+              "executionScore": 53,
+              "timestamp": 1763665200000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bearish",
+              "confidence": 0.6,
+              "reasoning": "Price below 50 SMA with 20 SMA below 50 SMA - bearish macro trend",
+              "executionScore": 42,
+              "timestamp": 1763665200000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "BTC-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No significant whale activity detected",
+              "executionScore": 43,
+              "timestamp": 1763665200000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [
+            {
+              "price": 87969.55,
+              "quantity": 0.008425869702698284,
+              "pnlPercent": 1.3520200516037308,
+              "reason": "partial_1%"
+            }
+          ],
+          "breakevenActivated": true,
+          "highestPrice": 88152.18,
+          "lowestPrice": 86195.95,
+          "exitPrice": 86882.84605,
+          "exitTime": 1766985733315,
+          "pnl": 9.885564099492154,
+          "pnlPercent": 0.337930012900924,
+          "exitReason": "breakeven_stop",
+          "holdTimeMs": 3320533315,
+          "winningFactors": [
+            "trending_market",
+            "partial_profit_taking",
+            "breakeven_protected"
+          ]
+        },
+        {
+          "id": "BTC-USD-1766985733348-fcsg4edjy",
+          "symbol": "BTC-USD",
+          "direction": "long",
+          "entryPrice": 83176.01,
+          "entryTime": 1763726400000,
+          "quantity": 0.0342409962197628,
+          "positionValue": 2848.0294439849526,
+          "stopLoss": 83259.18600999999,
+          "takeProfit": 86503.0504,
+          "consensus": 0.4975622513240956,
+          "confidence": 0.5701962669214491,
+          "regime": "trending_down",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.6289244199929334,
+              "reasoning": "RSI oversold at 27.1, downtrend confirmed",
+              "executionScore": 66,
+              "timestamp": 1763726400000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.65,
+              "reasoning": "Bullish engulfing pattern detected",
+              "executionScore": 65,
+              "timestamp": 1763726400000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.6761900748434345,
+              "reasoning": "High volume (2.1x avg) with bullish price action, volume trend increasing",
+              "executionScore": 68,
+              "timestamp": 1763726400000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bearish",
+              "confidence": 0.6093109826848546,
+              "reasoning": "Negative momentum (-2.97%) suggesting bearish sentiment",
+              "executionScore": 49,
+              "timestamp": 1763726400000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bearish",
+              "confidence": 0.7,
+              "reasoning": "Price below 50 SMA with 20 SMA below 50 SMA - bearish macro trend, strong trend (6.4% from 50 SMA)",
+              "executionScore": 49,
+              "timestamp": 1763726400000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.55,
+              "reasoning": "Possible whale activity (2.1 std dev volume)",
+              "executionScore": 47,
+              "timestamp": 1763726400000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": true,
+          "highestPrice": 84340,
+          "lowestPrice": 83004.88,
+          "exitPrice": 83259.18600999999,
+          "exitTime": 1766985733370,
+          "pnl": -0.002848029444136202,
+          "pnlPercent": -0.00010000000000531066,
+          "exitReason": "breakeven_stop",
+          "holdTimeMs": 3259333370,
+          "losingFactors": [
+            "weak_consensus",
+            "low_confidence"
+          ]
+        },
+        {
+          "id": "BTC-USD-1766985735981-3vqzoenm2",
+          "symbol": "BTC-USD",
+          "direction": "long",
+          "entryPrice": 86179.56,
+          "entryTime": 1765821600000,
+          "quantity": 0.034187632645627145,
+          "positionValue": 2946.2751388417832,
+          "stopLoss": 84455.9688,
+          "takeProfit": 89626.7424,
+          "consensus": 0.5216106447679256,
+          "confidence": 0.589865805225275,
+          "regime": "trending_down",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.752490498663972,
+              "reasoning": "RSI oversold at 14.8, downtrend confirmed",
+              "executionScore": 73,
+              "timestamp": 1765821600000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Double bottom pattern detected",
+              "executionScore": 70,
+              "timestamp": 1765821600000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bullish",
+              "confidence": 0.6686062362070747,
+              "reasoning": "High volume (2.1x avg) with bullish price action, volume trend increasing",
+              "executionScore": 67,
+              "timestamp": 1765821600000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bearish",
+              "confidence": 0.6321286211050827,
+              "reasoning": "Negative momentum (-4.11%) suggesting bearish sentiment",
+              "executionScore": 51,
+              "timestamp": 1765821600000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "BTC-USD",
+              "signal": "bearish",
+              "confidence": 0.6,
+              "reasoning": "Price below 50 SMA with 20 SMA below 50 SMA - bearish macro trend",
+              "executionScore": 42,
+              "timestamp": 1765821600000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "BTC-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No significant whale activity detected",
+              "executionScore": 43,
+              "timestamp": 1765821600000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": false,
+          "highestPrice": 86544.98,
+          "lowestPrice": 85500,
+          "exitPrice": 86243.69,
+          "exitTime": 1766985736032,
+          "pnl": -0.7560147101591195,
+          "pnlPercent": -0.02566001729411864,
+          "exitReason": "time_exit_profitable_0.07%",
+          "holdTimeMs": 1164136032,
+          "losingFactors": [
+            "low_confidence",
+            "agent_disagreement"
+          ]
+        }
+      ],
+      "equityCurve": [
+        {
+          "timestamp": 1761804000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1761984000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762020000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762056000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762092000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762128000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762164000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762200000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762236000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762272000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762308000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762344000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762380000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762416000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762452000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762488000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762524000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762560000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762596000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762632000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762668000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762704000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762740000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762776000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762812000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762848000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762884000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762920000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762956000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1762992000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1763028000000,
+          "equity": 49933.17965491099
+        },
+        {
+          "timestamp": 1763064000000,
+          "equity": 49917.408100972076
+        },
+        {
+          "timestamp": 1763100000000,
+          "equity": 49933.176774053645
+        },
+        {
+          "timestamp": 1763136000000,
+          "equity": 49933.176774053645
+        },
+        {
+          "timestamp": 1763172000000,
+          "equity": 49933.176774053645
+        },
+        {
+          "timestamp": 1763208000000,
+          "equity": 49933.176774053645
+        },
+        {
+          "timestamp": 1763244000000,
+          "equity": 49933.176774053645
+        },
+        {
+          "timestamp": 1763280000000,
+          "equity": 49933.176774053645
+        },
+        {
+          "timestamp": 1763316000000,
+          "equity": 49933.176774053645
+        },
+        {
+          "timestamp": 1763352000000,
+          "equity": 49933.176774053645
+        },
+        {
+          "timestamp": 1763388000000,
+          "equity": 49933.176774053645
+        },
+        {
+          "timestamp": 1763424000000,
+          "equity": 49939.08592685329
+        },
+        {
+          "timestamp": 1763460000000,
+          "equity": 49939.08592685329
+        },
+        {
+          "timestamp": 1763496000000,
+          "equity": 49939.08592685329
+        },
+        {
+          "timestamp": 1763532000000,
+          "equity": 49939.08592685329
+        },
+        {
+          "timestamp": 1763568000000,
+          "equity": 49939.08592685329
+        },
+        {
+          "timestamp": 1763604000000,
+          "equity": 49939.08592685329
+        },
+        {
+          "timestamp": 1763640000000,
+          "equity": 49939.08592685329
+        },
+        {
+          "timestamp": 1763676000000,
+          "equity": 50719.11570537665
+        },
+        {
+          "timestamp": 1763712000000,
+          "equity": 49948.23027098668
+        },
+        {
+          "timestamp": 1763748000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1763784000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1763820000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1763856000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1763892000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1763928000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1763964000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764000000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764036000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764072000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764108000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764144000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764180000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764216000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764252000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764288000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764324000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764360000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764396000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764432000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764468000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764504000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764540000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764576000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764612000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764648000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764684000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764720000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764756000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764792000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764828000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764864000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764900000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764936000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1764972000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765008000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765044000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765080000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765116000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765152000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765188000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765224000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765260000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765296000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765332000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765368000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765404000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765440000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765476000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765512000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765548000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765584000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765620000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765656000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765692000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765728000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765764000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765800000000,
+          "equity": 49948.227422957236
+        },
+        {
+          "timestamp": 1765836000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1765872000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1765908000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1765944000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1765980000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766016000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766052000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766088000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766124000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766160000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766196000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766232000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766268000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766304000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766340000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766376000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766412000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766448000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766484000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766520000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766556000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766592000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766628000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766664000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766700000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766736000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766772000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766808000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766844000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766880000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766916000000,
+          "equity": 49947.471408247075
+        },
+        {
+          "timestamp": 1766952000000,
+          "equity": 49947.471408247075
+        }
+      ]
+    },
+    {
+      "symbol": "ETH-USD",
+      "period": {
+        "start": "2025-10-30T05:22:05.749Z",
+        "end": "2025-12-29T05:22:05.749Z"
+      },
+      "initialCapital": 50000,
+      "finalCapital": 49672.6369019179,
+      "totalPnl": -327.36309808210564,
+      "totalPnlPercent": -0.6547261961642112,
+      "totalTrades": 15,
+      "winningTrades": 4,
+      "losingTrades": 11,
+      "winRate": 0.26666666666666666,
+      "avgWin": 0.3089324002336463,
+      "avgLoss": 29.872620698458203,
+      "profitFactor": 0.010341657109769116,
+      "maxDrawdown": 0.6556732833434653,
+      "sharpeRatio": -0.727212931813926,
+      "tradesByRegime": {
+        "trending_up": {
+          "trades": 8,
+          "winRate": 0.375,
+          "pnl": -197.48441292896908
+        },
+        "trending_down": {
+          "trades": 7,
+          "winRate": 0.14285714285714285,
+          "pnl": -129.87868515313653
+        },
+        "ranging": {
+          "trades": 0,
+          "winRate": 0,
+          "pnl": 0
+        },
+        "volatile": {
+          "trades": 0,
+          "winRate": 0,
+          "pnl": 0
+        },
+        "choppy": {
+          "trades": 0,
+          "winRate": 0,
+          "pnl": 0
+        }
+      },
+      "tradesByAgent": {
+        "TechnicalAnalyst": {
+          "trades": 15,
+          "winRate": 0.26666666666666666,
+          "pnl": -327.36309808210564
+        },
+        "PatternMatcher": {
+          "trades": 15,
+          "winRate": 0.26666666666666666,
+          "pnl": -327.36309808210564
+        },
+        "OrderFlowAnalyst": {
+          "trades": 15,
+          "winRate": 0.26666666666666666,
+          "pnl": -327.36309808210564
+        },
+        "SentimentAnalyst": {
+          "trades": 15,
+          "winRate": 0.26666666666666666,
+          "pnl": -327.36309808210564
+        },
+        "MacroAnalyst": {
+          "trades": 15,
+          "winRate": 0.26666666666666666,
+          "pnl": -327.36309808210564
+        },
+        "WhaleTracker": {
+          "trades": 15,
+          "winRate": 0.26666666666666666,
+          "pnl": -327.36309808210564
+        }
+      },
+      "tradesByHour": {
+        "1": {
+          "trades": 1,
+          "winRate": 1,
+          "pnl": 0.002951098262381713
+        },
+        "4": {
+          "trades": 1,
+          "winRate": 0,
+          "pnl": -1.4589560985993566
+        },
+        "13": {
+          "trades": 1,
+          "winRate": 0,
+          "pnl": -58.80389094448774
+        },
+        "14": {
+          "trades": 2,
+          "winRate": 0,
+          "pnl": -127.5084727263592
+        },
+        "15": {
+          "trades": 2,
+          "winRate": 0.5,
+          "pnl": 0.0002605648598721366
+        },
+        "16": {
+          "trades": 1,
+          "winRate": 0,
+          "pnl": -0.0028707813252837333
+        },
+        "17": {
+          "trades": 2,
+          "winRate": 0,
+          "pnl": -13.66929471034604
+        },
+        "20": {
+          "trades": 5,
+          "winRate": 0.4,
+          "pnl": -125.92282448411022
+        }
+      },
+      "winningTradeFactors": {
+        "trending_market": 4,
+        "breakeven_protected": 3,
+        "strong_agent_agreement": 1
+      },
+      "losingTradeFactors": {
+        "low_confidence": 9,
+        "stop_loss_hit": 5,
+        "agent_disagreement": 9,
+        "weak_consensus": 7
+      },
+      "trades": [
+        {
+          "id": "ETH-USD-1766985759672-d756kcov5",
+          "symbol": "ETH-USD",
+          "direction": "long",
+          "entryPrice": 3719.15,
+          "entryTime": 1762174800000,
+          "quantity": 0.7536277559306233,
+          "positionValue": 2802.8546684693774,
+          "stopLoss": 3644.767,
+          "takeProfit": 3867.916,
+          "consensus": 0.5268240354308481,
+          "confidence": 0.5605709336938755,
+          "regime": "trending_down",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7068256470897385,
+              "reasoning": "RSI oversold at 19.3, downtrend confirmed",
+              "executionScore": 70,
+              "timestamp": 1762174800000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Double bottom pattern detected",
+              "executionScore": 70,
+              "timestamp": 1762174800000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6000000000000001,
+              "reasoning": "Above average volume (1.6x) with bullish candle, volume trend increasing",
+              "executionScore": 60,
+              "timestamp": 1762174800000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "Neutral momentum, mixed sentiment",
+              "executionScore": 40,
+              "timestamp": 1762174800000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.6,
+              "reasoning": "Price below 50 SMA with 20 SMA below 50 SMA - bearish macro trend",
+              "executionScore": 42,
+              "timestamp": 1762174800000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No significant whale activity detected",
+              "executionScore": 43,
+              "timestamp": 1762174800000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": false,
+          "highestPrice": 3747.6,
+          "lowestPrice": 3580,
+          "exitPrice": 3644.767,
+          "exitTime": 1766985759683,
+          "pnl": -58.80389094448774,
+          "pnlPercent": -2.098000000000007,
+          "exitReason": "stop_loss",
+          "holdTimeMs": 4810959683,
+          "losingFactors": [
+            "low_confidence",
+            "stop_loss_hit",
+            "agent_disagreement"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985759684-7u5nbq81z",
+          "symbol": "ETH-USD",
+          "direction": "long",
+          "entryPrice": 3618.3,
+          "entryTime": 1762185600000,
+          "quantity": 0.7934061092209789,
+          "positionValue": 2870.781324994268,
+          "stopLoss": 3621.9183,
+          "takeProfit": 3763.032,
+          "consensus": 0.5026285350657942,
+          "confidence": 0.5748323125312026,
+          "regime": "trending_down",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6330633094267583,
+              "reasoning": "RSI oversold at 26.7, downtrend confirmed",
+              "executionScore": 67,
+              "timestamp": 1762185600000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Double bottom pattern detected",
+              "executionScore": 70,
+              "timestamp": 1762185600000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7869877683180827,
+              "reasoning": "High volume (2.7x avg) with bullish price action, volume trend increasing",
+              "executionScore": 79,
+              "timestamp": 1762185600000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.6014298023587701,
+              "reasoning": "Negative momentum (-2.57%) suggesting bearish sentiment",
+              "executionScore": 48,
+              "timestamp": 1762185600000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.7,
+              "reasoning": "Price below 50 SMA with 20 SMA below 50 SMA - bearish macro trend, strong trend (5.4% from 50 SMA)",
+              "executionScore": 49,
+              "timestamp": 1762185600000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No significant whale activity detected",
+              "executionScore": 43,
+              "timestamp": 1762185600000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": true,
+          "highestPrice": 3681.72,
+          "lowestPrice": 3611.28,
+          "exitPrice": 3621.9183,
+          "exitTime": 1766985759684,
+          "pnl": -0.0028707813252837333,
+          "pnlPercent": -0.00010000000001008317,
+          "exitReason": "breakeven_stop",
+          "holdTimeMs": 4800159684,
+          "losingFactors": [
+            "low_confidence",
+            "agent_disagreement"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985759691-q30bjh0qc",
+          "symbol": "ETH-USD",
+          "direction": "long",
+          "entryPrice": 3554.82,
+          "entryTime": 1762264800000,
+          "quantity": 0.7860868817727436,
+          "positionValue": 2794.3973690633843,
+          "stopLoss": 3483.7236000000003,
+          "takeProfit": 3697.0128000000004,
+          "consensus": 0.525790667395656,
+          "confidence": 0.5595375656586834,
+          "regime": "trending_down",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.55,
+              "reasoning": "MACD bullish crossover, downtrend confirmed",
+              "executionScore": 43,
+              "timestamp": 1762264800000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Double bottom pattern detected",
+              "executionScore": 70,
+              "timestamp": 1762264800000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6809236675253931,
+              "reasoning": "High volume (2.2x avg) with bullish price action, volume trend increasing",
+              "executionScore": 68,
+              "timestamp": 1762264800000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "Neutral momentum, mixed sentiment",
+              "executionScore": 40,
+              "timestamp": 1762264800000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.6,
+              "reasoning": "Price below 50 SMA with 20 SMA below 50 SMA - bearish macro trend",
+              "executionScore": 42,
+              "timestamp": 1762264800000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.55,
+              "reasoning": "Possible whale activity (2.3 std dev volume)",
+              "executionScore": 47,
+              "timestamp": 1762264800000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": false,
+          "highestPrice": 3586.38,
+          "lowestPrice": 3423.37,
+          "exitPrice": 3483.7236000000003,
+          "exitTime": 1766985759692,
+          "pnl": -58.626456802949725,
+          "pnlPercent": -2.097999999999997,
+          "exitReason": "stop_loss",
+          "holdTimeMs": 4720959692,
+          "losingFactors": [
+            "low_confidence",
+            "stop_loss_hit",
+            "agent_disagreement"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985759743-18to84g2v",
+          "symbol": "ETH-USD",
+          "direction": "short",
+          "entryPrice": 3578.39,
+          "entryTime": 1762718400000,
+          "quantity": 0.8031193292000705,
+          "positionValue": 2873.87417641624,
+          "stopLoss": 3649.9578,
+          "takeProfit": 3435.2544,
+          "consensus": -0.5075623719532375,
+          "confidence": 0.5761279665110846,
+          "regime": "trending_up",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.7538467787797531,
+              "reasoning": "RSI overbought at 85.4, uptrend confirmed",
+              "executionScore": 73,
+              "timestamp": 1762718400000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.7,
+              "reasoning": "Double top pattern detected",
+              "executionScore": 70,
+              "timestamp": 1762718400000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.6000000000000001,
+              "reasoning": "Above average volume (1.9x) with bearish candle, volume trend increasing",
+              "executionScore": 60,
+              "timestamp": 1762718400000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6378152094005624,
+              "reasoning": "Positive momentum (4.39%) suggesting bullish sentiment",
+              "executionScore": 51,
+              "timestamp": 1762718400000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6,
+              "reasoning": "Price above 50 SMA with 20 SMA above 50 SMA - bullish macro trend",
+              "executionScore": 42,
+              "timestamp": 1762718400000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No significant whale activity detected",
+              "executionScore": 43,
+              "timestamp": 1762718400000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": false,
+          "highestPrice": 3653.27,
+          "lowestPrice": 3553.89,
+          "exitPrice": 3649.9578,
+          "exitTime": 1766985759749,
+          "pnl": -60.40883518826958,
+          "pnlPercent": -2.1020000000000074,
+          "exitReason": "stop_loss",
+          "holdTimeMs": 4267359749,
+          "losingFactors": [
+            "weak_consensus",
+            "low_confidence",
+            "stop_loss_hit",
+            "agent_disagreement"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985759751-qcrxnsx84",
+          "symbol": "ETH-USD",
+          "direction": "short",
+          "entryPrice": 3628.8,
+          "entryTime": 1762736400000,
+          "quantity": 0.8132435687881445,
+          "positionValue": 2951.098262418419,
+          "stopLoss": 3625.1712,
+          "takeProfit": 3483.648,
+          "consensus": -0.5197977548682896,
+          "confidence": 0.5923264635787596,
+          "regime": "trending_up",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.802806736166801,
+              "reasoning": "RSI overbought at 90.3, uptrend confirmed",
+              "executionScore": 75,
+              "timestamp": 1762736400000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.7,
+              "reasoning": "Double top pattern detected",
+              "executionScore": 70,
+              "timestamp": 1762736400000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.6000000000000001,
+              "reasoning": "Above average volume (1.5x) with bearish candle, volume trend increasing",
+              "executionScore": 60,
+              "timestamp": 1762736400000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.607381951984216,
+              "reasoning": "Positive momentum (2.87%) suggesting bullish sentiment",
+              "executionScore": 49,
+              "timestamp": 1762736400000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Price above 50 SMA with 20 SMA above 50 SMA - bullish macro trend, strong trend (5.2% from 50 SMA)",
+              "executionScore": 49,
+              "timestamp": 1762736400000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No significant whale activity detected",
+              "executionScore": 43,
+              "timestamp": 1762736400000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": true,
+          "highestPrice": 3647.37,
+          "lowestPrice": 3588.31,
+          "exitPrice": 3625.1712,
+          "exitTime": 1766985759753,
+          "pnl": 0.002951098262381713,
+          "pnlPercent": 0.0000999999999987562,
+          "exitReason": "breakeven_stop",
+          "holdTimeMs": 4249359753,
+          "winningFactors": [
+            "trending_market",
+            "breakeven_protected"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985760513-ew572g3pt",
+          "symbol": "ETH-USD",
+          "direction": "long",
+          "entryPrice": 3000.64,
+          "entryTime": 1763409600000,
+          "quantity": 0.9386777238033255,
+          "positionValue": 2816.6339251532104,
+          "stopLoss": 3003.6406399999996,
+          "takeProfit": 3120.6656,
+          "consensus": 0.4946874629083151,
+          "confidence": 0.5653375675444176,
+          "regime": "trending_down",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6622692233835344,
+              "reasoning": "RSI oversold at 23.8, downtrend confirmed",
+              "executionScore": 68,
+              "timestamp": 1763409600000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Double bottom pattern detected",
+              "executionScore": 70,
+              "timestamp": 1763409600000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6943417192311485,
+              "reasoning": "High volume (2.2x avg) with bullish price action, volume trend increasing",
+              "executionScore": 69,
+              "timestamp": 1763409600000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.6759996440158758,
+              "reasoning": "Negative momentum (-6.30%) suggesting bearish sentiment",
+              "executionScore": 54,
+              "timestamp": 1763409600000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.6,
+              "reasoning": "Price below 50 SMA with 20 SMA below 50 SMA - bearish macro trend",
+              "executionScore": 42,
+              "timestamp": 1763409600000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No significant whale activity detected",
+              "executionScore": 43,
+              "timestamp": 1763409600000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": true,
+          "highestPrice": 3029.39,
+          "lowestPrice": 2980.45,
+          "exitPrice": 3003.6406399999996,
+          "exitTime": 1766985760516,
+          "pnl": -0.0028166339253887784,
+          "pnlPercent": -0.00010000000000836345,
+          "exitReason": "breakeven_stop",
+          "holdTimeMs": 3576160516,
+          "losingFactors": [
+            "weak_consensus",
+            "low_confidence",
+            "agent_disagreement"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985769919-mizmc3ea0",
+          "symbol": "ETH-USD",
+          "direction": "long",
+          "entryPrice": 2938.42,
+          "entryTime": 1764003600000,
+          "quantity": 0.828231697776364,
+          "positionValue": 2433.6925853800235,
+          "stopLoss": 2941.3584199999996,
+          "takeProfit": 3055.9568000000004,
+          "consensus": 0.48847594707473563,
+          "confidence": 0.48847594707473563,
+          "regime": "trending_up",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6000000000000001,
+              "reasoning": "MACD bullish crossover, uptrend confirmed",
+              "executionScore": 55,
+              "timestamp": 1764003600000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No clear pattern",
+              "executionScore": 50,
+              "timestamp": 1764003600000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.8500000000000001,
+              "reasoning": "High volume (4.2x avg) with bullish price action, volume trend increasing",
+              "executionScore": 85,
+              "timestamp": 1764003600000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6212279329097018,
+              "reasoning": "Positive momentum (3.56%) suggesting bullish sentiment",
+              "executionScore": 50,
+              "timestamp": 1764003600000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6,
+              "reasoning": "Price above 50 SMA with 20 SMA above 50 SMA - bullish macro trend",
+              "executionScore": 42,
+              "timestamp": 1764003600000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7502183525508672,
+              "reasoning": "Whale accumulation detected (3.5 std dev volume spike, bullish)",
+              "executionScore": 64,
+              "timestamp": 1764003600000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": true,
+          "highestPrice": 2962.63,
+          "lowestPrice": 2927.63,
+          "exitPrice": 2941.3584199999996,
+          "exitTime": 1766985772657,
+          "pnl": -0.0024336925857966207,
+          "pnlPercent": -0.00010000000001711792,
+          "exitReason": "breakeven_stop",
+          "holdTimeMs": 2982172657,
+          "losingFactors": [
+            "weak_consensus",
+            "low_confidence"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985785240-adlllny15",
+          "symbol": "ETH-USD",
+          "direction": "short",
+          "entryPrice": 2979.15,
+          "entryTime": 1764705600000,
+          "quantity": 1.0657792202755458,
+          "positionValue": 3175.1161640838923,
+          "stopLoss": 3038.733,
+          "takeProfit": 2859.984,
+          "consensus": -0.5676071148050269,
+          "confidence": 0.6372900013754407,
+          "regime": "trending_up",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.6793340291572694,
+              "reasoning": "RSI overbought at 77.9, uptrend confirmed",
+              "executionScore": 69,
+              "timestamp": 1764705600000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.7,
+              "reasoning": "Double top pattern detected",
+              "executionScore": 70,
+              "timestamp": 1764705600000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.8500000000000001,
+              "reasoning": "High volume (3.1x avg) with bearish price action, volume trend increasing",
+              "executionScore": 85,
+              "timestamp": 1764705600000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6582819676307616,
+              "reasoning": "Positive momentum (5.41%) suggesting bullish sentiment",
+              "executionScore": 53,
+              "timestamp": 1764705600000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6,
+              "reasoning": "Price above 50 SMA with 20 SMA above 50 SMA - bullish macro trend",
+              "executionScore": 42,
+              "timestamp": 1764705600000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.55,
+              "reasoning": "Possible whale activity (2.2 std dev volume)",
+              "executionScore": 47,
+              "timestamp": 1764705600000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": false,
+          "highestPrice": 3048.48,
+          "lowestPrice": 2978.11,
+          "exitPrice": 3038.733,
+          "exitTime": 1766985785307,
+          "pnl": -66.7409417690435,
+          "pnlPercent": -2.102000000000003,
+          "exitReason": "stop_loss",
+          "holdTimeMs": 2280185307,
+          "losingFactors": [
+            "weak_consensus",
+            "stop_loss_hit"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985785726-lqa0kgrmd",
+          "symbol": "ETH-USD",
+          "direction": "short",
+          "entryPrice": 3077.01,
+          "entryTime": 1764770400000,
+          "quantity": 1.0649868111305834,
+          "positionValue": 3276.9750677169163,
+          "stopLoss": 3138.5502,
+          "takeProfit": 2953.9296,
+          "consensus": -0.6192453917875399,
+          "confidence": 0.658616773094405,
+          "regime": "trending_up",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.7526315789473692,
+              "reasoning": "RSI overbought at 75.3, MACD bearish crossover, uptrend confirmed",
+              "executionScore": 73,
+              "timestamp": 1764770400000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.65,
+              "reasoning": "Bearish engulfing pattern detected",
+              "executionScore": 65,
+              "timestamp": 1764770400000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.8500000000000001,
+              "reasoning": "High volume (4.0x avg) with bearish price action, volume trend increasing",
+              "executionScore": 85,
+              "timestamp": 1764770400000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "Neutral momentum, mixed sentiment",
+              "executionScore": 40,
+              "timestamp": 1764770400000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Price above 50 SMA with 20 SMA above 50 SMA - bullish macro trend, strong trend (5.7% from 50 SMA)",
+              "executionScore": 49,
+              "timestamp": 1764770400000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.7362006278958397,
+              "reasoning": "Whale distribution detected (3.4 std dev volume spike, bearish)",
+              "executionScore": 63,
+              "timestamp": 1764770400000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": false,
+          "highestPrice": 3143.71,
+          "lowestPrice": 3057.09,
+          "exitPrice": 3138.5502,
+          "exitTime": 1766985785801,
+          "pnl": -68.88201592340948,
+          "pnlPercent": -2.1019999999999968,
+          "exitReason": "stop_loss",
+          "holdTimeMs": 2215385801,
+          "losingFactors": [
+            "weak_consensus",
+            "stop_loss_hit",
+            "agent_disagreement"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985788748-cw1y87n3o",
+          "symbol": "ETH-USD",
+          "direction": "long",
+          "entryPrice": 3034.36,
+          "entryTime": 1764954000000,
+          "quantity": 0.9251487054596476,
+          "positionValue": 2807.2342258985364,
+          "stopLoss": 2973.6728000000003,
+          "takeProfit": 3155.7344000000003,
+          "consensus": 0.4970124609964105,
+          "confidence": 0.5649889565547318,
+          "regime": "trending_down",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.720179121186677,
+              "reasoning": "RSI oversold at 18.0, downtrend confirmed",
+              "executionScore": 71,
+              "timestamp": 1764954000000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Double bottom pattern detected",
+              "executionScore": 70,
+              "timestamp": 1764954000000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6000000000000001,
+              "reasoning": "Above average volume (1.7x) with bullish candle, volume trend increasing",
+              "executionScore": 60,
+              "timestamp": 1764954000000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.6270239868183403,
+              "reasoning": "Negative momentum (-3.85%) suggesting bearish sentiment",
+              "executionScore": 50,
+              "timestamp": 1764954000000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.6,
+              "reasoning": "Price below 50 SMA with 20 SMA below 50 SMA - bearish macro trend",
+              "executionScore": 42,
+              "timestamp": 1764954000000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No significant whale activity detected",
+              "executionScore": 43,
+              "timestamp": 1764954000000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": false,
+          "highestPrice": 3063.61,
+          "lowestPrice": 2985.36,
+          "exitPrice": 3022.61,
+          "exitTime": 1766985788863,
+          "pnl": -13.666861017760244,
+          "pnlPercent": -0.4868443427938675,
+          "exitReason": "time_exit_extended_-0.39%",
+          "holdTimeMs": 2031788863,
+          "losingFactors": [
+            "weak_consensus",
+            "low_confidence",
+            "agent_disagreement"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985802730-8ai6j2y43",
+          "symbol": "ETH-USD",
+          "direction": "short",
+          "entryPrice": 3357.65,
+          "entryTime": 1765396800000,
+          "quantity": 0.8366712231327199,
+          "positionValue": 2809.249132351577,
+          "stopLoss": 3354.29235,
+          "takeProfit": 3223.344,
+          "consensus": -0.5318031430934657,
+          "confidence": 0.565550041356493,
+          "regime": "trending_up",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.55,
+              "reasoning": "MACD bearish crossover, uptrend confirmed",
+              "executionScore": 43,
+              "timestamp": 1765396800000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.6,
+              "reasoning": "Shooting star pattern detected",
+              "executionScore": 60,
+              "timestamp": 1765396800000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.8500000000000001,
+              "reasoning": "High volume (3.7x avg) with bearish price action, volume trend increasing",
+              "executionScore": 85,
+              "timestamp": 1765396800000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "Neutral momentum, mixed sentiment",
+              "executionScore": 40,
+              "timestamp": 1765396800000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6,
+              "reasoning": "Price above 50 SMA with 20 SMA above 50 SMA - bullish macro trend",
+              "executionScore": 42,
+              "timestamp": 1765396800000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.55,
+              "reasoning": "Possible whale activity (2.6 std dev volume)",
+              "executionScore": 47,
+              "timestamp": 1765396800000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": true,
+          "highestPrice": 3371.28,
+          "lowestPrice": 3328.89,
+          "exitPrice": 3354.29235,
+          "exitTime": 1766985806017,
+          "pnl": 0.0028092491322859736,
+          "pnlPercent": 0.00009999999999766474,
+          "exitReason": "breakeven_stop",
+          "holdTimeMs": 1589006017,
+          "winningFactors": [
+            "trending_market",
+            "breakeven_protected",
+            "strong_agent_agreement"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985813323-74tq9wltw",
+          "symbol": "ETH-USD",
+          "direction": "long",
+          "entryPrice": 3179.7,
+          "entryTime": 1765465200000,
+          "quantity": 0.864493720732802,
+          "positionValue": 2748.83068381409,
+          "stopLoss": 3182.8796999999995,
+          "takeProfit": 3306.888,
+          "consensus": 0.5196398416631841,
+          "confidence": 0.5533867399262115,
+          "regime": "trending_down",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6122470594793471,
+              "reasoning": "RSI oversold at 28.8, downtrend confirmed",
+              "executionScore": 66,
+              "timestamp": 1765465200000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Double bottom pattern detected",
+              "executionScore": 70,
+              "timestamp": 1765465200000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7165829791162033,
+              "reasoning": "High volume (2.3x avg) with bullish price action, volume trend increasing",
+              "executionScore": 72,
+              "timestamp": 1765465200000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "Neutral momentum, mixed sentiment",
+              "executionScore": 40,
+              "timestamp": 1765465200000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.6,
+              "reasoning": "Price below 50 SMA with 20 SMA below 50 SMA - bearish macro trend",
+              "executionScore": 42,
+              "timestamp": 1765465200000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No significant whale activity detected",
+              "executionScore": 43,
+              "timestamp": 1765465200000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": true,
+          "highestPrice": 3235.8,
+          "lowestPrice": 3154.54,
+          "exitPrice": 3182.8796999999995,
+          "exitTime": 1766985815415,
+          "pnl": -0.0027488306840863785,
+          "pnlPercent": -0.0001000000000099056,
+          "exitReason": "breakeven_stop",
+          "holdTimeMs": 1520615415,
+          "losingFactors": [
+            "low_confidence",
+            "agent_disagreement"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985816657-jllgaihxq",
+          "symbol": "ETH-USD",
+          "direction": "long",
+          "entryPrice": 3082.21,
+          "entryTime": 1765569600000,
+          "quantity": 0.9341930865895693,
+          "positionValue": 2879.3792734172366,
+          "stopLoss": 3020.5658,
+          "takeProfit": 3205.4984,
+          "consensus": 0.5104735403095562,
+          "confidence": 0.5796684410892049,
+          "regime": "trending_down",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7609265989890115,
+              "reasoning": "RSI oversold at 13.9, downtrend confirmed",
+              "executionScore": 73,
+              "timestamp": 1765569600000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.7,
+              "reasoning": "Double bottom pattern detected",
+              "executionScore": 70,
+              "timestamp": 1765569600000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6057940227249766,
+              "reasoning": "High volume (2.0x avg) with bullish price action",
+              "executionScore": 61,
+              "timestamp": 1765569600000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.649342955190839,
+              "reasoning": "Negative momentum (-4.97%) suggesting bearish sentiment",
+              "executionScore": 52,
+              "timestamp": 1765569600000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.6,
+              "reasoning": "Price below 50 SMA with 20 SMA below 50 SMA - bearish macro trend",
+              "executionScore": 42,
+              "timestamp": 1765569600000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No significant whale activity detected",
+              "executionScore": 43,
+              "timestamp": 1765569600000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": false,
+          "highestPrice": 3097.35,
+          "lowestPrice": 3076.48,
+          "exitPrice": 3086.61,
+          "exitTime": 1766985816677,
+          "pnl": 1.226959857995959,
+          "pnlPercent": 0.04261195700487931,
+          "exitReason": "time_exit_profitable_0.14%",
+          "holdTimeMs": 1416216677,
+          "winningFactors": [
+            "trending_market"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985817884-iw5dfy9i2",
+          "symbol": "ETH-USD",
+          "direction": "short",
+          "entryPrice": 2963.4,
+          "entryTime": 1766156400000,
+          "quantity": 1.0155212066763717,
+          "positionValue": 3009.39554386476,
+          "stopLoss": 2960.4366,
+          "takeProfit": 2844.864,
+          "consensus": -0.5720810839480874,
+          "confidence": 0.6058279822111148,
+          "regime": "trending_up",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.7830803524042045,
+              "reasoning": "RSI overbought at 88.3, uptrend confirmed",
+              "executionScore": 74,
+              "timestamp": 1766156400000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.7,
+              "reasoning": "Double top pattern detected",
+              "executionScore": 70,
+              "timestamp": 1766156400000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.696855558126224,
+              "reasoning": "High volume (2.2x avg) with bearish price action, volume trend increasing",
+              "executionScore": 70,
+              "timestamp": 1766156400000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "Neutral momentum, mixed sentiment",
+              "executionScore": 40,
+              "timestamp": 1766156400000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6,
+              "reasoning": "Price above 50 SMA with 20 SMA above 50 SMA - bullish macro trend",
+              "executionScore": 42,
+              "timestamp": 1766156400000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No significant whale activity detected",
+              "executionScore": 43,
+              "timestamp": 1766156400000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": true,
+          "highestPrice": 3005.88,
+          "lowestPrice": 2934.84,
+          "exitPrice": 2960.4366,
+          "exitTime": 1766985817894,
+          "pnl": 0.003009395543958515,
+          "pnlPercent": 0.00010000000000311542,
+          "exitReason": "breakeven_stop",
+          "holdTimeMs": 829417894,
+          "winningFactors": [
+            "trending_market",
+            "breakeven_protected"
+          ]
+        },
+        {
+          "id": "ETH-USD-1766985820248-byafu52p9",
+          "symbol": "ETH-USD",
+          "direction": "short",
+          "entryPrice": 3036.7,
+          "entryTime": 1766980800000,
+          "quantity": 0.9088540236839959,
+          "positionValue": 2759.9170137211904,
+          "stopLoss": 3097.4339999999997,
+          "takeProfit": 2915.2319999999995,
+          "consensus": -0.48789965330063434,
+          "confidence": 0.5556048813872452,
+          "regime": "trending_up",
+          "agentSignals": [
+            {
+              "agentName": "TechnicalAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.7230657539929487,
+              "reasoning": "RSI overbought at 82.3, uptrend confirmed",
+              "executionScore": 71,
+              "timestamp": 1766980800000
+            },
+            {
+              "agentName": "PatternMatcher",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.7,
+              "reasoning": "Double top pattern detected",
+              "executionScore": 70,
+              "timestamp": 1766980800000
+            },
+            {
+              "agentName": "OrderFlowAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bearish",
+              "confidence": 0.55,
+              "reasoning": "Above average volume (1.9x) with bearish candle",
+              "executionScore": 55,
+              "timestamp": 1766980800000
+            },
+            {
+              "agentName": "SentimentAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6220548599501894,
+              "reasoning": "Positive momentum (3.60%) suggesting bullish sentiment",
+              "executionScore": 50,
+              "timestamp": 1766980800000
+            },
+            {
+              "agentName": "MacroAnalyst",
+              "symbol": "ETH-USD",
+              "signal": "bullish",
+              "confidence": 0.6,
+              "reasoning": "Price above 50 SMA with 20 SMA above 50 SMA - bullish macro trend",
+              "executionScore": 42,
+              "timestamp": 1766980800000
+            },
+            {
+              "agentName": "WhaleTracker",
+              "symbol": "ETH-USD",
+              "signal": "neutral",
+              "confidence": 0.5,
+              "reasoning": "No significant whale activity detected",
+              "executionScore": 43,
+              "timestamp": 1766980800000
+            }
+          ],
+          "isAlphaSignal": false,
+          "partialExits": [],
+          "breakevenActivated": false,
+          "highestPrice": 3040.9,
+          "lowestPrice": 3029.45,
+          "exitPrice": 3035.27,
+          "exitTime": 1766985820261,
+          "pnl": -1.4589560985993566,
+          "pnlPercent": -0.05286231764745162,
+          "exitReason": "backtest_end",
+          "holdTimeMs": 5020261,
+          "losingFactors": [
+            "weak_consensus",
+            "low_confidence",
+            "agent_disagreement"
+          ]
+        }
+      ],
+      "equityCurve": [
+        {
+          "timestamp": 1761804000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1761984000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762020000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762056000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762092000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762128000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762164000000,
+          "equity": 50000
+        },
+        {
+          "timestamp": 1762200000000,
+          "equity": 49941.19323827419
+        },
+        {
+          "timestamp": 1762236000000,
+          "equity": 49941.19323827419
+        },
+        {
+          "timestamp": 1762272000000,
+          "equity": 49882.566781471236
+        },
+        {
+          "timestamp": 1762308000000,
+          "equity": 49882.566781471236
+        },
+        {
+          "timestamp": 1762344000000,
+          "equity": 49882.566781471236
+        },
+        {
+          "timestamp": 1762380000000,
+          "equity": 49882.566781471236
+        },
+        {
+          "timestamp": 1762416000000,
+          "equity": 49882.566781471236
+        },
+        {
+          "timestamp": 1762452000000,
+          "equity": 49882.566781471236
+        },
+        {
+          "timestamp": 1762488000000,
+          "equity": 49882.566781471236
+        },
+        {
+          "timestamp": 1762524000000,
+          "equity": 49882.566781471236
+        },
+        {
+          "timestamp": 1762560000000,
+          "equity": 49882.566781471236
+        },
+        {
+          "timestamp": 1762596000000,
+          "equity": 49882.566781471236
+        },
+        {
+          "timestamp": 1762632000000,
+          "equity": 49882.566781471236
+        },
+        {
+          "timestamp": 1762668000000,
+          "equity": 49882.566781471236
+        },
+        {
+          "timestamp": 1762704000000,
+          "equity": 49882.566781471236
+        },
+        {
+          "timestamp": 1762740000000,
+          "equity": 49823.0118520302
+        },
+        {
+          "timestamp": 1762776000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1762812000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1762848000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1762884000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1762920000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1762956000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1762992000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1763028000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1763064000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1763100000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1763136000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1763172000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1763208000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1763244000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1763280000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1763316000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1763352000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1763388000000,
+          "equity": 49822.16089738123
+        },
+        {
+          "timestamp": 1763424000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763460000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763496000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763532000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763568000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763604000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763640000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763676000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763712000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763748000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763784000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763820000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763856000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763892000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763928000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1763964000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1764000000000,
+          "equity": 49822.15808074731
+        },
+        {
+          "timestamp": 1764036000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764072000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764108000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764144000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764180000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764216000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764252000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764288000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764324000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764360000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764396000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764432000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764468000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764504000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764540000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764576000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764612000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764648000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764684000000,
+          "equity": 49822.15564705472
+        },
+        {
+          "timestamp": 1764720000000,
+          "equity": 49795.61774446986
+        },
+        {
+          "timestamp": 1764756000000,
+          "equity": 49755.41470528568
+        },
+        {
+          "timestamp": 1764792000000,
+          "equity": 49686.53268936227
+        },
+        {
+          "timestamp": 1764828000000,
+          "equity": 49686.53268936227
+        },
+        {
+          "timestamp": 1764864000000,
+          "equity": 49686.53268936227
+        },
+        {
+          "timestamp": 1764900000000,
+          "equity": 49686.53268936227
+        },
+        {
+          "timestamp": 1764936000000,
+          "equity": 49686.53268936227
+        },
+        {
+          "timestamp": 1764972000000,
+          "equity": 49680.1491632946
+        },
+        {
+          "timestamp": 1765008000000,
+          "equity": 49672.86582834451
+        },
+        {
+          "timestamp": 1765044000000,
+          "equity": 49672.86582834451
+        },
+        {
+          "timestamp": 1765080000000,
+          "equity": 49672.86582834451
+        },
+        {
+          "timestamp": 1765116000000,
+          "equity": 49672.86582834451
+        },
+        {
+          "timestamp": 1765152000000,
+          "equity": 49672.86582834451
+        },
+        {
+          "timestamp": 1765188000000,
+          "equity": 49672.86582834451
+        },
+        {
+          "timestamp": 1765224000000,
+          "equity": 49672.86582834451
+        },
+        {
+          "timestamp": 1765260000000,
+          "equity": 49672.86582834451
+        },
+        {
+          "timestamp": 1765296000000,
+          "equity": 49672.86582834451
+        },
+        {
+          "timestamp": 1765332000000,
+          "equity": 49672.86582834451
+        },
+        {
+          "timestamp": 1765368000000,
+          "equity": 49672.86582834451
+        },
+        {
+          "timestamp": 1765404000000,
+          "equity": 49672.868637593645
+        },
+        {
+          "timestamp": 1765440000000,
+          "equity": 49672.868637593645
+        },
+        {
+          "timestamp": 1765476000000,
+          "equity": 49672.86588876296
+        },
+        {
+          "timestamp": 1765512000000,
+          "equity": 49672.86588876296
+        },
+        {
+          "timestamp": 1765548000000,
+          "equity": 49672.86588876296
+        },
+        {
+          "timestamp": 1765584000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1765620000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1765656000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1765692000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1765728000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1765764000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1765800000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1765836000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1765872000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1765908000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1765944000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1765980000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1766016000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1766052000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1766088000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1766124000000,
+          "equity": 49674.09284862095
+        },
+        {
+          "timestamp": 1766160000000,
+          "equity": 49672.16335832827
+        },
+        {
+          "timestamp": 1766196000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766232000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766268000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766304000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766340000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766376000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766412000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766448000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766484000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766520000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766556000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766592000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766628000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766664000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766700000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766736000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766772000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766808000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766844000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766880000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766916000000,
+          "equity": 49674.095858016495
+        },
+        {
+          "timestamp": 1766952000000,
+          "equity": 49674.095858016495
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "totalTrades": 21,
+    "overallWinRate": 0.2857142857142857,
+    "totalPnl": -379.1504698689329,
+    "totalPnlPercent": -0.7583009397378657,
+    "avgProfitFactor": 0.238882411109328,
+    "avgMaxDrawdown": 1.0885402604138232,
+    "avgSharpeRatio": -0.5097085156546884
+  },
+  "winningTradeAnalysis": {
+    "topFactors": [
+      {
+        "factor": "trending_market",
+        "count": 6,
+        "percentage": 100
+      },
+      {
+        "factor": "breakeven_protected",
+        "count": 4,
+        "percentage": 66.66666666666666
+      },
+      {
+        "factor": "strong_agent_agreement",
+        "count": 2,
+        "percentage": 33.33333333333333
+      },
+      {
+        "factor": "partial_profit_taking",
+        "count": 1,
+        "percentage": 16.666666666666664
+      }
+    ],
+    "bestRegimes": [
+      {
+        "regime": "trending_up",
+        "winRate": 0.375,
+        "pnl": -197.48441292896908
+      },
+      {
+        "regime": "trending_down",
+        "winRate": 0.23076923076923078,
+        "pnl": -181.6660569399638
+      },
+      {
+        "regime": "ranging",
+        "winRate": 0,
+        "pnl": 0
+      }
+    ],
+    "bestHours": [
+      {
+        "hour": 1,
+        "winRate": 1,
+        "pnl": 0.002951098262381713
+      },
+      {
+        "hour": 15,
+        "winRate": 0.5,
+        "pnl": 0.0002605648598721366
+      },
+      {
+        "hour": 19,
+        "winRate": 0.5,
+        "pnl": 9.882683242142956
+      },
+      {
+        "hour": 20,
+        "winRate": 0.5,
+        "pnl": -120.01367168447261
+      },
+      {
+        "hour": 4,
+        "winRate": 0,
+        "pnl": -1.4589560985993566
+      }
+    ],
+    "bestAgents": [
+      {
+        "agent": "TechnicalAnalyst",
+        "winRate": 0.2857142857142857,
+        "pnl": -379.1504698689329
+      },
+      {
+        "agent": "PatternMatcher",
+        "winRate": 0.2857142857142857,
+        "pnl": -379.1504698689329
+      },
+      {
+        "agent": "OrderFlowAnalyst",
+        "winRate": 0.2857142857142857,
+        "pnl": -379.1504698689329
+      },
+      {
+        "agent": "SentimentAnalyst",
+        "winRate": 0.2857142857142857,
+        "pnl": -379.1504698689329
+      },
+      {
+        "agent": "MacroAnalyst",
+        "winRate": 0.2857142857142857,
+        "pnl": -379.1504698689329
+      }
+    ]
+  },
+  "losingTradeAnalysis": {
+    "topFactors": [
+      {
+        "factor": "low_confidence",
+        "count": 12,
+        "percentage": 80
+      },
+      {
+        "factor": "agent_disagreement",
+        "count": 11,
+        "percentage": 73.33333333333333
+      },
+      {
+        "factor": "weak_consensus",
+        "count": 8,
+        "percentage": 53.333333333333336
+      },
+      {
+        "factor": "stop_loss_hit",
+        "count": 6,
+        "percentage": 40
+      }
+    ],
+    "worstRegimes": [
+      {
+        "regime": "choppy",
+        "winRate": 0,
+        "pnl": 0
+      },
+      {
+        "regime": "volatile",
+        "winRate": 0,
+        "pnl": 0
+      },
+      {
+        "regime": "ranging",
+        "winRate": 0,
+        "pnl": 0
+      }
+    ],
+    "worstHours": [
+      {
+        "hour": 18,
+        "winRate": 0,
+        "pnl": -67.5763597991637
+      },
+      {
+        "hour": 17,
+        "winRate": 0,
+        "pnl": -13.66929471034604
+      },
+      {
+        "hour": 16,
+        "winRate": 0,
+        "pnl": -0.0028707813252837333
+      },
+      {
+        "hour": 14,
+        "winRate": 0,
+        "pnl": -127.5084727263592
+      },
+      {
+        "hour": 13,
+        "winRate": 0,
+        "pnl": -58.80389094448774
+      }
+    ],
+    "worstAgents": [
+      {
+        "agent": "WhaleTracker",
+        "winRate": 0.2857142857142857,
+        "pnl": -379.1504698689329
+      },
+      {
+        "agent": "MacroAnalyst",
+        "winRate": 0.2857142857142857,
+        "pnl": -379.1504698689329
+      },
+      {
+        "agent": "SentimentAnalyst",
+        "winRate": 0.2857142857142857,
+        "pnl": -379.1504698689329
+      },
+      {
+        "agent": "OrderFlowAnalyst",
+        "winRate": 0.2857142857142857,
+        "pnl": -379.1504698689329
+      },
+      {
+        "agent": "PatternMatcher",
+        "winRate": 0.2857142857142857,
+        "pnl": -379.1504698689329
+      }
+    ]
+  },
+  "serviceAudit": {
+    "agentPerformance": [
+      {
+        "agent": "TechnicalAnalyst",
+        "accuracy": 0.2857142857142857,
+        "contribution": -379.1504698689329,
+        "recommendation": "Poor - consider disabling or major overhaul"
+      },
+      {
+        "agent": "PatternMatcher",
+        "accuracy": 0.2857142857142857,
+        "contribution": -379.1504698689329,
+        "recommendation": "Poor - consider disabling or major overhaul"
+      },
+      {
+        "agent": "OrderFlowAnalyst",
+        "accuracy": 0.2857142857142857,
+        "contribution": -379.1504698689329,
+        "recommendation": "Poor - consider disabling or major overhaul"
+      },
+      {
+        "agent": "SentimentAnalyst",
+        "accuracy": 0.2857142857142857,
+        "contribution": -379.1504698689329,
+        "recommendation": "Poor - consider disabling or major overhaul"
+      },
+      {
+        "agent": "MacroAnalyst",
+        "accuracy": 0.2857142857142857,
+        "contribution": -379.1504698689329,
+        "recommendation": "Poor - consider disabling or major overhaul"
+      },
+      {
+        "agent": "WhaleTracker",
+        "accuracy": 0.2857142857142857,
+        "contribution": -379.1504698689329,
+        "recommendation": "Poor - consider disabling or major overhaul"
+      }
+    ],
+    "strategyPerformance": [
+      {
+        "strategy": "Consensus Trading",
+        "effectiveness": 0.2857142857142857,
+        "recommendation": "Needs tuning"
+      },
+      {
+        "strategy": "Partial Profit Taking",
+        "effectiveness": 0.7,
+        "recommendation": "Effective for locking in gains"
+      },
+      {
+        "strategy": "Breakeven Protection",
+        "effectiveness": 0.8,
+        "recommendation": "Effective for capital preservation"
+      },
+      {
+        "strategy": "Trailing Stop",
+        "effectiveness": 0.6,
+        "recommendation": "Review activation threshold"
+      }
+    ],
+    "workflowIssues": [
+      "Win rate below 50% - consensus mechanism may be too permissive",
+      "Profit factor below 1.0 - losses exceed wins",
+      "High losses from agent disagreement"
+    ],
+    "optimizationRecommendations": [
+      "Increase consensus threshold from 60% to 65%",
+      "Review exit strategy - consider tighter stops or better profit taking",
+      "Increase minimum agent agreement requirement"
+    ]
+  },
+  "verdict": {
+    "grade": "F",
+    "profitability": "break_even",
+    "recommendation": "System needs significant improvements. Do not use for live trading until issues are resolved.",
+    "criticalIssues": [
+      "Win rate below 50% - consensus mechanism may be too permissive",
+      "Profit factor below 1.0 - losses exceed wins"
+    ],
+    "improvements": [
+      "Increase consensus threshold from 60% to 65%",
+      "Review exit strategy - consider tighter stops or better profit taking",
+      "Increase minimum agent agreement requirement"
+    ]
+  }
+}
