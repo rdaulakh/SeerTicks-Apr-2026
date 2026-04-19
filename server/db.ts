@@ -40,8 +40,8 @@ function createConnectionPool(): mysql.Pool {
   const poolConfig: mysql.PoolOptions = {
     host: url.hostname,
     port: parseInt(url.port) || 3306,
-    user: url.username,
-    password: url.password,
+    user: decodeURIComponent(url.username),
+    password: decodeURIComponent(url.password),
     database: url.pathname.slice(1), // Remove leading '/'
     ssl,
     

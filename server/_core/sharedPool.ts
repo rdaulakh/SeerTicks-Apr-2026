@@ -13,21 +13,35 @@ export function getSharedPool(): mysql.Pool {
   if (!sharedPool) {
     // Parse DATABASE_URL to extract connection details
     const dbUrl = process.env.DATABASE_URL || '';
-    
+    const parsed = new URL(dbUrl);
+
+    // SSL is opt-in via `?ssl=...` query param (JSON or truthy).
+    // RDS inside the VPC is reached over private network — TLS optional.
+    const sslParam = parsed.searchParams.get('ssl');
+    let ssl: any = false;
+    if (sslParam) {
+      try {
+        ssl = JSON.parse(sslParam);
+      } catch {
+        ssl = { rejectUnauthorized: true };
+      }
+    }
+
     sharedPool = mysql.createPool({
-      uri: dbUrl,
+      host: parsed.hostname,
+      port: parseInt(parsed.port) || 3306,
+      user: decodeURIComponent(parsed.username),
+      password: decodeURIComponent(parsed.password),
+      database: parsed.pathname.slice(1),
+      ssl,
       waitForConnections: true,
-      connectionLimit: 5, // Single pool with 5 connections for all auth operations
-      queueLimit: 100, // Allow queuing requests
+      connectionLimit: 5,
+      queueLimit: 100,
       enableKeepAlive: true,
       keepAliveInitialDelay: 0,
       connectTimeout: 30000,
-      // TiDB Cloud requires SSL
-      ssl: {
-        rejectUnauthorized: true,
-      },
     });
-    console.log('[SharedPool] Created shared database connection pool with SSL');
+    console.log('[SharedPool] Created shared database connection pool (ssl=' + !!ssl + ')');
   }
   return sharedPool;
 }
