@@ -1,6 +1,6 @@
 # Seerticks AWS Infrastructure
 
-> Last updated: 2026-04-19
+> Last updated: 2026-04-19 (post-provision)
 > Region: us-east-1 (N. Virginia) — chosen for ~1ms latency to Coinbase Ashburn
 > Account: 946732501059
 > Isolation: every resource tagged `Project=seerticks`, prefixed `seerticks-`
@@ -46,18 +46,28 @@
 | `/seerticks/app` | 30 days |
 | `/seerticks/trading` | 90 days |
 
-### Database scaffolding
-| Resource | Name |
-|---|---|
-| RDS subnet group | `seerticks-db-subnet-group` (2 private subnets) |
+### Compute
+| Resource | ID / Value | Notes |
+|---|---|---|
+| EC2 instance | `i-01e65b66799d81dab` | `m6i.xlarge`, Ubuntu 22.04, public subnet 1a, profile `seerticks-app-profile` |
+| Elastic IP | `eipalloc-028917d622a96471f` → `100.55.105.55` | Attached to EC2 |
+| Private IP | `10.42.1.91` | Used for SG rules / RDS access |
+| Root volume | 100GB gp3, encrypted | Default AWS-managed key |
+| Hostname | `seerticks-app-prod` | Set via user-data |
 
-## Not yet provisioned (billable — awaiting confirmation)
-- EC2 `m6i.xlarge` Ubuntu 22.04 in public subnet 1a (~$140/mo)
-- Elastic IP (free while attached)
-- 100GB gp3 root volume (~$8/mo)
-- RDS MySQL 8 `db.m5.large` (~$130/mo) with 100GB gp3 (~$11/mo) + 7-day backups
+### Database
+| Resource | Value | Notes |
+|---|---|---|
+| RDS subnet group | `seerticks-db-subnet-group` | 2 private subnets (1a + 1b) |
+| RDS instance | `seerticks-db-prod` | `db.m5.large`, MySQL 8.0.45, us-east-1b |
+| RDS resource ID | `db-ZTMYRQBXK6J735DQFDN3N6OZQA` | |
+| Endpoint | `seerticks-db-prod.c8fu004m61k4.us-east-1.rds.amazonaws.com:3306` | Private — SG-gated to app-sg only |
+| Storage | 100GB gp3, encrypted | 7-day automated backups |
+| Master user | `seeradmin` | Password in Secrets Manager |
+| Secret ARN | `arn:aws:secretsmanager:us-east-1:946732501059:secret:seerticks/db/master-ObxPn7` | Fetched at runtime by EC2 via IAM role |
+| Deletion protection | enabled | Prevents accidental drop |
 
-**Estimated monthly cost once running:** ~$290–310/mo (plus data transfer).
+**Actual monthly cost (running):** ~$290–310/mo (plus data transfer).
 
 ## Reversal
 Everything above was created with `Project=seerticks` tags. To nuke: `aws resourcegroupstaggingapi get-resources --tag-filters Key=Project,Values=seerticks` lists everything for teardown.
