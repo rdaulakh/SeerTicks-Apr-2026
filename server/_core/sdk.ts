@@ -1,19 +1,24 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { ForbiddenError } from "@shared/_core/errors";
-import axios, { type AxiosInstance, type AxiosError } from "axios";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
 import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
-import type {
-  ExchangeTokenRequest,
-  ExchangeTokenResponse,
-  GetUserInfoResponse,
-  GetUserInfoWithJwtRequest,
-  GetUserInfoWithJwtResponse,
-} from "./types/manusTypes";
+
+/**
+ * AWS Cognito OIDC SDK.
+ *
+ * Replaces the previous Manus `/webdev.v1.WebDevAuthPublicService/*` gRPC-ish
+ * endpoints with Cognito's standard OAuth2 / OIDC endpoints:
+ *   - POST {COGNITO_DOMAIN}/oauth2/token      — code → tokens
+ *   - GET  {COGNITO_DOMAIN}/oauth2/userInfo   — access token → user claims
+ *
+ * The external contract on `SDKServer` (exchangeCodeForToken, getUserInfo,
+ * createSessionToken, verifySession, authenticateRequest) is unchanged so the
+ * existing oauth.ts callback and context.ts middleware keep working.
+ */
 
 // Utility function
 const isNonEmptyString = (value: unknown): value is string =>
@@ -25,214 +30,262 @@ export type SessionPayload = {
   name: string;
 };
 
-const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
-const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
-const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`;
+// Normalized response shapes — callers still see camelCase keys.
+export type ExchangeTokenResponse = {
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
+  refreshToken?: string;
+  scope: string;
+  idToken: string;
+};
 
-// Increased timeout for OAuth requests to handle network latency
+export type GetUserInfoResponse = {
+  openId: string;
+  name: string;
+  email?: string | null;
+  platform?: string | null;
+  loginMethod?: string | null;
+};
+
 const OAUTH_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 500;
 
-// Helper to delay execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Helper to check if error is retryable
+const isRetryableStatus = (status: number) => status >= 500 && status < 600;
+
 const isRetryableError = (error: unknown): boolean => {
-  if (axios.isAxiosError(error)) {
-    const axiosError = error as AxiosError;
-    // Retry on network errors, timeouts, and 5xx server errors
-    if (axiosError.code === 'ECONNABORTED' || axiosError.code === 'ETIMEDOUT') return true;
-    if (axiosError.code === 'ECONNRESET' || axiosError.code === 'ENOTFOUND') return true;
-    if (!axiosError.response) return true; // Network error
-    const status = axiosError.response.status;
-    return status >= 500 && status < 600;
+  if (error instanceof Error) {
+    // fetch throws TypeError on network failure; timeout → AbortError
+    if (error.name === "AbortError") return true;
+    if (error.name === "TypeError") return true;
+    // Our thrown HTTP errors carry status in the message — cheap parse.
+    const m = /HTTP (\d{3})/.exec(error.message);
+    if (m) return isRetryableStatus(parseInt(m[1], 10));
   }
   return false;
 };
 
-class OAuthService {
-  constructor(private client: AxiosInstance) {
-    console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
-    if (!ENV.oAuthServerUrl) {
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestWithRetry<T>(
+  operation: () => Promise<T>,
+  operationName: string,
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`[OAuth] ${operationName} retry attempt ${attempt}/${MAX_RETRIES}`);
+        await delay(RETRY_DELAY_MS * attempt);
+      }
+      return await operation();
+    } catch (error) {
+      lastError = error;
       console.error(
-        "[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable."
+        `[OAuth] ${operationName} attempt ${attempt + 1} failed:`,
+        error instanceof Error ? error.message : "Unknown error",
+      );
+
+      if (!isRetryableError(error) || attempt === MAX_RETRIES) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+class CognitoOAuthService {
+  constructor(
+    private readonly domain: string,
+    private readonly clientId: string,
+    private readonly clientSecret: string,
+  ) {
+    console.log("[OAuth] Cognito SDK initialized with domain:", domain);
+    if (!domain || !clientId || !clientSecret) {
+      console.error(
+        "[OAuth] ERROR: Cognito is not fully configured. " +
+          "Set COGNITO_DOMAIN, COGNITO_CLIENT_ID, and COGNITO_CLIENT_SECRET.",
       );
     }
   }
 
   private decodeState(state: string): string {
-    const redirectUri = atob(state);
-    return redirectUri;
-  }
-
-  private async requestWithRetry<T>(
-    operation: () => Promise<T>,
-    operationName: string
-  ): Promise<T> {
-    let lastError: unknown;
-    
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        if (attempt > 0) {
-          console.log(`[OAuth] ${operationName} retry attempt ${attempt}/${MAX_RETRIES}`);
-          await delay(RETRY_DELAY_MS * attempt);
-        }
-        return await operation();
-      } catch (error) {
-        lastError = error;
-        console.error(`[OAuth] ${operationName} attempt ${attempt + 1} failed:`, 
-          error instanceof Error ? error.message : 'Unknown error');
-        
-        if (!isRetryableError(error) || attempt === MAX_RETRIES) {
-          throw error;
-        }
+    // state is base64-encoded JSON { redirectUri, rememberMe } or a plain URI.
+    try {
+      const decoded = Buffer.from(state, "base64").toString("utf-8");
+      if (decoded.startsWith("{")) {
+        const parsed = JSON.parse(decoded);
+        return typeof parsed.redirectUri === "string" ? parsed.redirectUri : "";
       }
+      return decoded;
+    } catch {
+      return "";
     }
-    
-    throw lastError;
   }
 
-  async getTokenByCode(
-    code: string,
-    state: string
-  ): Promise<ExchangeTokenResponse> {
-    const payload: ExchangeTokenRequest = {
-      clientId: ENV.appId,
-      grantType: "authorization_code",
+  private basicAuthHeader(): string {
+    const raw = `${this.clientId}:${this.clientSecret}`;
+    return `Basic ${Buffer.from(raw, "utf-8").toString("base64")}`;
+  }
+
+  async exchangeCode(code: string, state: string): Promise<ExchangeTokenResponse> {
+    const redirectUri = this.decodeState(state) || ENV.cognitoRedirectUri;
+    if (!redirectUri) {
+      throw new Error("Redirect URI missing (state empty and COGNITO_REDIRECT_URI unset)");
+    }
+
+    const url = `${this.domain}/oauth2/token`;
+    const body = new URLSearchParams({
+      grant_type: "authorization_code",
       code,
-      redirectUri: this.decodeState(state),
-    };
+      redirect_uri: redirectUri,
+      client_id: this.clientId,
+    });
 
-    return this.requestWithRetry(async () => {
-      const { data } = await this.client.post<ExchangeTokenResponse>(
-        EXCHANGE_TOKEN_PATH,
-        payload,
-        { timeout: OAUTH_TIMEOUT_MS }
+    return requestWithRetry(async () => {
+      const res = await fetchWithTimeout(
+        url,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            authorization: this.basicAuthHeader(),
+          },
+          body: body.toString(),
+        },
+        OAUTH_TIMEOUT_MS,
       );
-      return data;
-    }, 'getTokenByCode');
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Cognito token exchange failed: HTTP ${res.status} – ${text}`);
+      }
+
+      const raw = (await res.json()) as {
+        access_token: string;
+        id_token: string;
+        refresh_token?: string;
+        token_type: string;
+        expires_in: number;
+        scope?: string;
+      };
+
+      return {
+        accessToken: raw.access_token,
+        idToken: raw.id_token,
+        refreshToken: raw.refresh_token,
+        tokenType: raw.token_type,
+        expiresIn: raw.expires_in,
+        scope: raw.scope ?? "openid email profile",
+      };
+    }, "exchangeCode");
   }
 
-  async getUserInfoByToken(
-    token: ExchangeTokenResponse
-  ): Promise<GetUserInfoResponse> {
-    return this.requestWithRetry(async () => {
-      const { data } = await this.client.post<GetUserInfoResponse>(
-        GET_USER_INFO_PATH,
+  async getUserInfo(accessToken: string): Promise<GetUserInfoResponse> {
+    const url = `${this.domain}/oauth2/userInfo`;
+
+    return requestWithRetry(async () => {
+      const res = await fetchWithTimeout(
+        url,
         {
-          accessToken: token.accessToken,
+          method: "GET",
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+          },
         },
-        { timeout: OAUTH_TIMEOUT_MS }
+        OAUTH_TIMEOUT_MS,
       );
-      return data;
-    }, 'getUserInfoByToken');
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Cognito userInfo failed: HTTP ${res.status} – ${text}`);
+      }
+
+      const raw = (await res.json()) as {
+        sub: string;
+        email?: string;
+        email_verified?: string | boolean;
+        name?: string;
+        username?: string;
+        "cognito:username"?: string;
+        identities?: string;
+      };
+
+      // Infer a login-method label for UI ("google" / "email" / …).
+      const loginMethod = deriveLoginMethodFromIdentities(raw.identities);
+
+      return {
+        openId: raw.sub,
+        name: raw.name || raw.username || raw["cognito:username"] || "",
+        email: raw.email ?? null,
+        platform: loginMethod,
+        loginMethod,
+      };
+    }, "getUserInfo");
   }
 }
 
-const createOAuthHttpClient = (): AxiosInstance => {
-  const client = axios.create({
-    baseURL: ENV.oAuthServerUrl,
-    timeout: OAUTH_TIMEOUT_MS,
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
-
-  // Add request interceptor for logging
-  client.interceptors.request.use(
-    (config) => {
-      console.log(`[OAuth] Request: ${config.method?.toUpperCase()} ${config.url}`);
-      return config;
-    },
-    (error) => {
-      console.error('[OAuth] Request error:', error.message);
-      return Promise.reject(error);
-    }
-  );
-
-  // Add response interceptor for logging
-  client.interceptors.response.use(
-    (response) => {
-      console.log(`[OAuth] Response: ${response.status} from ${response.config.url}`);
-      return response;
-    },
-    (error) => {
-      if (axios.isAxiosError(error)) {
-        const axiosError = error as AxiosError;
-        console.error(`[OAuth] Response error: ${axiosError.code || 'Unknown'} - ${axiosError.message}`);
-        if (axiosError.response) {
-          console.error(`[OAuth] Response status: ${axiosError.response.status}`);
-        }
-      }
-      return Promise.reject(error);
-    }
-  );
-
-  return client;
+// Cognito returns identities as a JSON string when federated; e.g.
+// '[{"providerName":"Google","providerType":"Google",...}]'. When the user is
+// a native Cognito user it's absent → treat as "email".
+const deriveLoginMethodFromIdentities = (
+  identities: string | undefined,
+): string => {
+  if (!identities) return "email";
+  try {
+    const parsed = JSON.parse(identities) as Array<{ providerName?: string; providerType?: string }>;
+    const first = Array.isArray(parsed) ? parsed[0] : undefined;
+    const name = first?.providerName || first?.providerType;
+    return typeof name === "string" && name.length > 0 ? name.toLowerCase() : "email";
+  } catch {
+    return "email";
+  }
 };
 
 class SDKServer {
-  private readonly client: AxiosInstance;
-  private readonly oauthService: OAuthService;
+  private readonly oauth: CognitoOAuthService;
 
-  constructor(client: AxiosInstance = createOAuthHttpClient()) {
-    this.client = client;
-    this.oauthService = new OAuthService(this.client);
-  }
-
-  private deriveLoginMethod(
-    platforms: unknown,
-    fallback: string | null | undefined
-  ): string | null {
-    if (fallback && fallback.length > 0) return fallback;
-    if (!Array.isArray(platforms) || platforms.length === 0) return null;
-    const set = new Set<string>(
-      platforms.filter((p): p is string => typeof p === "string")
+  constructor() {
+    this.oauth = new CognitoOAuthService(
+      ENV.cognitoDomain,
+      ENV.cognitoClientId,
+      ENV.cognitoClientSecret,
     );
-    if (set.has("REGISTERED_PLATFORM_EMAIL")) return "email";
-    if (set.has("REGISTERED_PLATFORM_GOOGLE")) return "google";
-    if (set.has("REGISTERED_PLATFORM_APPLE")) return "apple";
-    if (
-      set.has("REGISTERED_PLATFORM_MICROSOFT") ||
-      set.has("REGISTERED_PLATFORM_AZURE")
-    )
-      return "microsoft";
-    if (set.has("REGISTERED_PLATFORM_GITHUB")) return "github";
-    const first = Array.from(set)[0];
-    return first ? first.toLowerCase() : null;
   }
 
   /**
-   * Exchange OAuth authorization code for access token
+   * Exchange OAuth authorization code for tokens.
    * @example
    * const tokenResponse = await sdk.exchangeCodeForToken(code, state);
    */
-  async exchangeCodeForToken(
-    code: string,
-    state: string
-  ): Promise<ExchangeTokenResponse> {
-    return this.oauthService.getTokenByCode(code, state);
+  async exchangeCodeForToken(code: string, state: string): Promise<ExchangeTokenResponse> {
+    return this.oauth.exchangeCode(code, state);
   }
 
   /**
-   * Get user information using access token
+   * Get user information from the Cognito userInfo endpoint.
    * @example
    * const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
    */
   async getUserInfo(accessToken: string): Promise<GetUserInfoResponse> {
-    const data = await this.oauthService.getUserInfoByToken({
-      accessToken,
-    } as ExchangeTokenResponse);
-    const loginMethod = this.deriveLoginMethod(
-      (data as any)?.platforms,
-      (data as any)?.platform ?? data.platform ?? null
-    );
-    return {
-      ...(data as any),
-      platform: loginMethod,
-      loginMethod,
-    } as GetUserInfoResponse;
+    return this.oauth.getUserInfo(accessToken);
   }
 
   private parseCookies(cookieHeader: string | undefined) {
@@ -250,13 +303,13 @@ class SDKServer {
   }
 
   /**
-   * Create a session token for a Manus user openId
+   * Create a session token for an authenticated user.
    * @example
    * const sessionToken = await sdk.createSessionToken(userInfo.openId);
    */
   async createSessionToken(
     openId: string,
-    options: { expiresInMs?: number; name?: string } = {}
+    options: { expiresInMs?: number; name?: string } = {},
   ): Promise<string> {
     return this.signSession(
       {
@@ -264,13 +317,13 @@ class SDKServer {
         appId: ENV.appId,
         name: options.name || "",
       },
-      options
+      options,
     );
   }
 
   async signSession(
     payload: SessionPayload,
-    options: { expiresInMs?: number } = {}
+    options: { expiresInMs?: number } = {},
   ): Promise<string> {
     const issuedAt = Date.now();
     const expiresInMs = options.expiresInMs ?? ONE_YEAR_MS;
@@ -288,7 +341,7 @@ class SDKServer {
   }
 
   async verifySession(
-    cookieValue: string | undefined | null
+    cookieValue: string | undefined | null,
   ): Promise<{ openId: string; appId: string; name: string } | null> {
     if (!cookieValue) {
       console.warn("[Auth] Missing session cookie");
@@ -304,12 +357,14 @@ class SDKServer {
 
       // Only openId and appId are strictly required - name can be empty
       if (!isNonEmptyString(openId) || !isNonEmptyString(appId)) {
-        console.warn("[Auth] Session payload missing required fields (openId or appId)", { openId: !!openId, appId: !!appId });
+        console.warn("[Auth] Session payload missing required fields (openId or appId)", {
+          openId: !!openId,
+          appId: !!appId,
+        });
         return null;
       }
 
-      // Name can be empty string or missing
-      const validName = typeof name === 'string' ? name : '';
+      const validName = typeof name === "string" ? name : "";
 
       return {
         openId,
@@ -322,33 +377,7 @@ class SDKServer {
     }
   }
 
-  async getUserInfoWithJwt(
-    jwtToken: string
-  ): Promise<GetUserInfoWithJwtResponse> {
-    const payload: GetUserInfoWithJwtRequest = {
-      jwtToken,
-      projectId: ENV.appId,
-    };
-
-    const { data } = await this.client.post<GetUserInfoWithJwtResponse>(
-      GET_USER_INFO_WITH_JWT_PATH,
-      payload,
-      { timeout: OAUTH_TIMEOUT_MS }
-    );
-
-    const loginMethod = this.deriveLoginMethod(
-      (data as any)?.platforms,
-      (data as any)?.platform ?? data.platform ?? null
-    );
-    return {
-      ...(data as any),
-      platform: loginMethod,
-      loginMethod,
-    } as GetUserInfoWithJwtResponse;
-  }
-
   async authenticateRequest(req: Request): Promise<User> {
-    // Regular authentication flow
     const cookies = this.parseCookies(req.headers.cookie);
     const sessionCookie = cookies.get(COOKIE_NAME);
     const session = await this.verifySession(sessionCookie);
@@ -359,33 +388,21 @@ class SDKServer {
 
     const sessionUserId = session.openId;
     const signedInAt = new Date();
-    let user = await db.getUserByOpenId(sessionUserId);
+    const user = await db.getUserByOpenId(sessionUserId);
 
-    // If user not in DB, sync from OAuth server automatically
+    // Cognito flow: the user row is created at OAuth callback. If the DB is
+    // missing the user but the session is valid, treat it as a stale session
+    // and force re-login instead of the old Manus `getUserInfoWithJwt` sync.
     if (!user) {
-      try {
-        const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
-        await db.upsertUser({
-          openId: userInfo.openId,
-          name: userInfo.name || undefined,
-          email: userInfo.email || '',
-          loginMethod: userInfo.loginMethod ?? userInfo.platform ?? undefined,
-          lastSignedIn: signedInAt,
-        });
-        user = await db.getUserByOpenId(userInfo.openId);
-      } catch (error) {
-        console.error("[Auth] Failed to sync user from OAuth:", error);
-        throw ForbiddenError("Failed to sync user info");
-      }
-    }
-
-    if (!user) {
-      throw ForbiddenError("User not found");
+      console.warn("[Auth] Valid session but user missing in DB — requiring re-login", {
+        openId: sessionUserId,
+      });
+      throw ForbiddenError("User not found — please sign in again");
     }
 
     await db.upsertUser({
       openId: user.openId,
-      email: user.email || '',
+      email: user.email || "",
       lastSignedIn: signedInAt,
     });
 
