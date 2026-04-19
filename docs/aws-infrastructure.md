@@ -67,6 +67,34 @@
 | Secret ARN | `arn:aws:secretsmanager:us-east-1:946732501059:secret:seerticks/db/master-ObxPn7` | Fetched at runtime by EC2 via IAM role |
 | Deletion protection | enabled | Prevents accidental drop |
 
+### Auth — AWS Cognito (replaces Manus OAuth)
+| Resource | Value | Notes |
+|---|---|---|
+| User Pool ID | `us-east-1_SkRU0CyGV` | Name `seerticks-prod`, MFA=OFF, email username, password 12+ chars |
+| User Pool ARN | `arn:aws:cognito-idp:us-east-1:946732501059:userpool/us-east-1_SkRU0CyGV` | |
+| Hosted UI domain | `https://seerticks-auth.auth.us-east-1.amazoncognito.com` | Managed login v1 |
+| App client ID | `6lge90596esoov1l4hbm81klfh` | Name `seerticks-web`, confidential (with secret) |
+| Client secret | Secrets Manager | ARN `arn:aws:secretsmanager:us-east-1:946732501059:secret:seerticks/cognito/client-secret-vcj6bg` |
+| OAuth flows | authorization_code | Scopes: openid, email, profile |
+| Callback URLs | `/api/oauth/callback` on seerticks.com, www.seerticks.com, localhost:3000 | |
+| Token validity | Access 60m, ID 60m, Refresh 30d | SRP + refresh-token auth flows enabled |
+| Advanced security | AUDIT | Upgradeable to ENFORCED later |
+
+Server env on EC2 reads: `COGNITO_DOMAIN`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `COGNITO_CLIENT_SECRET`, `COGNITO_REDIRECT_URI`. Client build reads: `VITE_COGNITO_DOMAIN`, `VITE_COGNITO_CLIENT_ID`.
+
+### TLS
+| Resource | Value | Notes |
+|---|---|---|
+| Let's Encrypt cert | `/etc/letsencrypt/live/seerticks.com/` | SANs: `seerticks.com`, `www.seerticks.com` |
+| Renewal | certbot systemd timer | HTTP-01 via nginx plugin, webroot `/var/www/certbot` |
+| Expiry | 2026-07-18 | Auto-renews ~30 days prior |
+
+### DNS (external — GoDaddy)
+| Record | Target | Notes |
+|---|---|---|
+| `seerticks.com` A | `100.55.105.55` | EIP |
+| `www.seerticks.com` A | `100.55.105.55` | EIP; GoDaddy domain forwarding was disabled (it was silently injecting A records to AWS Global Accelerator IPs) |
+
 **Actual monthly cost (running):** ~$290–310/mo (plus data transfer).
 
 ## Reversal
