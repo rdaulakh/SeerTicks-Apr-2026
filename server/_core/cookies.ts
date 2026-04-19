@@ -17,12 +17,9 @@ function isSecureRequest(req: Request) {
     }
   }
 
-  // Check if host contains manus domain (always secure)
-  const host = req.get('host') || '';
-  if (host.includes('manus') || host.includes('.computer')) {
-    return true;
-  }
-
+  // Non-localhost hosts over HTTPS should already be caught above via
+  // req.protocol or x-forwarded-proto. Treat everything else as insecure —
+  // we no longer pattern-match on Manus-sandbox hostnames.
   return false;
 }
 

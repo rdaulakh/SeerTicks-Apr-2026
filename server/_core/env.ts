@@ -31,6 +31,17 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  // Direct-provider LLM (post-Manus migration). Prefer these when set.
+  openaiApiUrl: process.env.OPENAI_API_URL ?? "https://api.openai.com/v1",
+  openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  openaiModel: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
+  // AWS Cognito OAuth (replaces Manus OAuth)
+  cognitoDomain: process.env.COGNITO_DOMAIN ?? "",
+  cognitoUserPoolId: process.env.COGNITO_USER_POOL_ID ?? "",
+  cognitoClientId: process.env.COGNITO_CLIENT_ID ?? "",
+  cognitoClientSecret: process.env.COGNITO_CLIENT_SECRET ?? "",
+  cognitoRedirectUri: process.env.COGNITO_REDIRECT_URI ?? "",
   encryptionMasterKey: process.env.ENCRYPTION_MASTER_KEY ?? "",
   redisUrl: process.env.REDIS_URL ?? "",
   metaapiToken: process.env.METAAPI_TOKEN ?? "",

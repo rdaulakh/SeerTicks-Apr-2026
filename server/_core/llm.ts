@@ -209,14 +209,54 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+/**
+ * Resolve provider (openai vs forge) + URL + key + model.
+ *
+ * Precedence:
+ *   1. OpenAI direct (OPENAI_API_KEY set) — preferred post-Manus.
+ *   2. Forge proxy (BUILT_IN_FORGE_API_KEY set) — legacy Manus-managed gateway.
+ *
+ * Why the provider matters: Forge (Gemini) accepts a `thinking.budget_tokens`
+ * payload and max_tokens up to 32768. OpenAI rejects both — we need to strip
+ * them for the OpenAI path, so callers below branch on `isForge`.
+ */
+type LlmProvider = {
+  kind: "openai" | "forge";
+  url: string;
+  key: string;
+  model: string;
+};
 
-const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+const resolveProvider = (): LlmProvider => {
+  if (ENV.openaiApiKey) {
+    const base = ENV.openaiApiUrl.replace(/\/$/, "");
+    const url = base.endsWith("/chat/completions")
+      ? base
+      : `${base}/chat/completions`;
+    return {
+      kind: "openai",
+      url,
+      key: ENV.openaiApiKey,
+      model: ENV.openaiModel || "gpt-4o-mini",
+    };
+  }
+
+  const forgeBase = (ENV.forgeApiUrl || "https://forge.manus.im").replace(/\/$/, "");
+  return {
+    kind: "forge",
+    url: `${forgeBase}/v1/chat/completions`,
+    key: ENV.forgeApiKey,
+    model: "gemini-2.5-flash",
+  };
+};
+
+const assertApiKey = (p: LlmProvider) => {
+  if (!p.key) {
+    throw new Error(
+      p.kind === "openai"
+        ? "OPENAI_API_KEY is not configured"
+        : "BUILT_IN_FORGE_API_KEY is not configured",
+    );
   }
 };
 
@@ -330,7 +370,8 @@ async function tryFallback(
  * Internal: invoke the primary Forge/Gemini LLM
  */
 async function invokePrimaryLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
+  const provider = resolveProvider();
+  assertApiKey(provider);
 
   const {
     messages,
@@ -341,10 +382,12 @@ async function invokePrimaryLLM(params: InvokeParams): Promise<InvokeResult> {
     output_schema,
     responseFormat,
     response_format,
+    maxTokens,
+    max_tokens,
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model: provider.model,
     messages: messages.map(normalizeMessage),
   };
 
@@ -360,9 +403,16 @@ async function invokePrimaryLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = 32768
-  payload.thinking = {
-    "budget_tokens": 128
+  // max_tokens: callers can override; per-provider safe defaults otherwise.
+  // OpenAI gpt-4o-mini supports up to 16384 completion tokens; Gemini forge path
+  // historically used 32768.
+  const callerMax = maxTokens ?? max_tokens;
+  payload.max_tokens =
+    callerMax ?? (provider.kind === "openai" ? 4096 : 32768);
+
+  // `thinking` is Gemini/Forge-specific — OpenAI rejects unknown fields.
+  if (provider.kind === "forge") {
+    payload.thinking = { budget_tokens: 128 };
   }
 
   const normalizedResponseFormat = normalizeResponseFormat({
@@ -376,11 +426,11 @@ async function invokePrimaryLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
+  const response = await fetch(provider.url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${provider.key}`,
     },
     body: JSON.stringify(payload),
   });
@@ -388,7 +438,7 @@ async function invokePrimaryLLM(params: InvokeParams): Promise<InvokeResult> {
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
+      `LLM invoke failed (${provider.kind}): ${response.status} ${response.statusText} – ${errorText}`
     );
   }
 
