@@ -8,11 +8,12 @@
  * - EntryValidationService (integration)
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
 import { EntryConfirmationFilter, AgentSignal } from '../services/EntryConfirmationFilter';
 import { MultiTimeframeAlignment, Candle } from '../services/MultiTimeframeAlignment';
 import { VolumeConfirmation } from '../services/VolumeConfirmation';
 import { EntryValidationService } from '../services/EntryValidationService';
+import { getTradingConfig, setTradingConfig } from '../config/TradingConfig';
 
 // Helper to generate mock candles
 function generateCandles(count: number, basePrice: number, trend: 'up' | 'down' | 'flat', baseVolume: number = 1000): Candle[] {
@@ -325,6 +326,25 @@ describe('VolumeConfirmation', () => {
 // ============================================
 describe('EntryValidationService', () => {
   let service: EntryValidationService;
+
+  // These tests document the backward-compat passthrough behavior
+  // (canEnter=true, confidence=0.3) that existed before the entry-gate audit
+  // flipped the default to fail-closed. Opt into the legacy passthrough via
+  // `validation.failOpenOnConsensusMismatch=true` so this suite continues to
+  // exercise that code path.
+  const __originalTradingConfig = getTradingConfig();
+  beforeAll(() => {
+    setTradingConfig({
+      ...__originalTradingConfig,
+      validation: {
+        ...(__originalTradingConfig.validation ?? {}),
+        failOpenOnConsensusMismatch: true,
+      },
+    });
+  });
+  afterAll(() => {
+    setTradingConfig(__originalTradingConfig);
+  });
 
   beforeEach(() => {
     service = new EntryValidationService({ cooldownMinutes: 1 });

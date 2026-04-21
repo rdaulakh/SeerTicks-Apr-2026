@@ -1,8 +1,27 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { IntelligentExitManager, Position, AgentExitSignal } from '../services/IntelligentExitManager';
 import { AutomatedTradeExecutor } from '../services/AutomatedTradeExecutor';
 import { AutomatedSignalProcessor } from '../services/AutomatedSignalProcessor';
 import type { AgentSignal } from '../agents/AgentBase';
+import { getTradingConfig, setTradingConfig } from '../config/TradingConfig';
+
+// AutomatedSignalProcessor now enforces candle-availability and price-feed
+// staleness gates before consensus. This suite has no real data feeds, so
+// disable both gates for the duration of the test run and restore after.
+const __originalTradingConfig = getTradingConfig();
+beforeAll(() => {
+  setTradingConfig({
+    ...__originalTradingConfig,
+    entry: {
+      ...__originalTradingConfig.entry,
+      minHistoricalCandlesRequired: 0,
+      priceFeedMaxStalenessMs: Number.MAX_SAFE_INTEGER,
+    },
+  });
+});
+afterAll(() => {
+  setTradingConfig(__originalTradingConfig);
+});
 
 describe('IntelligentExitManager Integration', () => {
   describe('IntelligentExitManager Initialization', () => {

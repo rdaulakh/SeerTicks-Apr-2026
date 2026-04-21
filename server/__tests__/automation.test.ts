@@ -3,6 +3,26 @@ import { AutomatedSignalProcessor } from '../services/AutomatedSignalProcessor';
 import { AutomatedTradeExecutor } from '../services/AutomatedTradeExecutor';
 import { AutomatedPositionMonitor } from '../services/AutomatedPositionMonitor';
 import type { AgentSignal } from '../agents/AgentBase';
+import { getTradingConfig, setTradingConfig } from '../config/TradingConfig';
+
+// The AutomatedSignalProcessor now enforces two pre-consensus quality gates
+// (minHistoricalCandlesRequired + priceFeedMaxStalenessMs). In this pure-unit
+// suite we have no CandleStorage/priceFeed fixtures, so neutralize those gates
+// and restore the production config on teardown.
+const __originalTradingConfig = getTradingConfig();
+beforeAll(() => {
+  setTradingConfig({
+    ...__originalTradingConfig,
+    entry: {
+      ...__originalTradingConfig.entry,
+      minHistoricalCandlesRequired: 0,
+      priceFeedMaxStalenessMs: Number.MAX_SAFE_INTEGER,
+    },
+  });
+});
+afterAll(() => {
+  setTradingConfig(__originalTradingConfig);
+});
 
 describe('Automation Workflow', () => {
   describe('AutomatedSignalProcessor', () => {

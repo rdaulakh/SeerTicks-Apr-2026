@@ -20,6 +20,12 @@ import { PositionManager } from '../PositionManager';
 import { RiskManager } from '../RiskManager';
 import type { AgentSignal } from '../agents/AgentBase';
 import { getPaperWallet, getPaperPositions, getPaperTrades, upsertPaperWallet } from '../db';
+import { getTradingConfig, setTradingConfig } from '../config/TradingConfig';
+
+// AutomatedSignalProcessor now enforces candle-availability and price-feed
+// staleness gates before consensus. This suite runs without real data feeds,
+// so neutralize both gates and restore production config after.
+const __originalTradingConfig = getTradingConfig();
 
 // Test configuration
 const TEST_USER_ID = 1260007;
@@ -46,6 +52,16 @@ describe('Signal-to-Trade Execution Pipeline', () => {
   };
 
   beforeAll(async () => {
+    // Bypass new entry gates (no data fixtures in this test context).
+    setTradingConfig({
+      ...__originalTradingConfig,
+      entry: {
+        ...__originalTradingConfig.entry,
+        minHistoricalCandlesRequired: 0,
+        priceFeedMaxStalenessMs: Number.MAX_SAFE_INTEGER,
+      },
+    });
+
     // Ensure test wallet exists with sufficient balance
     const wallet = await getPaperWallet(TEST_USER_ID);
     if (!wallet) {
@@ -532,5 +548,9 @@ describe('Signal-to-Trade Execution Pipeline', () => {
       expect(metrics.totalSignalsGenerated).toBeGreaterThan(0);
       expect(metrics.avgLatencyMs).toBeLessThan(1000);
     });
+  });
+
+  afterAll(() => {
+    setTradingConfig(__originalTradingConfig);
   });
 });

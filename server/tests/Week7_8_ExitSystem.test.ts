@@ -7,10 +7,37 @@
  * - IntegratedExitManager (combined exit logic)
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
 import { StructureBasedExitManager, OHLCV, Position as StructurePosition } from '../services/StructureBasedExitManager';
 import { LayeredProfitManager, Position as ProfitPosition } from '../services/LayeredProfitManager';
 import { IntegratedExitManager, ManagedPosition } from '../services/IntegratedExitManager';
+import { getTradingConfig, setTradingConfig } from '../config/TradingConfig';
+
+// ProfitLockGuard (profit-lock audit) now gates non-catastrophic exits through
+// a net-PnL floor. This exit-logic suite exercises structure/time/partial
+// triggers in isolation — orthogonal to the lock. Disable the guard for the
+// whole file and restore on teardown so the original exit-logic assertions
+// remain meaningful.
+const __originalTradingConfig = getTradingConfig();
+beforeAll(() => {
+  setTradingConfig({
+    ...__originalTradingConfig,
+    profitLock: {
+      ...(__originalTradingConfig.profitLock ?? {
+        enabled: false,
+        minNetProfitPercentToClose: 0,
+        estimatedRoundTripFeePercent: 0,
+        estimatedSlippagePercent: 0,
+        allowCatastrophicStop: true,
+        catastrophicStopPercent: -2.5,
+      }),
+      enabled: false,
+    },
+  });
+});
+afterAll(() => {
+  setTradingConfig(__originalTradingConfig);
+});
 
 // Helper to create mock candles
 function createMockCandles(

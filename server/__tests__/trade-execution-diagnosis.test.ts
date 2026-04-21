@@ -4,7 +4,7 @@
  * Detailed test to identify exactly where trade execution is failing
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { AutomatedSignalProcessor, ProcessedSignal } from '../services/AutomatedSignalProcessor';
 import { AutomatedTradeExecutor } from '../services/AutomatedTradeExecutor';
 import { PaperTradingEngine } from '../execution/PaperTradingEngine';
@@ -13,6 +13,7 @@ import { RiskManager } from '../RiskManager';
 import { priceFeedService } from '../services/priceFeedService';
 import { getPaperWallet, upsertPaperWallet } from '../db';
 import type { AgentSignal } from '../agents/AgentBase';
+import { getTradingConfig, setTradingConfig } from '../config/TradingConfig';
 
 const TEST_USER_ID = 1260007;
 const TEST_SYMBOL = 'BTC-USD';
@@ -24,7 +25,24 @@ describe('Trade Execution Diagnosis', () => {
   let positionManager: PositionManager;
   let riskManager: RiskManager;
 
+  // AutomatedSignalProcessor now enforces candle-availability and staleness
+  // gates before consensus. This diagnosis suite has no data fixtures, so
+  // neutralize both gates and restore on teardown.
+  const __originalTradingConfig = getTradingConfig();
+  afterAll(() => {
+    setTradingConfig(__originalTradingConfig);
+  });
+
   beforeAll(async () => {
+    setTradingConfig({
+      ...__originalTradingConfig,
+      entry: {
+        ...__originalTradingConfig.entry,
+        minHistoricalCandlesRequired: 0,
+        priceFeedMaxStalenessMs: Number.MAX_SAFE_INTEGER,
+      },
+    });
+
     // Ensure test wallet exists
     const wallet = await getPaperWallet(TEST_USER_ID);
     if (!wallet) {
