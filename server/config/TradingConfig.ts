@@ -99,6 +99,50 @@ export interface TradingConfiguration {
     positionIdCacheTtlMs: number;         // Cache DB position IDs
     cooldownBetweenTradesMs: number;      // Min time between trades
   };
+
+  // ── Profit Lock Guard (Prime Directive: only pick and exit profit in trades) ──
+  // Blocks any non-catastrophic close at net-negative PnL. A trade is held until
+  // net-positive (gross - fees - slippage >= minNetProfitPercentToClose) or until
+  // a catastrophic stop/emergency pattern fires.
+  profitLock: {
+    enabled: boolean;                      // Master switch — disable only for testing
+    minNetProfitPercentToClose: number;    // Net profit floor for non-stop exits (% of entry)
+    estimatedRoundTripFeePercent: number;  // Total entry+exit fee estimate (% of entry)
+    estimatedSlippagePercent: number;      // Total slippage estimate (% of entry)
+    allowCatastrophicStop: boolean;        // Hard stop can still fire when true
+    catastrophicStopPercent: number;       // Absolute last-resort gross-pnl floor (negative %)
+  };
+
+  // ── Entry-Gate Hardening (audit restoration) ──
+  // Fail-closed defaults — loss-prevention guards that must block trades when
+  // underlying signals/data cannot be verified.
+  validation: {
+    // When agent-consensus validation fails, should EntryValidationService
+    // trust upstream consensus and pass through (true), or veto (false)?
+    // Default: false (fail closed).  Set true ONLY for backward-compat.
+    failOpenOnConsensusMismatch: boolean;
+  };
+  macro: {
+    // When macro data source is unreachable and risk-on/risk-off cannot be
+    // computed, should MacroAnalyst activate a veto (true) or allow trades (false)?
+    // Default: true (fail closed — no macro confirmation = no trade).
+    failClosed: boolean;
+  };
+  risk: {
+    // When the VaR gate throws an unexpected error, should the executor
+    // reject the trade (true) or continue permissively (false)?
+    // Default: true (fail closed — unknown risk = no trade).
+    failClosedOnVaRError: boolean;
+  };
+  entry: {
+    // Minimum number of historical candles (primary timeframe) required in
+    // CandleStorage before a signal can be approved.  Prevents trading on
+    // a cold-start / data-gap symbol where indicators are meaningless.
+    minHistoricalCandlesRequired: number;
+    // Maximum allowed staleness (ms) of the latest streamed price.
+    // If older, the entry is rejected as `price_feed_stale`.
+    priceFeedMaxStalenessMs: number;
+  };
 }
 
 export interface ExitRegimeMultipliers {
@@ -151,16 +195,20 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
   },
 
   consensus: {
-    // Phase 40 FIX v2: Further tightened — 35% confidence was still letting low-conviction agents
-    // (OnChainFlowAnalyst@39.6%) influence trade decisions, causing false consensus in 3B/3Be splits.
-    // Root cause: weak agents were tipping the balance in evenly-split markets.
-    // FIX: thresholds rescaled to match agent output range (0.05-0.20)
-    minConsensusStrength: 0.12,            // rescaled from 0.50
-    minConfidence: 0.10,                   // rescaled from 0.45
-    minExecutionScore: 40,                 // 40/100 tactical timing — up from 30
-    minAgentAgreement: 3,                  // Min 3 agents agreeing on direction — up from 2
-    minDirectionRatio: 0.60,               // >60% directional dominance — up from 55%
-    minCombinedScore: 0.10,                // rescaled from 0.40
+    // Entry-gate audit restoration (post Phase 40 v2): the 0.10–0.12 rescaling
+    // left the entry pipeline functionally disarmed — any 2-agent split with
+    // a weak dissenter was satisfying consensus, driving the high-loss-rate
+    // regression found in the audit.
+    // Restored thresholds are set halfway between the original pre-Phase-40
+    // values (0.50 / 0.45 / 0.40) and the overly-permissive Phase-40 values
+    // (0.12 / 0.10 / 0.10), matching current weighted agent-output scale
+    // while rejecting low-conviction splits.
+    minConsensusStrength: 0.30,            // restored from 0.12 (halfway to 0.50)
+    minConfidence: 0.25,                   // restored from 0.10 (halfway to 0.45)
+    minExecutionScore: 40,                 // 40/100 tactical timing — unchanged
+    minAgentAgreement: 3,                  // Min 3 agents agreeing on direction — unchanged
+    minDirectionRatio: 0.60,               // >60% directional dominance — unchanged
+    minCombinedScore: 0.25,                // restored from 0.10 (halfway to 0.40)
   },
 
   exits: {
@@ -205,6 +253,30 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
     dynamicLevelsCacheTtlMs: 30_000,      // Cache candle data 30s
     positionIdCacheTtlMs: 60_000,         // Cache position IDs 60s
     cooldownBetweenTradesMs: 5_000,       // 5s min between trades
+  },
+
+  profitLock: {
+    enabled: true,                         // PRIME DIRECTIVE: only exit at net profit
+    minNetProfitPercentToClose: 0.15,      // Need ≥0.15% net after fees+slippage for a non-stop exit
+    estimatedRoundTripFeePercent: 0.20,    // Coinbase Advanced taker ≈0.10% × 2 legs
+    estimatedSlippagePercent: 0.05,        // Conservative slippage allowance
+    allowCatastrophicStop: true,           // Hard stops still fire — blow-up protection
+    catastrophicStopPercent: -2.5,         // Gross PnL ≤ -2.5% is always allowed to exit
+  },
+
+  // Entry-gate hardening — all default to fail-closed (safe).
+  validation: {
+    failOpenOnConsensusMismatch: false,    // Veto on agent-consensus failure (was: trust upstream)
+  },
+  macro: {
+    failClosed: true,                      // Block trades when macro data unavailable
+  },
+  risk: {
+    failClosedOnVaRError: true,            // Block trades when VaR gate throws
+  },
+  entry: {
+    minHistoricalCandlesRequired: 50,      // Need ≥50 historical 1h candles before entry
+    priceFeedMaxStalenessMs: 5_000,        // Reject entries with price >5s stale
   },
 };
 
