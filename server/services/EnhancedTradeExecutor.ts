@@ -377,7 +377,22 @@ export class EnhancedTradeExecutor extends EventEmitter {
         }
         console.log(`[EnhancedTradeExecutor] ✅ VaR gate passed (${varResult.method}): portfolioVaR=${(varResult.portfolioVaR95Percent * 100).toFixed(1)}%, incrementalVaR=${(varResult.incrementalVaR95Percent * 100).toFixed(1)}%`);
       }
-    } catch { /* VaR gate is best-effort — don't block trades on VaR errors */ }
+    } catch (varErr) {
+      // Entry-gate audit restoration: the previous silent catch meant a thrown
+      // exception was equivalent to a passing VaR check — exactly the scenario
+      // where portfolio risk is unknown and a trade should NOT proceed.
+      // Default: fail closed. Set TradingConfig.risk.failClosedOnVaRError=false
+      // to restore legacy permissive behavior.
+      const failClosed = getTradingConfig().risk?.failClosedOnVaRError !== false;
+      if (failClosed) {
+        const reason = `var_gate_error_failclosed: ${varErr instanceof Error ? varErr.message : 'unknown'}`;
+        console.warn(`[EnhancedTradeExecutor] 🛑 VaR gate ERROR (fail-closed): ${reason}`);
+        this.emit('trade_rejected', { symbol: signal.symbol, reason });
+        return;
+      }
+      // Legacy permissive behavior — opt-in only.
+      console.warn(`[EnhancedTradeExecutor] VaR gate errored but failClosedOnVaRError=false, proceeding:`, varErr);
+    }
 
     const startTime = Date.now();
     const { symbol, recommendation, metrics } = signal;

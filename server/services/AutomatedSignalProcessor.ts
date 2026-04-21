@@ -15,6 +15,8 @@ import { logPipelineEvent } from './TradingPipelineLogger';
 import { getTradingConfig } from '../config/TradingConfig';
 import { aggregateSignals, AggregatedSignal } from './SignalAggregator';
 import { getSmoothedTradeCooldownMs, getSmoothedConsensusThresholdMultiplier } from './RegimeCalibration';
+import { loadCandlesFromDatabase } from '../db/candleStorage';
+import { priceFeedService } from './priceFeedService';
 
 // Phase 7: ML quality gate stats tracking
 let mlGateStats = {
@@ -247,6 +249,71 @@ export class AutomatedSignalProcessor extends EventEmitter {
           symbol,
           signals,
         };
+      }
+
+      // ── Entry-gate audit restoration: candle history availability ──
+      // Signals from agents that can't reference enough historical context are
+      // indistinguishable from guesses.  Require at least N 1h candles before
+      // any entry is considered.
+      const entryCfg = getTradingConfig().entry;
+      const minCandles = entryCfg?.minHistoricalCandlesRequired ?? 50;
+      try {
+        const candles = await loadCandlesFromDatabase(symbol, '1h', minCandles);
+        if (candles.length < minCandles) {
+          logPipelineEvent('SIGNAL_REJECTED', {
+            userId: this.userId,
+            symbol,
+            reason: `insufficient_candle_history: ${candles.length}/${minCandles} 1h candles`,
+          });
+          return {
+            approved: false,
+            reason: `insufficient_candle_history: ${candles.length}/${minCandles} 1h candles`,
+            symbol,
+            signals,
+          };
+        }
+      } catch (err) {
+        // Fail closed: if we cannot verify candle history, treat as insufficient.
+        logPipelineEvent('SIGNAL_REJECTED', {
+          userId: this.userId,
+          symbol,
+          reason: `insufficient_candle_history: lookup_failed (${err instanceof Error ? err.message : 'unknown'})`,
+        });
+        return {
+          approved: false,
+          reason: `insufficient_candle_history: lookup_failed`,
+          symbol,
+          signals,
+        };
+      }
+
+      // ── Entry-gate audit restoration: price-feed staleness ──
+      // Trading on a stale quote is a leading cause of slippage/stop-hunts.
+      // Reject if the latest cached tick is missing or too old.
+      // Sentinel: if `priceFeedMaxStalenessMs >= Number.MAX_SAFE_INTEGER`, the
+      // gate is explicitly disabled (used by unit tests that don't run the
+      // price feed service).
+      const maxStaleMs = entryCfg?.priceFeedMaxStalenessMs ?? 5_000;
+      if (maxStaleMs < Number.MAX_SAFE_INTEGER) {
+        const latestPrice = priceFeedService.getLatestPrice(symbol);
+        const priceAgeMs = latestPrice ? (Date.now() - latestPrice.timestamp) : Number.POSITIVE_INFINITY;
+        if (!latestPrice || priceAgeMs > maxStaleMs) {
+          logPipelineEvent('SIGNAL_REJECTED', {
+            userId: this.userId,
+            symbol,
+            reason: latestPrice
+              ? `price_feed_stale: ${priceAgeMs}ms > ${maxStaleMs}ms`
+              : `price_feed_stale: no_price_available`,
+          });
+          return {
+            approved: false,
+            reason: latestPrice
+              ? `price_feed_stale: ${priceAgeMs}ms > ${maxStaleMs}ms`
+              : `price_feed_stale: no_price_available`,
+            symbol,
+            signals,
+          };
+        }
       }
 
       if (actionableSignals.length === 0) {

@@ -2,6 +2,7 @@ import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
 import { getLLMRateLimiter } from '../utils/RateLimiter';
 import { fallbackManager, MarketDataInput } from './DeterministicFallback';
 import { getDuneProvider, OnChainSignal, DuneOnChainMetrics } from './DuneAnalyticsProvider';
+import { getTradingConfig } from '../config/TradingConfig';
 
 /**
  * Macro Analyst Agent
@@ -203,7 +204,20 @@ export class MacroAnalyst extends AgentBase {
       };
       
       const fallbackResult = fallbackManager.getMacroFallback(symbol, marketData);
-      
+
+      // Entry-gate audit restoration: when macro data is unreachable, the
+      // previous fallback always returned vetoActive=false, meaning the
+      // MacroAnalyst silently became permissive during outages (the exact
+      // moments when macro-driven veto matters most).
+      // Default behavior is now FAIL CLOSED — activate the veto for the
+      // duration of the failure. Set TradingConfig.macro.failClosed=false
+      // to preserve old permissive behavior.
+      const macroFailClosed = getTradingConfig().macro?.failClosed !== false;
+      if (macroFailClosed) {
+        this.vetoActive = true;
+        this.vetoReason = 'macro_data_unavailable_failclosed';
+      }
+
       return {
         agentName: this.config.name,
         symbol,
@@ -216,7 +230,9 @@ export class MacroAnalyst extends AgentBase {
           fallbackReason: fallbackResult.fallbackReason,
           isDeterministic: true,
           originalError: error instanceof Error ? error.message : 'Unknown error',
-          vetoActive: false, // No veto in fallback mode
+          // Fail-closed by default; see TradingConfig.macro.failClosed
+          vetoActive: macroFailClosed,
+          vetoReason: macroFailClosed ? 'macro_data_unavailable_failclosed' : undefined,
         },
         qualityScore: 0.55, // Reduced quality for fallback
         processingTime: Date.now() - startTime,

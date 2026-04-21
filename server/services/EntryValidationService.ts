@@ -17,6 +17,7 @@
 import { EntryConfirmationFilter, AgentSignal, EntryValidation } from './EntryConfirmationFilter';
 import { MultiTimeframeAlignment, AlignmentResult, Candle } from './MultiTimeframeAlignment';
 import { VolumeConfirmation, VolumeValidation } from './VolumeConfirmation';
+import { getTradingConfig } from '../config/TradingConfig';
 
 export interface EntryValidationResult {
   canEnter: boolean;
@@ -116,19 +117,44 @@ export class EntryValidationService {
     const agentValidation = this.confirmationFilter.validateEntry(signals);
     
     if (!agentValidation.isValid) {
-      // Agent consensus failed, but don't block the trade or set cooldown.
-      // The AutomatedSignalProcessor already validated consensus before approving.
-      // Setting cooldown here creates an infinite loop: fast agents disagree → cooldown →
-      // slow agents arrive but cooldown blocks → cooldown expires → fast agents disagree again.
-      // Instead, pass through with agentConsensus=false and let minValidationsRequired decide.
+      // Entry-gate audit restoration: default behavior is now FAIL CLOSED.
+      // Previous behavior (pass-through with canEnter=true, confidence=0.3) disarmed
+      // this service — EntryConfirmationFilter could never veto a trade because the
+      // upstream AutomatedSignalProcessor uses different (looser) consensus math.
+      // The two checks exist precisely to catch mismatches.
+      //
+      // Backward-compat: setting `validation.failOpenOnConsensusMismatch=true` in
+      // TradingConfig restores the old permissive behavior for A/B testing only.
       reasons.push(...agentValidation.reasons);
-      
-      // Return canEnter=true with reduced confidence — the AutomatedSignalProcessor
-      // already approved this signal, so we trust its consensus check.
+
+      const failOpen = getTradingConfig().validation?.failOpenOnConsensusMismatch === true;
+
+      if (failOpen) {
+        // Legacy pass-through — trust upstream consensus, flag agentConsensus=false.
+        return {
+          canEnter: true,
+          direction: signals.filter(s => s.direction === 'LONG').length >= signals.filter(s => s.direction === 'SHORT').length ? 'LONG' as const : 'SHORT' as const,
+          confidence: 0.3, // Reduced confidence since agent filter didn't pass
+          validations: {
+            agentConsensus: false,
+            timeframeAlignment: false,
+            volumeConfirmation: false,
+          },
+          details: {
+            agentValidation,
+            timeframeValidation: null,
+            volumeValidation: null,
+          },
+          reasons,
+        };
+      }
+
+      // Fail-closed (default): veto the entry.  Do NOT set cooldown here —
+      // cooldown-on-veto creates an infinite loop with slow-vs-fast agent arrival.
       return {
-        canEnter: true,
-        direction: signals.filter(s => s.direction === 'LONG').length >= signals.filter(s => s.direction === 'SHORT').length ? 'LONG' as const : 'SHORT' as const,
-        confidence: 0.3, // Reduced confidence since agent filter didn't pass
+        canEnter: false,
+        direction: null,
+        confidence: 0,
         validations: {
           agentConsensus: false,
           timeframeAlignment: false,
