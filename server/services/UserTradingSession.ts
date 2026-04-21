@@ -33,6 +33,7 @@ import { getDecisionEvaluator } from './DecisionEvaluator';
 import { getAgentRetriggerService } from './AgentRetriggerService';
 import { getScenarioEngine } from './ScenarioEngine';
 import { getMonteCarloSimulator } from './MonteCarloSimulator';
+import { shouldAllowClose as profitLockShouldAllowClose } from './ProfitLockGuard';
 
 export interface UserTradingSessionConfig {
   userId: number;
@@ -89,6 +90,18 @@ export class UserTradingSession extends EventEmitter {
   // Updates paper position prices in DB every 10 seconds so the UI shows current P&L
   private paperPriceUpdateInterval: NodeJS.Timeout | null = null;
   private readonly PAPER_PRICE_UPDATE_INTERVAL_MS = 10_000; // 10 seconds
+
+  // Phase 46: Single-source exit ownership. When true, IntelligentExitManager
+  // owns all exit decisions and the safety-net in the price-update interval
+  // skips threshold evaluation (DB-sync path still runs). Flipped true when
+  // IEM.addPosition() succeeds, false on teardown / IEM unavailable.
+  private exitManagerActive: boolean = false;
+
+  // Phase 46: Retry tracking for failed exits (phantom-close prevention).
+  // On engine-close failure we no longer write status='closed' to DB blindly;
+  // instead we schedule up to MAX_EXIT_RETRIES attempts, then emergency-alert.
+  private exitRetryCount: Map<string, number> = new Map();
+  private readonly MAX_EXIT_RETRIES = 3;
 
   constructor(config: UserTradingSessionConfig) {
     super();
@@ -266,57 +279,52 @@ export class UserTradingSession extends EventEmitter {
             const price = priceData?.price || 0;
             if (price > 0) {
               let closedViaEngine = false;
+              let engineErrMsg: string | undefined;
               try {
                 await this.tradingEngine.closePositionById(positionId, price, `exit:${reason}`);
                 closedViaEngine = true;
               } catch (engineErr) {
-                console.warn(`[UserTradingSession] PaperTradingEngine close failed for ${positionId}, falling back to DB close:`, (engineErr as Error)?.message);
+                engineErrMsg = (engineErr as Error)?.message;
+                console.warn(`[UserTradingSession] PaperTradingEngine close failed for ${positionId}:`, engineErrMsg);
               }
 
-              // Phase 40 FIX: If engine close failed (ID mismatch), close directly in DB
+              // Phase 46 FIX: Phantom-close prevention.
+              // Previously: on engine error we blindly wrote status='closed' in the DB even
+              // though the real exchange/engine position may still be open — producing a
+              // phantom-close where PnL is booked but the position keeps running.
+              // Now: log the error, emit exit_failed, schedule a retry (up to MAX_EXIT_RETRIES),
+              // and DO NOT mark the position as closed in the DB. Beyond the retry budget we
+              // escalate via an emergency alert so humans can intervene.
               if (!closedViaEngine) {
-                try {
-                  const { getDb } = await import('../db');
-                  const { paperPositions } = await import('../../drizzle/schema');
-                  const { eq, and } = await import('drizzle-orm');
-                  const db = await getDb();
-                  if (db) {
-                    // Try parsing positionId as numeric DB ID first
-                    let dbId = parseInt(positionId, 10);
-                    if (isNaN(dbId)) {
-                      // Look up by matching open positions for this user/symbol
-                      const openPos = await db.select().from(paperPositions).where(
-                        and(
-                          eq(paperPositions.userId, this.userId),
-                          eq(paperPositions.symbol, symbol),
-                          eq(paperPositions.status, 'open')
-                        )
-                      );
-                      if (openPos.length > 0) dbId = openPos[0].id;
-                    }
-                    if (dbId > 0) {
-                      const pnl = position ? 
-                        (position.side === 'short' ? 
-                          (parseFloat(position.entryPrice) - price) * parseFloat(position.quantity || '0') :
-                          (price - parseFloat(position.entryPrice)) * parseFloat(position.quantity || '0')
-                        ) : 0;
-                      await db.update(paperPositions).set({
-                        status: 'closed',
-                        exitPrice: price.toString(),
-                        exitTime: new Date(),
-                        realizedPnl: pnl.toString(),
-                        exitReason: `exit:${reason}`,
-                        currentPrice: price.toString(),
-                        updatedAt: new Date(),
-                      }).where(eq(paperPositions.id, dbId));
-                      console.log(`[UserTradingSession] ✅ DB fallback close for position ${dbId}: ${reason}, PnL: $${pnl.toFixed(4)}`);
-                    }
-                  }
-                } catch (dbErr) {
-                  console.error(`[UserTradingSession] DB fallback close also failed:`, (dbErr as Error)?.message);
+                const attempts = (this.exitRetryCount.get(positionId) || 0) + 1;
+                this.exitRetryCount.set(positionId, attempts);
+                console.error(`[UserTradingSession] ⚠️ Exit attempt ${attempts}/${this.MAX_EXIT_RETRIES} failed for ${positionId}; DB will NOT be marked closed.`);
+                this.emit('exit_failed', {
+                  positionId,
+                  reason,
+                  attempts,
+                  maxAttempts: this.MAX_EXIT_RETRIES,
+                  error: engineErrMsg,
+                  symbol,
+                });
+
+                if (attempts < this.MAX_EXIT_RETRIES) {
+                  setTimeout(() => this.retryExit(positionId, quantity, reason), 2000);
+                } else {
+                  console.error(`[UserTradingSession] 🚨 EMERGENCY: exit for ${positionId} exhausted ${this.MAX_EXIT_RETRIES} retries — escalating.`);
+                  this.emit('exit_emergency_alert', {
+                    positionId,
+                    reason,
+                    attempts,
+                    symbol,
+                    userId: this.userId,
+                  });
                 }
+                return; // Critical: do NOT emit exit_executed or mark closed
               }
 
+              // Successful engine close — clear any prior retry state and emit success
+              this.exitRetryCount.delete(positionId);
               this.emit('exit_executed', { positionId, reason, price, symbol });
             }
           } catch (err) {
@@ -551,6 +559,8 @@ export class UserTradingSession extends EventEmitter {
             takeProfit: posData.takeProfit,
             dbPositionId: posData.dbPositionId, // Phase 40: Store DB ID for DB sync
           });
+          // Phase 46: IEM is now the source of truth for exits on this session.
+          this.exitManagerActive = true;
         } catch (err) {
           console.warn(`[UserTradingSession] Failed to register position with exit manager:`, (err as Error)?.message);
         }
@@ -670,6 +680,8 @@ export class UserTradingSession extends EventEmitter {
           }
           if (existingForExit.length > 0) {
             console.log(`[UserTradingSession] Synced ${existingForExit.length} existing positions into exit manager for user ${this.userId}`);
+            // Phase 46: IEM now owns exits for the synced positions.
+            this.exitManagerActive = true;
           }
         }
       } catch (exitSyncErr) {
@@ -736,8 +748,10 @@ export class UserTradingSession extends EventEmitter {
             // Phase 45 FIX: Widened safety exit parameters to let PriorityExitManager handle exits.
             // Previous values caused premature exits: 15min time_exit killed 6/20 recent trades at a loss.
             // The PriorityExitManager has smarter regime-aware exits — these are LAST RESORT safety nets only.
+            // Phase 46 FIX: Safety-net TP raised to 2.5% to avoid race with IntelligentExitManager
+            // partial-exit grid (0.5/1.0/1.5/2.0%). Hard-stop stays at -1.5% as absolute floor.
             const HARD_STOP_LOSS_PERCENT = -1.5;  // Phase 45: widened from -0.8% — let ATR stop handle normal exits
-            const TAKE_PROFIT_PERCENT = 1.0;      // Phase 45: raised from 0.4% — let trailing stop capture more profit
+            const TAKE_PROFIT_PERCENT = 2.5;      // Phase 46: raised from 1.0% — above IEM full-close trigger, prevents collision
             const MAX_HOLD_MINUTES = 45;           // Phase 45: raised from 15min — PriorityExitManager handles time-based exits
             const TRAILING_ACTIVATION = 0.30;      // Phase 45: raised from 0.15% — avoid locking in tiny profits
             const TRAILING_RATIO = 0.40;           // Phase 45: tightened from 0.50 — keep 60% of peak profit
@@ -752,7 +766,13 @@ export class UserTradingSession extends EventEmitter {
             const currentPeak = Math.max(prevPeak, unrealizedPnLPercent);
             (this as any)[peakKey] = currentPeak;
 
-            if (unrealizedPnLPercent <= HARD_STOP_LOSS_PERCENT) {
+            // Phase 46: When IntelligentExitManager is wired, it owns exits. Safety-net only runs
+            // as fallback if IEM is unavailable or disabled. Skip exit evaluation entirely and
+            // fall through to the DB price-sync update below.
+            if (this.exitManagerActive === true) {
+              // Only run DB-sync path, skip exit evaluation
+              // (continues to the `await db.update(...)` for currentPrice / unrealizedPnL below)
+            } else if (unrealizedPnLPercent <= HARD_STOP_LOSS_PERCENT) {
               shouldClose = true;
               closeReason = `hard_stop_loss:${unrealizedPnLPercent.toFixed(3)}%`;
             } else if (unrealizedPnLPercent >= TAKE_PROFIT_PERCENT) {
@@ -766,6 +786,26 @@ export class UserTradingSession extends EventEmitter {
               // Time exit: close if held too long without meaningful profit
               shouldClose = true;
               closeReason = `time_exit:${holdTimeMinutes.toFixed(0)}min,pnl=${unrealizedPnLPercent.toFixed(3)}%`;
+            }
+
+            // PRIME DIRECTIVE: ProfitLockGuard — only exit in profit unless catastrophic.
+            // The `hard_stop_loss` branch below -2.5% gross still bypasses via the guard's
+            // catastrophic-floor check. All other safety-net closes need net-positive PnL.
+            if (shouldClose) {
+              const guard = profitLockShouldAllowClose(
+                { side: pos.side as 'long' | 'short', entryPrice },
+                currentPrice,
+                closeReason,
+              );
+              if (!guard.allow) {
+                console.log(
+                  `[UserTradingSession] 🛡️ SAFETY EXIT BLOCKED by ProfitLockGuard #${pos.id} ${pos.symbol} ${pos.side}: ` +
+                  `${guard.reason} | gross=${guard.grossPnlPercent.toFixed(3)}% net=${guard.netPnlPercent.toFixed(3)}% ` +
+                  `(was: ${closeReason})`
+                );
+                shouldClose = false;
+                closeReason = '';
+              }
             }
 
             if (shouldClose) {
@@ -1087,6 +1127,67 @@ export class UserTradingSession extends EventEmitter {
   }
 
   /**
+   * Phase 46: Retry a failed exit. Re-invokes the PaperTradingEngine close path
+   * without mutating the DB directly — if the engine still fails, executeExit
+   * is NOT re-entered here; instead we attempt closePositionById once more and
+   * let the executeExit callback's own retry/escalation path own the rest by
+   * emitting the same exit_failed/exit_emergency_alert signals.
+   */
+  private async retryExit(positionId: string, quantity: number, reason: string): Promise<void> {
+    if (!this.isRunning || !this.tradingEngine) return;
+    try {
+      const positions = this.tradingEngine.getPositions();
+      const position = positions.find((p: any) => p.id === positionId);
+      const symbol = position?.symbol || 'BTC-USD';
+      const priceData = priceFeedService.getLatestPrice(symbol);
+      const price = priceData?.price || 0;
+      if (price <= 0) {
+        // Can't retry without price — schedule another attempt
+        const attempts = this.exitRetryCount.get(positionId) || 0;
+        if (attempts < this.MAX_EXIT_RETRIES) {
+          setTimeout(() => this.retryExit(positionId, quantity, reason), 2000);
+        }
+        return;
+      }
+
+      try {
+        await this.tradingEngine.closePositionById(positionId, price, `exit:${reason}:retry`);
+        // Success — clear retry state
+        this.exitRetryCount.delete(positionId);
+        this.emit('exit_executed', { positionId, reason: `${reason}:retry`, price, symbol });
+        console.log(`[UserTradingSession] ✅ Retry close succeeded for ${positionId}`);
+      } catch (retryErr) {
+        const attempts = (this.exitRetryCount.get(positionId) || 0) + 1;
+        this.exitRetryCount.set(positionId, attempts);
+        const msg = (retryErr as Error)?.message;
+        console.error(`[UserTradingSession] ⚠️ Retry ${attempts}/${this.MAX_EXIT_RETRIES} failed for ${positionId}:`, msg);
+        this.emit('exit_failed', {
+          positionId,
+          reason,
+          attempts,
+          maxAttempts: this.MAX_EXIT_RETRIES,
+          error: msg,
+          symbol,
+        });
+        if (attempts < this.MAX_EXIT_RETRIES) {
+          setTimeout(() => this.retryExit(positionId, quantity, reason), 2000);
+        } else {
+          console.error(`[UserTradingSession] 🚨 EMERGENCY: exit for ${positionId} exhausted ${this.MAX_EXIT_RETRIES} retries — escalating.`);
+          this.emit('exit_emergency_alert', {
+            positionId,
+            reason,
+            attempts,
+            symbol,
+            userId: this.userId,
+          });
+        }
+      }
+    } catch (err) {
+      console.error(`[UserTradingSession] retryExit threw:`, (err as Error)?.message);
+    }
+  }
+
+  /**
    * Stop the session. Called during cleanup or user account deletion.
    */
   async stop(): Promise<void> {
@@ -1119,6 +1220,9 @@ export class UserTradingSession extends EventEmitter {
     if (this.exitManager) {
       this.exitManager.stop();
     }
+    // Phase 46: IEM is torn down — safety-net may run as fallback again.
+    this.exitManagerActive = false;
+    this.exitRetryCount.clear();
 
     // Save agent weights
     if (this.weightManager) {

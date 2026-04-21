@@ -1,5 +1,6 @@
 import { exitLogger } from '../utils/logger';
-import { getRegimeAdjustedExits, getVolatilityRegime } from '../config/TradingConfig';
+import { getRegimeAdjustedExits, getVolatilityRegime, getTradingConfig } from '../config/TradingConfig';
+import { shouldAllowClose as profitLockShouldAllowClose } from './ProfitLockGuard';
 
 /**
  * Priority Exit Manager - Agent-Intelligence-Driven Exit System (Phase 5B)
@@ -138,7 +139,37 @@ export const DEFAULT_PRIORITY_EXIT_CONFIG: PriorityExitConfig = {
   orderFlowMinHoldSeconds: 60, // Phase 41: Don't exit on order flow within first 60s
 };
 
+/**
+ * Public entry point. Wraps the raw rule evaluator with the ProfitLockGuard so
+ * that non-catastrophic exits are blocked when net PnL is not yet positive.
+ */
 export function evaluatePriorityExitRules(
+  position: PriorityExitPosition,
+  config: PriorityExitConfig = DEFAULT_PRIORITY_EXIT_CONFIG
+): PriorityExitDecision {
+  const decision = evaluatePriorityExitRulesRaw(position, config);
+  if (!decision.shouldExit) return decision;
+
+  const reasonForGuard = decision.rule || decision.description || '';
+  const guard = profitLockShouldAllowClose(
+    { side: position.side, entryPrice: position.entryPrice },
+    position.currentPrice,
+    reasonForGuard,
+  );
+  if (guard.allow) return decision;
+
+  // Exception: catastrophic hard stop — grossPnl <= configured floor always exits.
+  const catastrophicFloor = getTradingConfig().profitLock?.catastrophicStopPercent ?? -2.5;
+  if (decision.rule === 'HARD_STOP_LOSS' && guard.grossPnlPercent <= catastrophicFloor) {
+    return decision;
+  }
+
+  return { shouldExit: false };
+}
+
+/** Raw rule evaluator (pre-guard). Exported for tests; production code should
+ * call `evaluatePriorityExitRules` which layers the ProfitLockGuard on top. */
+export function evaluatePriorityExitRulesRaw(
   position: PriorityExitPosition,
   config: PriorityExitConfig = DEFAULT_PRIORITY_EXIT_CONFIG
 ): PriorityExitDecision {

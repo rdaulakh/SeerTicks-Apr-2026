@@ -25,6 +25,7 @@ import {
   Position as ProfitPosition
 } from './LayeredProfitManager';
 import { getTradingConfig } from '../config/TradingConfig';
+import { shouldAllowClose as profitLockShouldAllowClose } from './ProfitLockGuard';
 
 export interface ManagedPosition {
   id: string;
@@ -247,9 +248,53 @@ export class IntegratedExitManager extends EventEmitter {
   }
 
   /**
-   * Determine the exit decision based on signals and actions
+   * Determine the exit decision based on signals and actions.
+   *
+   * PRIME DIRECTIVE: Any would-be close is gated by the ProfitLockGuard — blocked
+   * when net PnL < floor unless the exit reason is catastrophic or grossPnl has
+   * already breached the catastrophic floor.
    */
   private determineExitDecision(
+    position: ManagedPosition,
+    structureSignals: ExitSignal[],
+    profitActions: TradeAction[]
+  ): ExitDecision {
+    const raw = this.determineExitDecisionRaw(position, structureSignals, profitActions);
+    if (!raw.shouldExit) return raw;
+
+    // Compute current mark from notional/size — avoid adding a new signature param.
+    const currentPrice = position.currentSize > 0
+      ? position.notionalValue / position.currentSize
+      : position.averagePrice;
+    const reasonForGuard = raw.details?.triggeredBy || raw.reason || '';
+
+    const guard = profitLockShouldAllowClose(
+      { side: position.direction, entryPrice: position.averagePrice },
+      currentPrice,
+      reasonForGuard,
+    );
+    if (guard.allow) return raw;
+
+    // Exception: drawdown_protection / max_time_exit at catastrophic grossPnl still exits.
+    const catastrophicFloor = getTradingConfig().profitLock?.catastrophicStopPercent ?? -2.5;
+    const isStructureEmergency = reasonForGuard.startsWith('structure:drawdown_protection') ||
+      reasonForGuard.startsWith('structure:hard_stop') ||
+      reasonForGuard.startsWith('structure:emergency');
+    if (isStructureEmergency && guard.grossPnlPercent <= catastrophicFloor) {
+      return raw;
+    }
+
+    return this.createNoExitDecision(
+      `[ProfitLockGuard] ${guard.reason} (was: ${raw.reason})`,
+      structureSignals,
+      profitActions,
+    );
+  }
+
+  /**
+   * Raw exit-decision logic (pre-guard). Wrapped by `determineExitDecision`.
+   */
+  private determineExitDecisionRaw(
     position: ManagedPosition,
     structureSignals: ExitSignal[],
     profitActions: TradeAction[]

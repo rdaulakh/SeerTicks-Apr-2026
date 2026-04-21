@@ -41,6 +41,7 @@ import {
 } from './PriorityExitManager';
 import { getTradingConfig } from '../config/TradingConfig';
 import { logPipelineEvent, PipelineEventType } from './TradingPipelineLogger';
+import { shouldAllowClose as profitLockShouldAllowClose } from './ProfitLockGuard';
 
 export interface Position {
   id: string;
@@ -247,7 +248,35 @@ export class IntelligentExitManager extends EventEmitter {
   // Phase 41: Exit guard — prevent duplicate exits on the same position
   // Without this, concurrent price ticks can trigger multiple exit evaluations
   // that all pass before the first one removes the position from the map.
+  // Phase 46: Exposed via isExiting/lockExit/unlockExit so external callers
+  // (UserTradingSession safety-net, IntegratedExitManager) can coordinate and
+  // avoid double-close races when they share ownership of a position.
   private exitingPositions: Set<string> = new Set();
+
+  /**
+   * Phase 46: Returns true if an exit is currently in flight for this positionId.
+   * External callers should consult this before firing their own close path.
+   */
+  public isExiting(positionId: string): boolean {
+    return this.exitingPositions.has(positionId);
+  }
+
+  /**
+   * Phase 46: Take the exit lock for a positionId. Returns true if acquired,
+   * false if it was already locked (caller must back off).
+   */
+  public lockExit(positionId: string): boolean {
+    if (this.exitingPositions.has(positionId)) return false;
+    this.exitingPositions.add(positionId);
+    return true;
+  }
+
+  /**
+   * Phase 46: Release the exit lock. Safe to call even if not held.
+   */
+  public unlockExit(positionId: string): void {
+    this.exitingPositions.delete(positionId);
+  }
 
   // Phase 12: Cache PositionGuardian reference to avoid dynamic import() on every tick
   private positionGuardianRef: { onExitManagerTick: () => void } | null | undefined = undefined;
@@ -498,9 +527,45 @@ export class IntelligentExitManager extends EventEmitter {
   }
 
   /**
-   * Evaluate all exit conditions for a position
+   * Evaluate all exit conditions for a position.
+   *
+   * PRIME DIRECTIVE: Before returning any non-hold decision, the ProfitLockGuard
+   * converts it to "hold" when net PnL is below the profit floor — unless the
+   * decision is a genuine catastrophic/emergency stop.
    */
   private async evaluateExitConditions(position: Position): Promise<ExitDecision> {
+    const decision = await this.evaluateExitConditionsRaw(position);
+    if (decision.action === 'hold') return decision;
+
+    const guard = profitLockShouldAllowClose(
+      { side: position.side, entryPrice: position.entryPrice },
+      position.currentPrice,
+      decision.reason,
+    );
+
+    if (guard.allow) return decision;
+
+    // Exception: true emergency / stop-loss hits with catastrophic gross PnL still fire.
+    const isEmergencyReason =
+      typeof decision.reason === 'string' &&
+      (decision.reason.startsWith('Emergency exit') || decision.reason.startsWith('Stop-Loss hit'));
+    const catastrophicFloor = getTradingConfig().profitLock?.catastrophicStopPercent ?? -2.5;
+    if (isEmergencyReason && guard.grossPnlPercent <= catastrophicFloor) {
+      return decision;
+    }
+
+    return {
+      action: 'hold',
+      reason: `[ProfitLockGuard] ${guard.reason} (was: ${decision.reason})`,
+      confidence: 0,
+      urgency: 'low',
+    };
+  }
+
+  /**
+   * Raw exit-condition evaluation (pre-guard). Wrapped by `evaluateExitConditions`.
+   */
+  private async evaluateExitConditionsRaw(position: Position): Promise<ExitDecision> {
     const pnlPercent = position.unrealizedPnlPercent;
     
     // Get regime multiplier
@@ -1140,19 +1205,19 @@ export class IntelligentExitManager extends EventEmitter {
     // Multiple price ticks can evaluate exit conditions concurrently.
     // Without this guard, all concurrent evaluations pass (position still in map)
     // and each fires executeExit, causing 2-3x duplicate POSITION_CLOSED events.
-    if (decision.action === 'exit_full') {
-      if (this.exitingPositions.has(position.id)) {
-        console.log(`[IntelligentExitManager] ⚠️ Skipping duplicate exit for ${position.id} (already exiting)`);
-        return;
-      }
-      this.exitingPositions.add(position.id);
+    // Phase 46: Lock at the START of executeExitDecision for ALL actions (full + partial)
+    // using the exposed lockExit() primitive. unlockExit() runs in finally so every
+    // exit path (success, no-op, error) releases the lock atomically.
+    if (!this.lockExit(position.id)) {
+      console.log(`[IntelligentExitManager] ⚠️ Skipping duplicate exit for ${position.id} (already exiting)`);
+      return;
     }
-    
+
     const exitStart = performance.now();
-    
+
     try {
       let exitQuantity: number;
-      
+
       if (decision.action === 'exit_full') {
         exitQuantity = position.remainingQuantity;
         console.log(`[IntelligentExitManager] 🚨 FULL EXIT: ${position.id} - ${decision.reason}`);
@@ -1162,7 +1227,7 @@ export class IntelligentExitManager extends EventEmitter {
       } else {
         return; // No exit needed
       }
-      
+
       // Determine pipeline event type from exit reason
       const exitEventType: PipelineEventType = this.classifyExitEvent(decision.reason);
       logPipelineEvent(exitEventType, {
@@ -1184,13 +1249,13 @@ export class IntelligentExitManager extends EventEmitter {
           partialExitsCount: position.partialExits.length,
         },
       });
-      
+
       // Execute the exit
       await this.executeExit(position.id, exitQuantity, decision.reason);
-      
+
       // Update position state
       position.remainingQuantity -= exitQuantity;
-      
+
       // Record partial exit
       if (decision.action === 'exit_partial') {
         position.partialExits.push({
@@ -1201,16 +1266,15 @@ export class IntelligentExitManager extends EventEmitter {
           reason: decision.reason,
         });
       }
-      
+
       // Remove position if fully exited
       if (position.remainingQuantity <= 0) {
         this.removePosition(position.id);
-        this.exitingPositions.delete(position.id); // Phase 41: Clean up guard
       }
-      
+
       const exitDuration = performance.now() - exitStart;
       console.log(`[IntelligentExitManager] ⚡ Exit executed in ${exitDuration.toFixed(2)}ms`);
-      
+
       this.emit('exit_executed', {
         positionId: position.id,
         action: decision.action,
@@ -1219,11 +1283,13 @@ export class IntelligentExitManager extends EventEmitter {
         pnlPercent: position.unrealizedPnlPercent,
         durationMs: exitDuration,
       });
-      
+
     } catch (err) {
       console.error(`[IntelligentExitManager] ❌ Exit execution failed: ${err}`);
-      this.exitingPositions.delete(position.id); // Phase 41: Clean up guard on error
       this.emit('exit_error', { positionId: position.id, error: err });
+    } finally {
+      // Phase 46: Always release lock — success, no-op return, or error.
+      this.unlockExit(position.id);
     }
   }
 
