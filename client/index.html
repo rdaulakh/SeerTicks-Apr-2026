@@ -19,10 +19,22 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script
-      defer
-      src="%VITE_ANALYTICS_ENDPOINT%/umami"
-      data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
+    <!-- Umami analytics — only injected when both env vars are set at build time.
+         Prevents a broken /umami request (and "Unexpected token '<'" parse error)
+         when VITE_ANALYTICS_ENDPOINT is undefined. -->
+    <script>
+      (function () {
+        var endpoint = "%VITE_ANALYTICS_ENDPOINT%";
+        var websiteId = "%VITE_ANALYTICS_WEBSITE_ID%";
+        if (!endpoint || !websiteId) return;
+        if (endpoint.charAt(0) === "%" || websiteId.charAt(0) === "%") return;
+        var s = document.createElement("script");
+        s.defer = true;
+        s.src = endpoint.replace(/\/$/, "") + "/umami";
+        s.setAttribute("data-website-id", websiteId);
+        document.body.appendChild(s);
+      })();
+    </script>
   </body>
 
 </html>
