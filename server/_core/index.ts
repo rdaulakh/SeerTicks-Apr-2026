@@ -434,49 +434,61 @@ async function startServer() {
     console.error(`[${new Date().toLocaleTimeString()}] ❌ Coinbase Public WebSocket failed to start:`, publicWsError.message);
   }
 
-  // 3. Start Binance WebSocket (SECONDARY feed, FREE, no auth)
-  // Existing BinanceWebSocketManager was NOT wired to priceFeedService — now feeds PriceFabric
-  try {
-    const { getBinanceWebSocketManager } = await import('../exchanges/BinanceWebSocketManager');
-    const { getPriceFabric } = await import('../services/PriceFabric');
-    const binanceWs = getBinanceWebSocketManager();
-    const priceFabric = getPriceFabric();
+  // 3. Binance WebSocket — DISABLED (Phase 4)
+  //
+  // Binance's WS endpoint (stream.binance.com:9443) is geo-blocked for US-East
+  // hosts with HTTP 451.  Our prod is deployed in US-East, so subscribing
+  // produced nothing but reconnect spam and never yielded a single tick.
+  // PriceFabric already has three independent sources:
+  //   1. Coinbase WS  (primary, low-latency)
+  //   2. CoinGecko    (30s cross-validator)
+  //   3. Binance REST (tier-3 fallback — the REST endpoints are NOT geo-blocked
+  //                    the same way; only the WS is restricted for US hosts)
+  // so the WS tier was pure cost (reconnect storms, misleading `source: binance`
+  // health signals) with zero benefit.  Dropped to keep the fabric clean and
+  // avoid confusing on-call when the logs show "Binance 451" every 5s.
+  if (process.env.ENABLE_BINANCE_WS === '1') {
+    try {
+      const { getBinanceWebSocketManager } = await import('../exchanges/BinanceWebSocketManager');
+      const { getPriceFabric } = await import('../services/PriceFabric');
+      const binanceWs = getBinanceWebSocketManager();
+      const priceFabric = getPriceFabric();
 
-    // Symbol mapping: SEER canonical → Binance format
-    const binanceSymbolMap: Record<string, string> = {
-      'BTC-USD': 'BTCUSDT',
-      'ETH-USD': 'ETHUSDT',
-      'SOL-USD': 'SOLUSDT',
-    };
-    const reverseBinanceMap: Record<string, string> = {};
-    for (const [seer, binance] of Object.entries(binanceSymbolMap)) {
-      reverseBinanceMap[binance.toUpperCase()] = seer;
-    }
-
-    // Subscribe to trade streams for each symbol
-    for (const seerSymbol of tradingSymbols) {
-      const binanceSymbol = binanceSymbolMap[seerSymbol];
-      if (binanceSymbol) {
-        binanceWs.subscribe({ symbol: binanceSymbol, streams: ['trade'] });
+      const binanceSymbolMap: Record<string, string> = {
+        'BTC-USD': 'BTCUSDT',
+        'ETH-USD': 'ETHUSDT',
+        'SOL-USD': 'SOLUSDT',
+      };
+      const reverseBinanceMap: Record<string, string> = {};
+      for (const [seer, binance] of Object.entries(binanceSymbolMap)) {
+        reverseBinanceMap[binance.toUpperCase()] = seer;
       }
-    }
 
-    // Wire trade events into PriceFabric
-    binanceWs.on('trade', (trade: { symbol: string; price: number; quantity: number; timestamp: number }) => {
-      const canonicalSymbol = reverseBinanceMap[trade.symbol?.toUpperCase()] || trade.symbol;
-      priceFabric.ingestTick({
-        symbol: canonicalSymbol,
-        price: trade.price,
-        volume: trade.quantity,
-        timestampMs: trade.timestamp,
-        receivedAtMs: Date.now(),
-        source: 'binance',
+      for (const seerSymbol of tradingSymbols) {
+        const binanceSymbol = binanceSymbolMap[seerSymbol];
+        if (binanceSymbol) {
+          binanceWs.subscribe({ symbol: binanceSymbol, streams: ['trade'] });
+        }
+      }
+
+      binanceWs.on('trade', (trade: { symbol: string; price: number; quantity: number; timestamp: number }) => {
+        const canonicalSymbol = reverseBinanceMap[trade.symbol?.toUpperCase()] || trade.symbol;
+        priceFabric.ingestTick({
+          symbol: canonicalSymbol,
+          price: trade.price,
+          volume: trade.quantity,
+          timestampMs: trade.timestamp,
+          receivedAtMs: Date.now(),
+          source: 'binance',
+        });
       });
-    });
 
-    console.log(`[${new Date().toLocaleTimeString()}] ✅ Binance WebSocket started for: ${Object.values(binanceSymbolMap).join(', ')}`);
-  } catch (binanceWsError: any) {
-    console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Binance WebSocket failed to start:`, binanceWsError.message);
+      console.log(`[${new Date().toLocaleTimeString()}] ✅ Binance WebSocket started (ENABLE_BINANCE_WS=1): ${Object.values(binanceSymbolMap).join(', ')}`);
+    } catch (binanceWsError: any) {
+      console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Binance WebSocket failed to start:`, binanceWsError.message);
+    }
+  } else {
+    console.log(`[${new Date().toLocaleTimeString()}] ℹ️ Binance WebSocket skipped (US-East geo-blocked; set ENABLE_BINANCE_WS=1 to force)`);
   }
 
   // 4. Start CoinGecko price verifier (cross-validates WebSocket prices every 30s)
@@ -555,6 +567,34 @@ async function startServer() {
   } catch (error) {
     console.error(`[${new Date().toLocaleTimeString()}] ❌ Database pre-warming failed:`, error);
   }
+
+  // ============================================
+  // HISTORICAL CANDLE BACKFILL + CACHE SEED  (Phase 4)
+  // ============================================
+  // The previous boot left both the `historicalCandles` table and the
+  // in-memory WebSocketCandleCache empty, which silently tripped the
+  // min-candles entry gate and starved MacroAnalyst's correlation math. We
+  // now (1) lazy-backfill any empty (symbol, interval) pairs from the public
+  // Coinbase Exchange API, then (2) seed the in-memory cache from the DB so
+  // agents see historical context on the very first tick. Both run
+  // non-blocking in the background — they must never delay server startup
+  // or block trading loops.
+  (async () => {
+    try {
+      const { backfillIfEmpty } = await import('../services/CoinbaseCandleBackfill');
+      await backfillIfEmpty(tradingSymbols, ['1d', '1h', '5m']);
+    } catch (backfillErr: any) {
+      console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Coinbase backfill failed:`, backfillErr?.message || backfillErr);
+    }
+
+    try {
+      const { seedCandleCache } = await import('../WebSocketCandleCache');
+      await seedCandleCache(tradingSymbols);
+      console.log(`[${new Date().toLocaleTimeString()}] ✅ WebSocketCandleCache seeded from DB`);
+    } catch (seedErr: any) {
+      console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Candle cache seed failed:`, seedErr?.message || seedErr);
+    }
+  })();
 
   // ============================================
   // STATIC FILES / VITE
