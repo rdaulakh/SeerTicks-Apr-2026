@@ -100,8 +100,15 @@ export function calculateMonteCarloVaR(
 
   // Run simulations
   for (let i = 0; i < numSimulations; i++) {
-    // Generate random return using Box-Muller transform for normal distribution
-    const u1 = Math.random();
+    // Generate random return using Box-Muller transform for normal distribution.
+    //
+    // Math.random() can return 0 (docs: "in the range 0 to less than 1"), and
+    // Math.log(0) = -Infinity, which makes z = NaN and poisons the entire
+    // simulated-returns array.  Clamp u1 to a small positive epsilon so the
+    // log is always finite.  Using Number.MIN_VALUE would still underflow on
+    // some engines; 1e-300 keeps -log within safe double range.
+    const u1Raw = Math.random();
+    const u1 = u1Raw > 0 ? u1Raw : 1e-300;
     const u2 = Math.random();
     const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
 

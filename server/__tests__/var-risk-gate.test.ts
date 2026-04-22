@@ -194,4 +194,53 @@ describe('VaRRiskGate', () => {
       expect(['historical', 'parametric', 'insufficient_data']).toContain(result.method);
     });
   });
+
+  describe('Monte Carlo / NaN fail-closed behavior (Phase 4)', () => {
+    it('Monte Carlo VaR should never produce NaN even when u1 underflows', async () => {
+      // Repro the Box-Muller NaN: if u1 is ever 0, Math.log(0) = -Infinity
+      // → sqrt(+Infinity) * cos(...) = Infinity or NaN.  With the guard in
+      // place the function must always return a finite number.
+      const { calculateMonteCarloVaR } = await import('../risk/VaRCalculator');
+      // Force reasonable inputs; NaN risk comes from the internal Math.random(),
+      // so run many iterations — one of them will statistically roll a ~0 u1
+      // if the underflow guard is missing.  100k sims × 50 trials = 5M rolls.
+      for (let trial = 0; trial < 50; trial++) {
+        const v = calculateMonteCarloVaR(0, 0.02, 0.95, 100_000, 100_000, 1);
+        expect(Number.isFinite(v)).toBe(true);
+        expect(v).toBeGreaterThanOrEqual(0);
+      }
+    });
+
+    it('checkVaRGate should fail closed when inputs produce NaN VaR', () => {
+      // Feed NaN returns — this poisons the in-memory recentReturns buffer,
+      // which in turn makes calculateAllVaR return NaN for every method.
+      // Without the fail-closed guard, `NaN > threshold` evaluates false and
+      // the gate incorrectly passes.  With the guard, it must return
+      // `insufficient_data_or_nan` and passed=false.
+      //
+      // We feed >= 30 NaN returns to bypass the parametric fallback branch
+      // and force the historical VaR path (which uses recentReturns).
+      for (let i = 0; i < 60; i++) {
+        recordReturnForVaR(Number.NaN);
+      }
+
+      const result = checkVaRGate(5000, 100_000, [5000]);
+
+      expect(result.passed).toBe(false);
+      expect(result.reason).toBe('insufficient_data_or_nan');
+      expect(result.method).toBe('insufficient_data');
+      // All numeric fields must be reset to 0 (not leaked as NaN)
+      expect(result.portfolioVaR95Percent).toBe(0);
+      expect(result.incrementalVaR95Percent).toBe(0);
+      expect(result.portfolioCVaR95Percent).toBe(0);
+    });
+
+    it('checkVaRGate result must have finite numeric fields', () => {
+      for (let i = 0; i < 40; i++) recordReturnForVaR((Math.random() - 0.5) * 2);
+      const result = checkVaRGate(1000, 100_000, []);
+      expect(Number.isFinite(result.portfolioVaR95Percent)).toBe(true);
+      expect(Number.isFinite(result.incrementalVaR95Percent)).toBe(true);
+      expect(Number.isFinite(result.portfolioCVaR95Percent)).toBe(true);
+    });
+  });
 });

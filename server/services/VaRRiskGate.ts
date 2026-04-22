@@ -195,6 +195,31 @@ export function checkVaRGate(
   const incrementalVaR95 = Math.max(0, newVarResult.averageVaR - portfolioVaR95);
   const incrementalVaR95Percent = portfolioEquityUSD > 0 ? incrementalVaR95 / portfolioEquityUSD : 0;
 
+  // ── NaN guard ──
+  // Phase 4: without this, `NaN > threshold` evaluates false and the gate
+  // silently passes.  That's the opposite of fail-closed intent — any NaN in
+  // the VaR pipeline (degenerate returns, numerical edge case, Math.log(0)
+  // in Monte Carlo, etc.) must trigger a rejection with a distinguishable
+  // reason so ops can tell "high VaR" apart from "broken VaR".
+  if (
+    !Number.isFinite(portfolioVaR95Percent) ||
+    !Number.isFinite(incrementalVaR95Percent) ||
+    !Number.isFinite(portfolioCVaR95Percent)
+  ) {
+    return {
+      passed: false,
+      reason: 'insufficient_data_or_nan',
+      portfolioVaR95: 0,
+      portfolioVaR95Percent: 0,
+      incrementalVaR95: 0,
+      incrementalVaR95Percent: 0,
+      portfolioCVaR95: 0,
+      portfolioCVaR95Percent: 0,
+      dataPoints,
+      method: 'insufficient_data',
+    };
+  }
+
   // ── Check limits ──
   const reasons: string[] = [];
 
