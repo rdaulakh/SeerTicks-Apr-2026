@@ -301,11 +301,27 @@ export class MacroAnalyst extends AgentBase {
       // Detect correlation regime
       const correlationRegime = this.detectCorrelationRegime(btcSpx30d, btcGold30d, btcDxy30d);
 
-      // Fetch VIX from Yahoo Finance
-      const vixData = await callDataApi('YahooFinance/get_stock_chart', {
-        query: { symbol: '^VIX', region: 'US', interval: '1d', range: '1d' }
-      });
-      const vix = (vixData as any)?.chart?.result?.[0]?.meta?.regularMarketPrice || 18;
+      // Fetch VIX from Yahoo Finance.
+      //
+      // Phase 4: VIX is OPTIONAL — failure must not poison the whole macro pipeline.
+      // Previously a throw from `callDataApi` (e.g. DATA_API_URL=stub.invalid or
+      // network error) would skip the remaining cache assignment and dump us into
+      // the outer catch, losing DXY/S&P/gold/correlations too.  Now we isolate the
+      // VIX fetch so its failure degrades gracefully to the neutral fallback (18).
+      let vix = 18;
+      try {
+        const vixData = await callDataApi('YahooFinance/get_stock_chart', {
+          query: { symbol: '^VIX', region: 'US', interval: '1d', range: '1d' }
+        });
+        const fetched = (vixData as any)?.chart?.result?.[0]?.meta?.regularMarketPrice;
+        if (typeof fetched === 'number' && Number.isFinite(fetched) && fetched > 0) {
+          vix = fetched;
+        } else {
+          console.warn(`[${this.config.name}] VIX response missing regularMarketPrice, using neutral 18`);
+        }
+      } catch (vixError: any) {
+        console.warn(`[${this.config.name}] VIX fetch failed (${vixError?.message || vixError}), using neutral 18`);
+      }
 
       // Fetch real stablecoin supply and BTC dominance from CoinGecko
       let stablecoinSupply = 120_000_000_000; // Fallback value
