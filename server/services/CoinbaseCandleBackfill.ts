@@ -32,7 +32,8 @@ import { saveCandlesToDatabase, getCandleCount } from '../db/candleStorage';
 import type { Candle } from '../WebSocketCandleCache';
 
 // Coinbase Exchange API granularity is specified in SECONDS (not the enum used
-// by the Advanced Trade API).
+// by the Advanced Trade API). NOTE: 4h is NOT a native Coinbase granularity
+// — we aggregate from 1h below (see fetchAndAggregate4h).
 const GRANULARITY_SECONDS: Record<string, number> = {
   '1m': 60,
   '5m': 300,
@@ -49,10 +50,11 @@ const COINBASE_MAX_PER_REQUEST = 300;
 // fresh DB. Tuned so risk/entry gates and agents have enough runway without
 // making the initial backfill take minutes.
 const DEFAULT_TARGET_COUNT: Record<string, number> = {
-  '1m': 600,   // 10 hours
+  '1m': 600,   // 10 hours — enough for micro-entry timing + cache warm-up
   '5m': 576,   // 2 days
   '15m': 384,  // 4 days
   '1h': 720,   // 30 days
+  '4h': 180,   // 30 days (aggregated from 1h)
   '6h': 360,   // 90 days
   '1d': 365,   // 1 year
 };
@@ -111,18 +113,124 @@ async function fetchCandlePage(
 }
 
 /**
+ * Fetch `targetCount` contiguous candles by paging the Coinbase Exchange
+ * candles endpoint backwards from now. Returns ascending, deduped candles.
+ *
+ * Extracted from backfillSymbolInterval so the synthetic-4h path can reuse
+ * the pager without having to first save 1h into the DB.
+ */
+async function fetchContiguousCandles(
+  productId: string,
+  granularitySec: number,
+  targetCount: number,
+): Promise<Candle[]> {
+  const windowMs = granularitySec * 1000 * COINBASE_MAX_PER_REQUEST;
+  const collected: Candle[] = [];
+  const maxPages = Math.ceil(targetCount / COINBASE_MAX_PER_REQUEST) + 2;
+  let endMs = Date.now();
+
+  for (let page = 0; page < maxPages && collected.length < targetCount; page++) {
+    const startMs = endMs - windowMs;
+    try {
+      const batch = await fetchCandlePage(productId, granularitySec, startMs, endMs);
+      if (batch.length === 0) break;
+      collected.push(...batch);
+      endMs = startMs - 1;
+    } catch (err: any) {
+      console.warn(
+        `[CoinbaseBackfill] ${productId} ${granularitySec}s page ${page} failed: ${err.message}`,
+      );
+      break;
+    }
+    // Be polite to the public API (10 req/s shared limit).
+    await new Promise((r) => setTimeout(r, 120));
+  }
+
+  const byTs = new Map<number, Candle>();
+  for (const c of collected) byTs.set(c.timestamp, c);
+  return [...byTs.values()].sort((a, b) => a.timestamp - b.timestamp);
+}
+
+/**
+ * Aggregate N×1h candles into buckets of `bucketHours` hours each
+ * (e.g. 4h = 4 × 1h). Bucket alignment is by floor(timestampMs /
+ * bucketMs) — so buckets are wall-clock aligned (00:00, 04:00, 08:00…)
+ * regardless of when this backfill runs.
+ *
+ * Within each bucket:
+ *   open  = first 1h candle's open
+ *   close = last 1h candle's close
+ *   high  = max of 1h highs
+ *   low   = min of 1h lows
+ *   volume = sum of 1h volumes
+ *
+ * Only buckets with ALL expected 1h candles are emitted — partial
+ * buckets would give agents misleading high/low ranges.
+ */
+function aggregate1hToNh(candles1h: Candle[], bucketHours: number): Candle[] {
+  const bucketMs = bucketHours * 3600 * 1000;
+  const byBucket = new Map<number, Candle[]>();
+  for (const c of candles1h) {
+    const bucketStart = Math.floor(c.timestamp / bucketMs) * bucketMs;
+    const arr = byBucket.get(bucketStart) ?? [];
+    arr.push(c);
+    byBucket.set(bucketStart, arr);
+  }
+  const out: Candle[] = [];
+  for (const [bucketStart, members] of byBucket.entries()) {
+    if (members.length < bucketHours) continue; // skip partial buckets
+    members.sort((a, b) => a.timestamp - b.timestamp);
+    out.push({
+      timestamp: bucketStart,
+      open: members[0].open,
+      close: members[members.length - 1].close,
+      high: Math.max(...members.map((m) => m.high)),
+      low: Math.min(...members.map((m) => m.low)),
+      volume: members.reduce((s, m) => s + m.volume, 0),
+    });
+  }
+  return out.sort((a, b) => a.timestamp - b.timestamp);
+}
+
+/**
  * Backfill a single (symbol, interval) pair from Coinbase.
  *
  * Returns the number of candles saved. Idempotent-ish: the DB has no unique
  * constraint on (symbol, interval, timestamp) in the current schema, so
  * repeated calls will duplicate rows. We avoid that by only invoking this
  * when the count is below MIN_ACCEPTABLE_COUNT (see backfillIfEmpty).
+ *
+ * Special case: '4h' is synthesized by aggregating 1h candles (Coinbase
+ * Exchange API doesn't expose a native 4h granularity).
  */
 export async function backfillSymbolInterval(
   symbol: string,
   interval: string,
   targetCount?: number,
 ): Promise<number> {
+  // --- Synthetic 4h: aggregate from 1h ---
+  if (interval === '4h') {
+    const productId = toCoinbaseProductId(symbol);
+    const target4h = targetCount ?? DEFAULT_TARGET_COUNT['4h'] ?? 180;
+    // Need ~4× 1h candles + a small buffer for partial-bucket trimming.
+    const needed1h = target4h * 4 + 8;
+    const hourly = await fetchContiguousCandles(productId, 3600, needed1h);
+    if (hourly.length === 0) {
+      console.warn(`[CoinbaseBackfill] ${productId} 4h: no 1h source candles`);
+      return 0;
+    }
+    const fourHour = aggregate1hToNh(hourly, 4);
+    if (fourHour.length === 0) {
+      console.warn(`[CoinbaseBackfill] ${productId} 4h: aggregation produced 0 buckets`);
+      return 0;
+    }
+    const saved = await saveCandlesToDatabase(productId, '4h', fourHour);
+    console.log(
+      `[CoinbaseBackfill] ✅ ${productId} 4h: aggregated ${fourHour.length} from ${hourly.length}×1h, saved ${saved}`,
+    );
+    return saved;
+  }
+
   const granularitySec = GRANULARITY_SECONDS[interval];
   if (!granularitySec) {
     console.warn(`[CoinbaseBackfill] Unsupported interval: ${interval}`);
@@ -131,48 +239,19 @@ export async function backfillSymbolInterval(
 
   const productId = toCoinbaseProductId(symbol);
   const target = targetCount ?? DEFAULT_TARGET_COUNT[interval] ?? 200;
-  const windowMs = granularitySec * 1000 * COINBASE_MAX_PER_REQUEST;
 
-  const collected: Candle[] = [];
-  const maxPages = Math.ceil(target / COINBASE_MAX_PER_REQUEST) + 2; // small safety margin
-  let endMs = Date.now();
+  const sorted = await fetchContiguousCandles(productId, granularitySec, target);
 
-  for (let page = 0; page < maxPages && collected.length < target; page++) {
-    const startMs = endMs - windowMs;
-    try {
-      const batch = await fetchCandlePage(productId, granularitySec, startMs, endMs);
-      if (batch.length === 0) break;
-      collected.push(...batch);
-      // Page backwards — next request ends where this one started, minus 1ms
-      // to avoid double-counting the boundary candle.
-      endMs = startMs - 1;
-    } catch (err: any) {
-      console.warn(
-        `[CoinbaseBackfill] ${symbol} ${interval} page ${page} failed: ${err.message}`,
-      );
-      break;
-    }
-    // Be polite to the public API (10 req/s shared limit).
-    await new Promise((r) => setTimeout(r, 120));
-  }
-
-  if (collected.length === 0) {
+  if (sorted.length === 0) {
     console.warn(`[CoinbaseBackfill] ${symbol} ${interval}: no candles fetched`);
     return 0;
   }
-
-  // Coinbase returns newest-first within each page; we paged backwards, so
-  // `collected` is roughly reverse-chronological. Sort ascending and dedupe
-  // by timestamp before insert.
-  const byTs = new Map<number, Candle>();
-  for (const c of collected) byTs.set(c.timestamp, c);
-  const sorted = [...byTs.values()].sort((a, b) => a.timestamp - b.timestamp);
 
   // Store under the canonical Coinbase product id (BTC-USD). getSymbolVariations
   // handles every other query format.
   const saved = await saveCandlesToDatabase(productId, interval, sorted);
   console.log(
-    `[CoinbaseBackfill] ✅ ${productId} ${interval}: fetched ${collected.length}, deduped ${sorted.length}, saved ${saved}`,
+    `[CoinbaseBackfill] ✅ ${productId} ${interval}: fetched ${sorted.length}, saved ${saved}`,
   );
   return saved;
 }
@@ -186,7 +265,12 @@ export async function backfillSymbolInterval(
  */
 export async function backfillIfEmpty(
   symbols: string[],
-  intervals: string[] = ['1d', '1h', '5m'],
+  // Default covers every timeframe the orchestrator stack needs:
+  //   1d / 4h / 1h  → MacroAnalyst, StrategyOrchestrator, MultiTimeframeAlignment
+  //   5m            → TechnicalAnalyst, 5m confirmation leg
+  //   1m            → micro-entry timing + TickToCandleAggregator cache warm-up
+  // 4h is synthesized from 1h inside backfillSymbolInterval.
+  intervals: string[] = ['1d', '4h', '1h', '5m', '1m'],
 ): Promise<void> {
   const startedAt = Date.now();
   let filled = 0;

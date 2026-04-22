@@ -582,7 +582,11 @@ async function startServer() {
   (async () => {
     try {
       const { backfillIfEmpty } = await import('../services/CoinbaseCandleBackfill');
-      await backfillIfEmpty(tradingSymbols, ['1d', '1h', '5m']);
+      // Use service's full default interval list: 1d / 4h / 1h / 5m / 1m
+      // (4h is synthesized from 1h — see CoinbaseCandleBackfill.ts).
+      // Prev call passed only ['1d','1h','5m'], leaving 4h and 1m empty and
+      // flooding logs with "No candles found for … 4h/1m" every agent cycle.
+      await backfillIfEmpty(tradingSymbols);
     } catch (backfillErr: any) {
       console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Coinbase backfill failed:`, backfillErr?.message || backfillErr);
     }
