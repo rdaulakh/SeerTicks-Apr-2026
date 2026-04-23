@@ -913,10 +913,46 @@ export class IntelligentExitManager extends EventEmitter {
     // Store price in memory-optimized buffer ALWAYS (O(1), ~0.001ms)
     this.priceBufferManager.push(symbol, price, timestamp);
 
-    // Phase 11 Fix 2: Debounce exit evaluation — process at most once per 200ms per symbol
-    // At 47 ticks/sec, without debounce each tick queued a 50-200ms async operation,
-    // creating a backlog that grew to 186 seconds. With 200ms debounce, we process
-    // at most 5 evaluations/sec per symbol — still fast enough for exits.
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 6 — Tick-exact P&L + breakeven tracking
+    //
+    // The 200ms debounce below prevents the heavy async exit evaluation
+    // (consensus/agent-signals/regime fetches, priority exit rule eval) from
+    // backlogging at 40-50 Hz tick rates. Before Phase 6, the debounce gated
+    // the ENTIRE tick — including the O(1) synchronous price/P&L/peak/
+    // breakeven update. That created a real hole:
+    //
+    //   t=0ms    tick @ +0.3% → processed, no breakeven (threshold 0.5%)
+    //   t=50ms   tick @ +0.7% → SKIPPED (debounce) — breakeven MISSED
+    //   t=100ms  tick @ +0.3% → SKIPPED (debounce)
+    //   t=200ms  tick @ +0.1% → processed, still no breakeven
+    //
+    // The +0.7% peak is invisible to the position state; breakeven never fires;
+    // a subsequent drop through entry turns a winner into a loser.
+    //
+    // Fix: run the cheap synchronous pass on EVERY tick — it's O(1) per
+    // position, just arithmetic and a flag flip. Only debounce the heavy
+    // async eval, which is what actually backlogs.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Find positions for this symbol and sync their price/P&L/peak/breakeven
+    // on every tick. Pure synchronous — safe at full websocket tick rate.
+    const symbolPositions: Position[] = [];
+    for (const [, position] of this.positions) {
+      if (position.symbol === symbol) {
+        symbolPositions.push(position);
+        this.updatePositionPriceSync(position, price);
+      }
+    }
+
+    if (symbolPositions.length === 0) return;
+
+    // Phase 11 Fix 2: Debounce the HEAVY async eval — process at most once
+    // per 200ms per symbol. At 47 ticks/sec, without debounce each tick
+    // queued a 50-200ms async operation, creating a backlog that grew to
+    // 186 seconds. With 200ms debounce, we process at most 5 evaluations/sec
+    // per symbol — still fast enough for exits (priority rules now fire on
+    // state that's already been updated synchronously above).
     const lastProcess = this.lastTickProcessTime.get(symbol) || 0;
     if (timestamp - lastProcess < this.TICK_DEBOUNCE_MS) return;
     this.lastTickProcessTime.set(symbol, timestamp);
@@ -938,21 +974,10 @@ export class IntelligentExitManager extends EventEmitter {
 
     const tickStart = performance.now();
 
-    // Find all positions for this symbol
-    const symbolPositions: Position[] = [];
-    for (const [positionId, position] of this.positions) {
-      if (position.symbol === symbol) {
-        symbolPositions.push(position);
-      }
-    }
-    
-    if (symbolPositions.length === 0) return;
-    
-    // Process each position in parallel for maximum speed
+    // Process each position in parallel for maximum speed.
+    // NOTE: updatePositionPriceSync already ran above on every tick — the
+    // async eval below reads the freshly-updated position state.
     const exitPromises = symbolPositions.map(async (position) => {
-      // 1. Update price and P&L (synchronous - fast)
-      this.updatePositionPriceSync(position, price);
-      
       // Phase 11 Fix 5: Fetch consensus, agent signals, and regime IN PARALLEL
       // Before: 3 sequential awaits = 150-600ms per position per tick
       // After: 1 parallel await = 50-200ms per position per tick (3x faster)
