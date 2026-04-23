@@ -1182,7 +1182,29 @@ Be concise and actionable.`;
       const priceLevels = this.extractPriceLevels(signals, signal);
       const stopLossPercent = 2.0;
       const riskRewardRatio = expectedReturn / stopLossPercent;
-      
+
+      // Phase 5 FIX — R:R reject gate on the no-exchange fallback path.
+      // The institutional path (below) enforces min 2.0:1 via
+      // validateRiskReward; this fallback was silently letting trades
+      // through with R:R as low as 0.25. 1.5 is the floor — still below
+      // institutional, but any lower and expected value is negative even
+      // with a 60% win rate. Any non-hold action must clear this bar.
+      const MIN_FALLBACK_RR = 1.5;
+      if (action !== 'hold' && riskRewardRatio < MIN_FALLBACK_RR) {
+        orchestratorLogger.warn('Fallback trade rejected — R:R below floor', {
+          symbol: this.symbol,
+          riskRewardRatio: riskRewardRatio.toFixed(2),
+          minRequired: MIN_FALLBACK_RR,
+          path: 'no-exchange-fallback',
+        });
+        return this.createHoldRecommendation(
+          symbol,
+          `Trade rejected: R:R ${riskRewardRatio.toFixed(2)}:1 below ${MIN_FALLBACK_RR}:1 floor (fallback path)`,
+          signals,
+          consensus,
+        );
+      }
+
       return {
         symbol,
         timestamp: Date.now(),
@@ -1394,7 +1416,29 @@ Be concise and actionable.`;
       const priceLevels = this.extractPriceLevels(signals, signal);
       const stopLossPercent = 2.0;
       const riskRewardRatio = expectedReturn / stopLossPercent;
-      
+
+      // Phase 5 FIX — R:R reject gate on the error-catch fallback path.
+      // When the institutional calc throws (missing OHLCV data, exchange
+      // error, etc.), we previously degraded silently and let trades
+      // through at whatever R:R the simple expectedReturn/stopLoss math
+      // produced. Fail-closed: enforce the same 1.5 floor as the
+      // no-exchange fallback. Any non-hold action must clear it.
+      const MIN_FALLBACK_RR = 1.5;
+      if (action !== 'hold' && riskRewardRatio < MIN_FALLBACK_RR) {
+        orchestratorLogger.warn('Fallback trade rejected — R:R below floor', {
+          symbol: this.symbol,
+          riskRewardRatio: riskRewardRatio.toFixed(2),
+          minRequired: MIN_FALLBACK_RR,
+          path: 'error-catch-fallback',
+        });
+        return this.createHoldRecommendation(
+          symbol,
+          `Trade rejected: R:R ${riskRewardRatio.toFixed(2)}:1 below ${MIN_FALLBACK_RR}:1 floor (error fallback)`,
+          signals,
+          consensus,
+        );
+      }
+
       return {
         symbol,
         timestamp: Date.now(),
