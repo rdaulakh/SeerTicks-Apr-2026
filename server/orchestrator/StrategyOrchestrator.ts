@@ -185,10 +185,21 @@ export class StrategyOrchestrator extends EventEmitter {
     orchestratorLogger.info('Initializing automation components', { symbol: this.symbol });
     
     // Initialize AutomatedSignalProcessor
+    // Phase 5 FIX — "Winner Protection" tightens the entry gate:
+    //   - minConfidence 0.55 → 0.65: individual agents must be ≥65% confident
+    //     before their signal counts toward consensus. At 0.55 a 2-agent
+    //     split with one weak dissenter was passing; 0.65 forces high-
+    //     conviction-only participation.
+    //   - consensusThreshold 0.55 → 0.60: aggregate consensus must clear
+    //     60% weighted agreement (was 55%). Still below institutional 0.65,
+    //     but closes the gap in which mediocre-consensus trades were
+    //     being taken and then stopped out.
+    //   - minExecutionScore stays at 40 — tactical timing floor is working.
+    // The directive is profit-protection, not trade-maximization.
     this.automatedSignalProcessor = new AutomatedSignalProcessor(this.userId, {
-      minConfidence: 0.55, // Lowered from 0.60 to allow more trades
-      minExecutionScore: 40, // Lowered from 45 to allow more trades
-      consensusThreshold: 0.55, // Lowered from 0.65 to allow more trades
+      minConfidence: 0.65,        // Phase 5: was 0.55 — raise individual-agent confidence bar
+      minExecutionScore: 40,      // unchanged — tactical timing floor
+      consensusThreshold: 0.60,   // Phase 5: was 0.55 — raise aggregate consensus bar
     });
     
     // Initialize AutomatedTradeExecutor
