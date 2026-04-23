@@ -195,20 +195,34 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
   },
 
   consensus: {
-    // Entry-gate audit restoration (post Phase 40 v2): the 0.10–0.12 rescaling
-    // left the entry pipeline functionally disarmed — any 2-agent split with
-    // a weak dissenter was satisfying consensus, driving the high-loss-rate
-    // regression found in the audit.
-    // Restored thresholds are set halfway between the original pre-Phase-40
-    // values (0.50 / 0.45 / 0.40) and the overly-permissive Phase-40 values
-    // (0.12 / 0.10 / 0.10), matching current weighted agent-output scale
-    // while rejecting low-conviction splits.
-    minConsensusStrength: 0.30,            // restored from 0.12 (halfway to 0.50)
-    minConfidence: 0.25,                   // restored from 0.10 (halfway to 0.45)
-    minExecutionScore: 40,                 // 40/100 tactical timing — unchanged
-    minAgentAgreement: 3,                  // Min 3 agents agreeing on direction — unchanged
-    minDirectionRatio: 0.60,               // >60% directional dominance — unchanged
-    minCombinedScore: 0.25,                // restored from 0.10 (halfway to 0.40)
+    // Phase 5 "Winner Protection" — tightened entry gate.
+    //
+    // Prior state (halfway-restore after Phase 40 v2):
+    //   minConsensusStrength: 0.30, minConfidence: 0.25, minCombinedScore: 0.25
+    // That left the gate functionally permissive — a single 25%-confidence
+    // agent could still contribute to a 30%-strength consensus, and the
+    // high-loss-rate regression persisted in post-deploy telemetry
+    // (`Initialized signal processor minConfidencePct=25 consensusThresholdPct=30`
+    // from every UserTradingSession init).
+    //
+    // Phase 5 target values mirror the StrategyOrchestrator intent
+    // (0.65 / 0.60) and close the "mediocre-signal still passes" gap:
+    //   - minConfidence 0.25 → 0.65: individual agents must be ≥65%
+    //     confident before their signal enters consensus.
+    //   - minConsensusStrength 0.30 → 0.60: aggregate weighted agreement
+    //     must clear 60% (institutional-grade).
+    //   - minCombinedScore 0.25 → 0.55: composite floor tracks confidence.
+    //
+    // This is the *actual* prod bar — UserTradingSession constructs
+    // AutomatedSignalProcessor from this block directly. The directive is
+    // profit protection, not trade maximization. Zero trades is preferable
+    // to any losing trade.
+    minConsensusStrength: 0.60,            // Phase 5: was 0.30 — raise aggregate bar
+    minConfidence: 0.65,                   // Phase 5: was 0.25 — raise individual-agent bar
+    minExecutionScore: 40,                 // unchanged — tactical timing floor
+    minAgentAgreement: 3,                  // unchanged — min 3 agents agreeing on direction
+    minDirectionRatio: 0.60,               // unchanged — >60% directional dominance
+    minCombinedScore: 0.55,                // Phase 5: was 0.25 — composite floor tracks confidence
   },
 
   exits: {
