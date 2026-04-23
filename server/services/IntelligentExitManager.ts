@@ -653,11 +653,11 @@ export class IntelligentExitManager extends EventEmitter {
       };
     }
     
-    // 2. Check breakeven activation
+    // 2. Check breakeven activation — Phase 5: actually moves position.stopLoss
+    //    to entry+buffer so the hard-SL check above fires at breakeven on the
+    //    next tick, rather than relying on the fragile secondary pnl check.
     if (!position.breakevenActivated && pnlPercent >= this.config.breakevenActivationPercent) {
-      position.breakevenActivated = true;
-      console.log(`[IntelligentExitManager] 🛡️ Breakeven activated for ${position.id} at +${pnlPercent.toFixed(2)}%`);
-      this.emit('breakeven_activated', { positionId: position.id, pnlPercent });
+      this.activateBreakeven(position);
     }
     
     // 3. Check if price has fallen back to breakeven after being profitable
@@ -809,6 +809,66 @@ export class IntelligentExitManager extends EventEmitter {
   }
 
   /**
+   * Phase 5 FIX — Live breakeven stop activation.
+   *
+   * When a position crosses `breakevenActivationPercent` in the money, we must
+   * actually MOVE the stop-loss to entry + buffer — not just flip a flag.
+   *
+   * The prior behavior set `breakevenActivated = true` and relied on a
+   * secondary check (`pnlPercent <= breakevenBuffer`) downstream. That
+   * secondary check is fragile:
+   *   - It races against the hard-SL block above it.
+   *   - A fast price drop through breakeven all the way to the original
+   *     wide stop (-1.2%) blows past it and realizes a real loss.
+   *
+   * By mutating `position.stopLoss` in place, the hard-SL check at the top
+   * of `evaluateExitConditionsRaw` fires automatically at entry+buffer,
+   * giving every winner an iron-clad floor once it's crossed activation.
+   *
+   * Idempotent — safe to call on every tick.
+   */
+  private activateBreakeven(position: Position): void {
+    if (position.breakevenActivated) return;
+
+    position.breakevenActivated = true;
+
+    const bufferAmount = position.entryPrice * (this.config.breakevenBuffer / 100);
+    const newStopLoss =
+      position.side === 'long'
+        ? position.entryPrice + bufferAmount
+        : position.entryPrice - bufferAmount;
+
+    const prevStopLoss = position.stopLoss;
+
+    // Only ratchet the SL inward — never widen it. For a long at entry $100
+    // with existing SL $99 (-1%), newStopLoss ≈ $100.10 (+0.1%). This is
+    // always MORE protective at breakeven activation, but the defensive
+    // comparison protects against any upstream paths that pre-tighten the stop.
+    const isRatchetInward =
+      prevStopLoss == null ||
+      (position.side === 'long' ? newStopLoss > prevStopLoss : newStopLoss < prevStopLoss);
+
+    if (isRatchetInward) {
+      position.stopLoss = newStopLoss;
+    }
+
+    console.log(
+      `[IntelligentExitManager] 🛡️ BREAKEVEN ACTIVATED: ${position.id} ${position.symbol} ` +
+        `| SL moved from $${prevStopLoss?.toFixed(4) ?? 'none'} → $${position.stopLoss!.toFixed(4)} ` +
+        `(entry: $${position.entryPrice.toFixed(4)}, PnL: +${position.unrealizedPnlPercent.toFixed(2)}%)`,
+    );
+
+    this.emit('breakeven_activated', {
+      positionId: position.id,
+      pnlPercent: position.unrealizedPnlPercent,
+      newStopLoss: position.stopLoss,
+      previousStopLoss: prevStopLoss,
+      entryPrice: position.entryPrice,
+      side: position.side,
+    });
+  }
+
+  /**
    * Update position price manually (for testing or external price feeds)
    * DEPRECATED: Use onPriceTick() for real-time tick-by-tick monitoring
    */
@@ -835,11 +895,9 @@ export class IntelligentExitManager extends EventEmitter {
       position.unrealizedPnlPercent = ((position.entryPrice - currentPrice) / position.entryPrice) * 100;
     }
     
-    // Check for breakeven activation
+    // Check for breakeven activation — Phase 5: actually moves position.stopLoss
     if (!position.breakevenActivated && position.unrealizedPnlPercent >= this.config.breakevenActivationPercent) {
-      position.breakevenActivated = true;
-      console.log(`[IntelligentExitManager] 🛡️ Breakeven activated for ${positionId} at +${position.unrealizedPnlPercent.toFixed(2)}%`);
-      this.emit('breakeven_activated', { positionId, pnlPercent: position.unrealizedPnlPercent });
+      this.activateBreakeven(position);
     }
   }
 
@@ -1185,10 +1243,11 @@ export class IntelligentExitManager extends EventEmitter {
       position.peakPnlPercent = position.unrealizedPnlPercent;
     }
     
-    // Check for breakeven activation (no logging for speed)
+    // Check for breakeven activation — Phase 5: actually moves position.stopLoss
+    // Called in the HOT sync path (onPriceTick), so activateBreakeven's single
+    // console.log fires exactly once per position (guarded by breakevenActivated).
     if (!position.breakevenActivated && position.unrealizedPnlPercent >= this.config.breakevenActivationPercent) {
-      position.breakevenActivated = true;
-      this.emit('breakeven_activated', { positionId: position.id, pnlPercent: position.unrealizedPnlPercent });
+      this.activateBreakeven(position);
     }
   }
 
