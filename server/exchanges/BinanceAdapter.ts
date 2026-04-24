@@ -65,7 +65,9 @@ export class BinanceAdapter extends ExchangeInterface {
 
   async connectWebSocket(symbol: string, callback: TickCallback): Promise<void> {
     const normalizedSymbol = this.normalizeSymbol(symbol).toLowerCase();
-    const wsUrl = `wss://stream.binance.com:9443/ws/${normalizedSymbol}@trade`;
+    // Phase 14 — honor BINANCE_WS_BASE_URL so prod can use Binance.US (not geo-blocked).
+    const { resolveBinanceWsBaseUrl } = await import('./BinanceWebSocketManager');
+    const wsUrl = `${resolveBinanceWsBaseUrl()}/ws/${normalizedSymbol}@trade`;
 
     return new Promise((resolve, reject) => {
       try {

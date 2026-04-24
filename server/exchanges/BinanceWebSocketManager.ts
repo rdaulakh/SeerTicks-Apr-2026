@@ -1,6 +1,26 @@
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 
+/**
+ * Phase 14 — WebSocket base URL is configurable so prod can use Binance.US
+ * (wss://stream.binance.us:9443) where stream.binance.com is geo-blocked
+ * (HTTP 451) on US-East hosts. The two services speak the IDENTICAL Binance
+ * spot websocket protocol — same stream names, same message shape — so
+ * nothing else needs to change.
+ *
+ * Default remains stream.binance.com for back-compat (dev + non-US).
+ * Prod sets BINANCE_WS_BASE_URL=wss://stream.binance.us:9443 via env.
+ */
+export const DEFAULT_BINANCE_WS_BASE_URL = 'wss://stream.binance.com:9443';
+export function resolveBinanceWsBaseUrl(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const v = env.BINANCE_WS_BASE_URL?.trim();
+  if (!v) return DEFAULT_BINANCE_WS_BASE_URL;
+  // Strip any trailing slash so callers can append `/stream?...` or `/ws/...`
+  return v.replace(/\/+$/, '');
+}
+
 interface TradeEvent {
   symbol: string;
   price: number;
@@ -74,9 +94,10 @@ export class BinanceWebSocketManager extends EventEmitter {
   subscribe(config: WebSocketConfig): void {
     const { symbol, streams } = config;
     const streamNames = streams.map(s => `${symbol.toLowerCase()}@${s}`).join('/');
-    const url = `wss://stream.binance.com:9443/stream?streams=${streamNames}`;
+    const baseUrl = resolveBinanceWsBaseUrl();
+    const url = `${baseUrl}/stream?streams=${streamNames}`;
 
-    console.log(`[WebSocket] Subscribing to ${symbol}: ${streams.join(', ')}`);
+    console.log(`[WebSocket] Subscribing to ${symbol}: ${streams.join(', ')} via ${baseUrl}`);
 
     const ws = new WebSocket(url);
     const connectionKey = symbol.toLowerCase();

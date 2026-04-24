@@ -70,6 +70,35 @@ router.get('/health/trading', async (_req: Request, res: Response) => {
 });
 
 /**
+ * Price-feed health — per-source tick rates, latency, liveness.
+ *
+ * Phase 14: the 2026-04-21→04-24 silence was primarily a DATA problem. Coinbase
+ * WS gapped every 3s, CoinGecko 429'd for 120s at a time, and no single number
+ * surfaced that fragility. This endpoint dumps PriceFabric's per-source health
+ * so operators can see which feeds are live and which are starving the agents.
+ *
+ * Returns 200 when at least one source is marked alive; 503 when the fabric is
+ * stopped OR every source is dead (agents have no input → consensus impossible).
+ */
+router.get('/health/feeds', async (_req: Request, res: Response) => {
+  try {
+    const { getPriceFabric } = await import('../services/PriceFabric');
+    const status = getPriceFabric().getStatus();
+    const anyAlive = status.sources.some((s) => s.isAlive);
+    const statusCode = status.isRunning && anyAlive ? 200 : 503;
+    res.status(statusCode).json({
+      healthy: statusCode === 200,
+      ...status,
+    });
+  } catch (error) {
+    res.status(500).json({
+      healthy: false,
+      error: error instanceof Error ? error.message : 'price_fabric_unavailable',
+    });
+  }
+});
+
+/**
  * Readiness check - similar to health but stricter
  * Used by Kubernetes/orchestrators to determine if pod can receive traffic
  */
