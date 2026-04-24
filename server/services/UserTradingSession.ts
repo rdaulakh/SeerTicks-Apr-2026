@@ -794,7 +794,11 @@ export class UserTradingSession extends EventEmitter {
             // catastrophic-floor check. All other safety-net closes need net-positive PnL.
             if (shouldClose) {
               const guard = profitLockShouldAllowClose(
-                { side: pos.side as 'long' | 'short', entryPrice },
+                {
+                  side: pos.side as 'long' | 'short',
+                  entryPrice,
+                  exchange: (pos as any).exchange, // Phase 10 — pick up DB exchange for fee-aware drag
+                },
                 currentPrice,
                 closeReason,
               );
@@ -1160,6 +1164,7 @@ export class UserTradingSession extends EventEmitter {
       {
         side: position.side as 'long' | 'short',
         entryPrice: position.entryPrice,
+        exchange: (position as any).exchange, // Phase 10 — fee drag is exchange-aware
       },
       currentPrice,
       reason,

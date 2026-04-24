@@ -152,7 +152,11 @@ export function evaluatePriorityExitRules(
 
   const reasonForGuard = decision.rule || decision.description || '';
   const guard = profitLockShouldAllowClose(
-    { side: position.side, entryPrice: position.entryPrice },
+    {
+      side: position.side,
+      entryPrice: position.entryPrice,
+      exchange: (position as any).exchange, // Phase 10 — fee drag is exchange-aware
+    },
     position.currentPrice,
     reasonForGuard,
   );

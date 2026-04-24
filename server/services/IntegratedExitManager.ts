@@ -269,7 +269,11 @@ export class IntegratedExitManager extends EventEmitter {
     const reasonForGuard = raw.details?.triggeredBy || raw.reason || '';
 
     const guard = profitLockShouldAllowClose(
-      { side: position.direction, entryPrice: position.averagePrice },
+      {
+        side: position.direction,
+        entryPrice: position.averagePrice,
+        exchange: (position as any).exchange, // Phase 10 — fee drag is exchange-aware
+      },
       currentPrice,
       reasonForGuard,
     );

@@ -16,10 +16,18 @@
 import { getTradingConfig } from '../config/TradingConfig';
 
 /** Minimal position shape used by the guard — kept intentionally small so every
- * exit manager can satisfy it without coupling to heavier Position types. */
+ * exit manager can satisfy it without coupling to heavier Position types.
+ *
+ * Phase 10 — `exchange` is optional. When provided and a matching override
+ * exists in `config.profitLock.exchangeFeeOverrides`, the guard uses the
+ * exchange-specific fee+slippage drag instead of the flat default. Missing
+ * / unknown exchange falls back to `estimatedRoundTripFeePercent +
+ * estimatedSlippagePercent` (Binance-like defaults in PRODUCTION_CONFIG).
+ */
 export interface ProfitLockPosition {
   side: 'long' | 'short';
   entryPrice: number;
+  exchange?: string;
 }
 
 export interface ProfitLockDecision {
@@ -90,6 +98,44 @@ export function computeGrossPnlPercent(position: ProfitLockPosition, currentPric
  * Returns `allow: true` when the close is permitted. When `allow: false`, the
  * caller must convert its decision to "hold" and keep monitoring.
  */
+/**
+ * Phase 10 — resolve the fee+slippage drag for a position.
+ *
+ * Looks up `config.profitLock.exchangeFeeOverrides[position.exchange?.toLowerCase()]`
+ * first, then falls back to the flat `estimatedRoundTripFeePercent +
+ * estimatedSlippagePercent`. Returns the components so the caller can
+ * surface them in the decision reason for auditability.
+ */
+export function resolveDragPercent(
+  position: ProfitLockPosition,
+): {
+  roundTripFeePercent: number;
+  slippagePercent: number;
+  totalCostPercent: number;
+  source: string; // e.g. "exchange:coinbase" | "default"
+} {
+  const config = getTradingConfig().profitLock;
+  const key = position.exchange?.toLowerCase();
+  const override = key ? config?.exchangeFeeOverrides?.[key] : undefined;
+  if (override) {
+    return {
+      roundTripFeePercent: override.roundTripFeePercent,
+      slippagePercent: override.slippagePercent,
+      totalCostPercent:
+        override.roundTripFeePercent + override.slippagePercent,
+      source: `exchange:${key}`,
+    };
+  }
+  const fee = config?.estimatedRoundTripFeePercent ?? 0;
+  const slip = config?.estimatedSlippagePercent ?? 0;
+  return {
+    roundTripFeePercent: fee,
+    slippagePercent: slip,
+    totalCostPercent: fee + slip,
+    source: key ? `default(unknown:${key})` : 'default',
+  };
+}
+
 export function shouldAllowClose(
   position: ProfitLockPosition,
   currentPrice: number,
@@ -97,8 +143,8 @@ export function shouldAllowClose(
 ): ProfitLockDecision {
   const config = getTradingConfig().profitLock;
   const grossPnlPercent = computeGrossPnlPercent(position, currentPrice);
-  const totalCostPercent =
-    (config?.estimatedRoundTripFeePercent ?? 0) + (config?.estimatedSlippagePercent ?? 0);
+  const drag = resolveDragPercent(position);
+  const totalCostPercent = drag.totalCostPercent;
   const netPnlPercent = grossPnlPercent - totalCostPercent;
 
   // Guard disabled → always permit (preserves legacy behavior for tests/dev).
@@ -135,7 +181,7 @@ export function shouldAllowClose(
   if (netPnlPercent >= config.minNetProfitPercentToClose) {
     return {
       allow: true,
-      reason: `net_profit_ok:${netPnlPercent.toFixed(3)}%>=${config.minNetProfitPercentToClose}%`,
+      reason: `net_profit_ok:${netPnlPercent.toFixed(3)}%>=${config.minNetProfitPercentToClose}% (drag=${totalCostPercent.toFixed(3)}% ${drag.source})`,
       netPnlPercent,
       grossPnlPercent,
     };
@@ -144,12 +190,13 @@ export function shouldAllowClose(
   // 4. Blocked — keep holding until net-positive or catastrophic.
   const blockReason =
     `profit_lock_block: gross=${grossPnlPercent.toFixed(3)}% net=${netPnlPercent.toFixed(3)}% ` +
-    `floor=${config.minNetProfitPercentToClose}% (fees+slip=${totalCostPercent.toFixed(3)}%) ` +
+    `floor=${config.minNetProfitPercentToClose}% (fees+slip=${totalCostPercent.toFixed(3)}% ${drag.source}) ` +
     `exitReason="${exitReason}"`;
 
   console.log(
     `[ProfitLockGuard] BLOCKED exit reason="${exitReason}" ` +
     `grossPnl=${grossPnlPercent.toFixed(3)}% netPnl=${netPnlPercent.toFixed(3)}% ` +
+    `drag=${totalCostPercent.toFixed(3)}% (${drag.source}) ` +
     `— holding until net-positive or catastrophic`
   );
 
@@ -165,4 +212,5 @@ export default {
   shouldAllowClose,
   computeGrossPnlPercent,
   isCatastrophicReason,
+  resolveDragPercent,
 };

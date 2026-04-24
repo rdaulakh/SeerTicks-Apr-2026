@@ -107,10 +107,26 @@ export interface TradingConfiguration {
   profitLock: {
     enabled: boolean;                      // Master switch — disable only for testing
     minNetProfitPercentToClose: number;    // Net profit floor for non-stop exits (% of entry)
-    estimatedRoundTripFeePercent: number;  // Total entry+exit fee estimate (% of entry)
-    estimatedSlippagePercent: number;      // Total slippage estimate (% of entry)
+    estimatedRoundTripFeePercent: number;  // Total entry+exit fee estimate (% of entry) — fallback when exchange unknown
+    estimatedSlippagePercent: number;      // Total slippage estimate (% of entry) — fallback when exchange unknown
     allowCatastrophicStop: boolean;        // Hard stop can still fire when true
     catastrophicStopPercent: number;       // Absolute last-resort gross-pnl floor (negative %)
+    // Phase 10 — per-exchange fee/slippage overrides.
+    //
+    // Flat `estimatedRoundTripFeePercent` undercharges Coinbase. CoinbaseAdapter
+    // hardcodes taker=0.6% and maker=0.4% (1.2% round-trip at taker), while
+    // PaperTradingEngine simulates Coinbase at 0.5% per leg (1.0% round-trip).
+    // Binance VIP0 is ~0.05% taker (0.10% round-trip). The guard must use the
+    // right drag for the exchange the position is actually on, or it approves
+    // closes that are net-negative in real-world execution.
+    //
+    // Lookup key is `position.exchange?.toLowerCase()`. When missing or not
+    // found, the guard falls back to the flat `estimatedRoundTripFeePercent`
+    // + `estimatedSlippagePercent` above.
+    exchangeFeeOverrides?: Record<
+      string,
+      { roundTripFeePercent: number; slippagePercent: number }
+    >;
   };
 
   // ── Entry-Gate Hardening (audit restoration) ──
@@ -272,9 +288,31 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
   profitLock: {
     enabled: true,                         // PRIME DIRECTIVE: only exit at net profit
     minNetProfitPercentToClose: 0.15,      // Need ≥0.15% net after fees+slippage for a non-stop exit
-    estimatedRoundTripFeePercent: 0.20,    // Coinbase Advanced taker ≈0.10% × 2 legs
-    estimatedSlippagePercent: 0.05,        // Conservative slippage allowance
+    // Phase 10 — this fallback is Binance-VIP0-equivalent (~0.05% taker × 2 legs
+    // = 0.10% round-trip + 0.10% cushion for tier changes). Per-exchange values
+    // live in `exchangeFeeOverrides` below. If a position arrives without an
+    // exchange label, the guard uses this default. The previous comment here
+    // incorrectly labeled it as Coinbase — Coinbase's real round-trip is 1.2%
+    // (taker) / 1.0% (paper-mode sim), which the override map now handles.
+    estimatedRoundTripFeePercent: 0.20,    // Binance-like fallback (0.10% real + 0.10% cushion)
+    estimatedSlippagePercent: 0.05,        // Conservative slippage allowance for liquid majors
     allowCatastrophicStop: true,           // Hard stops still fire — blow-up protection
+    exchangeFeeOverrides: {
+      // Binance USDM futures — taker fallback 0.10% round-trip + 0.10% cushion.
+      // Real-world VIP0 is ~0.05% taker; BinanceAdapter queries live fees with
+      // a 0.001 fallback, so 0.20% drag is a safe ceiling.
+      binance: { roundTripFeePercent: 0.20, slippagePercent: 0.05 },
+      // Coinbase Advanced Trade — taker is 0.6% (CoinbaseAdapter.getTradingFees
+      // hardcodes 0.004 maker / 0.006 taker). Round-trip at taker = 1.2%.
+      // PaperTradingEngine.COMMISSION_RATES simulates Coinbase at 0.5% per leg
+      // (1.0% round-trip), so we use 1.2% + 0.10% slip = 1.30% total drag as
+      // the safe upper bound. Trades that can't clear +1.45% gross on Coinbase
+      // are held rather than closed at real net-loss. This is the prime
+      // directive doing its job — Coinbase's fee structure genuinely means
+      // low-edge scalps are unprofitable; the guard surfaces that truth
+      // instead of booking fake profits that are actually losses net of fees.
+      coinbase: { roundTripFeePercent: 1.20, slippagePercent: 0.10 },
+    },
     // Phase 7 — tightened to match exits.hardStopLossPercent (-1.2%).
     //   Prior value (-2.5%) created a broken hand-off: the ProfitLockGuard
     //   blocked the -1.2% hard-SL hit because gross PnL > catastrophic floor,
