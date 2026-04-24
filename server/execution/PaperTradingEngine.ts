@@ -506,6 +506,34 @@ export class PaperTradingEngine extends EventEmitter implements ITradingEngine {
     this.orders.delete(orderId);
 
     executionLogger.info('Order filled', { orderId, price: executionPrice.toFixed(2), slippage: (slippage * 100).toFixed(3), commission: commission.toFixed(2) });
+
+    // Phase 12 — drag-drift telemetry.
+    // Compare the actual per-leg fee+slippage against the guard's configured
+    // estimate for this exchange. When the observed reality diverges (sustained
+    // WARN emissions for an exchange), `profitLock.exchangeFeeOverrides` is
+    // miscalibrated and should be updated. Each leg is half of a round-trip,
+    // so we double the single-leg cost to compare with the round-trip estimate.
+    try {
+      const { reportActualTradeDrag } = await import('../services/ProfitLockGuard');
+      const feePercentThisLeg = orderValue > 0 ? (commission / orderValue) * 100 : 0;
+      const slipPercentThisLeg = (slippage || 0) * 100;
+      // Each fill is one leg of a round-trip. Double to match the round-trip
+      // estimate `resolveDragPercent` returns. This tracks the symmetric case
+      // where both entry and exit incur the same per-leg cost.
+      reportActualTradeDrag(
+        {
+          side: order.side === 'buy' ? 'long' : 'short',
+          entryPrice: executionPrice,
+          exchange: order.exchange,
+        },
+        feePercentThisLeg * 2,
+        slipPercentThisLeg * 2,
+        { orderId, symbol: order.symbol, side: order.side },
+      );
+    } catch {
+      // Telemetry is strictly best-effort — never throw from the fill path.
+    }
+
     this.emit('order_filled', order);
     this.emit('wallet_updated', this.wallet);
   }

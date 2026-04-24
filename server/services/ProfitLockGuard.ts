@@ -299,10 +299,91 @@ export function canEnterProfitably(
   };
 }
 
+/**
+ * Phase 12 — Drag-drift telemetry.
+ *
+ * The guard's net-PnL decision is only as safe as its fee + slippage
+ * estimate. If real-world drag drifts above the estimate — because a
+ * user's exchange tier changed, slippage widened in thin markets, or
+ * the hardcoded adapter fallback is stale — the guard will approve
+ * closes that are NET-NEGATIVE in reality. Directive violation, silent.
+ *
+ * Phases 6–11 are static defenses. Phase 12 adds the feedback loop: on
+ * every filled order, compare `actualFeePercent + actualSlippagePercent`
+ * against `resolveDragPercent` and log when drift exceeds tolerance.
+ * Structured, cheap, safe to call from hot paths. No behavioral change.
+ *
+ * Thresholds:
+ *   - WARN when actual > estimate × 1.5  (50% overrun)
+ *   - WARN when |actual − estimate| > 0.10% (absolute drift)
+ *   - INFO otherwise (can be sampled for calibration)
+ *
+ * Once we see sustained WARNs for a given exchange, Phase 10's
+ * `exchangeFeeOverrides` can be updated with the observed reality.
+ */
+export interface ActualDragReport {
+  actualRoundTripFeePercent: number;
+  actualSlippagePercent: number;
+  actualTotalPercent: number;
+  estimatedTotalPercent: number;
+  driftAbsolutePercent: number; // actual - estimate (can be negative)
+  driftRatio: number;           // actual / estimate (>1 means overrun)
+  exceedsTolerance: boolean;
+  source: string;               // from resolveDragPercent
+}
+
+export function reportActualTradeDrag(
+  position: ProfitLockPosition,
+  actualFeePercent: number,
+  actualSlippagePercent: number,
+  context: { orderId?: string; symbol?: string; side?: string } = {},
+): ActualDragReport {
+  const drag = resolveDragPercent(position);
+  const actualTotalPercent =
+    (actualFeePercent || 0) + (actualSlippagePercent || 0);
+  const driftAbsolutePercent = actualTotalPercent - drag.totalCostPercent;
+  const driftRatio =
+    drag.totalCostPercent > 0
+      ? actualTotalPercent / drag.totalCostPercent
+      : Infinity;
+  const exceedsTolerance =
+    Math.abs(driftAbsolutePercent) > 0.10 || // 0.10% absolute
+    driftRatio > 1.5; // 50% overrun
+
+  const report: ActualDragReport = {
+    actualRoundTripFeePercent: actualFeePercent || 0,
+    actualSlippagePercent: actualSlippagePercent || 0,
+    actualTotalPercent,
+    estimatedTotalPercent: drag.totalCostPercent,
+    driftAbsolutePercent,
+    driftRatio,
+    exceedsTolerance,
+    source: drag.source,
+  };
+
+  if (exceedsTolerance) {
+    console.warn(
+      `[ProfitLockGuard] 📉 DRAG DRIFT symbol=${context.symbol ?? '?'} ` +
+        `side=${context.side ?? position.side} ` +
+        `order=${context.orderId ?? '?'} ` +
+        `actual=${actualTotalPercent.toFixed(4)}% ` +
+        `(fee=${(actualFeePercent || 0).toFixed(4)}% slip=${(actualSlippagePercent || 0).toFixed(4)}%) ` +
+        `estimated=${drag.totalCostPercent.toFixed(4)}% ` +
+        `(${drag.source}) ` +
+        `drift=${driftAbsolutePercent >= 0 ? '+' : ''}${driftAbsolutePercent.toFixed(4)}% ` +
+        `ratio=${driftRatio.toFixed(2)}× — ` +
+        `consider updating profitLock.exchangeFeeOverrides.${position.exchange ?? 'default'}`,
+    );
+  }
+
+  return report;
+}
+
 export default {
   shouldAllowClose,
   computeGrossPnlPercent,
   isCatastrophicReason,
   resolveDragPercent,
   canEnterProfitably,
+  reportActualTradeDrag,
 };
