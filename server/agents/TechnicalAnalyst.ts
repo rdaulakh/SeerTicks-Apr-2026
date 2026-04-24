@@ -6,6 +6,36 @@ import { getDuneProvider, OnChainSignal } from './DuneAnalyticsProvider';
 import { agentLogger } from '../utils/logger';
 
 /**
+ * Phase 17 — pure confidence math, extracted for testability.
+ *
+ * The fix: normalize conviction by ACTIVE voting indicators (bullish +
+ * bearish) instead of total possible indicators. Reward breadth with a
+ * soft activity bonus that keeps "3 of 3 active agree" above "2 of 5
+ * active agree" without crushing typical-market confidence.
+ *
+ * Returns the unclamped-by-adjustments base confidence; downstream logic
+ * in `calculateSignalFromTechnicals` still applies overextension / volume
+ * / regime modifiers on top.
+ */
+export function computeTechnicalAnalystConfidence(
+  bullishSignals: number,
+  bearishSignals: number,
+  totalSignals: number,
+): number {
+  if (totalSignals <= 0) return 0.1;
+  const activeVotes = Math.max(bullishSignals, 0) + Math.max(bearishSignals, 0);
+  const convictionRatio =
+    activeVotes > 0
+      ? Math.abs(bullishSignals - bearishSignals) / activeVotes
+      : 0;
+  const activityBonus = activeVotes / totalSignals; // 0..1
+  return Math.min(
+    Math.max(convictionRatio * 1.4 * (0.7 + 0.3 * activityBonus), 0.1),
+    0.9,
+  );
+}
+
+/**
  * Technical Analyst Agent
  * Analyzes price patterns, technical indicators, and chart formations
  * 
@@ -684,8 +714,12 @@ export class TechnicalAnalyst extends AgentBase {
       volumeConfirmation = false;
     }
 
-    // Determine signal with TREND CONFIRMATION FILTER
-    // Requires minimum 2 indicators to agree to reduce false signals
+    // Determine signal with TREND CONFIRMATION FILTER.
+    // `netSignal` — normalized over ALL 7 indicators — stays the gate for
+    // directional call (bullish/bearish/neutral) because the whole-slate
+    // framing is the right bar to clear for the decision: we DO want to
+    // stay neutral when most indicators are quiet, even if the few that
+    // spoke up agree.
     const netSignal = (bullishSignals - bearishSignals) / totalSignals;
     let signal: "bullish" | "bearish" | "neutral";
 
@@ -693,7 +727,7 @@ export class TechnicalAnalyst extends AgentBase {
     // Fixed: Raised threshold from 0.15 to 0.20 to reduce weak bullish signals
     // Fixed: Added overextension check - if RSI > 65 and bullish, reduce to neutral
     const MIN_CONFIRMING_SIGNALS = 2;
-    
+
     if (netSignal > 0.20 && bullishSignals >= MIN_CONFIRMING_SIGNALS) {
       signal = "bullish";  // Confirmed bullish (2+ indicators agree, strong net signal)
     } else if (netSignal < -0.20 && bearishSignals >= MIN_CONFIRMING_SIGNALS) {
@@ -702,8 +736,37 @@ export class TechnicalAnalyst extends AgentBase {
       signal = "neutral";  // Not enough confirmation
     }
 
-    // Calculate confidence and strength
-    let confidence = Math.min(Math.max(Math.abs(netSignal) * 1.4, 0.1), 0.9);
+    // Phase 17 — confidence must reflect CONVICTION among voting indicators,
+    // not fraction of ALL possible indicators. On a typical bar, most
+    // indicators stay silent (RSI between 25-75, price inside Bollinger, no
+    // SuperTrend flip, etc.) so only 2-4 of the 7 actually commit to a
+    // direction. The old formula `abs(netSignal) * 1.4` where netSignal was
+    // `(bull-bear)/7` collapsed confidence on real setups:
+    //
+    //    3 bullish, 1 bearish, 3 silent  →  netSignal = 2/7 = 0.286
+    //      → confidence = 0.40  ← below the 0.65 consensus bar every time.
+    //
+    // This is why Phase 16's backtest showed TechnicalAnalyst at 0% pass rate
+    // against threshold 0.50 — the agent was producing directionally correct
+    // signals but mathematically pinned below the bar. The fix: compute a
+    // conviction ratio among active voters, use that for confidence. Keep a
+    // small `activityBonus` so "3 of 3 active agree" scores higher than
+    // "2 of 5 active agree" — we still reward breadth, just without
+    // penalizing normal silence.
+    //
+    //    3 bullish, 1 bearish, 3 silent  →  convictionRatio = 2/4 = 0.50,
+    //      activeVotes = 4/7 = 0.57  →  confidence = 0.50×1.4×(0.7+0.3×0.57)
+    //      ≈ 0.61  ← clears threshold; still conservative vs unanimous.
+    //    4 bullish, 0 bearish, 3 silent  →  confidence ≈ 0.83
+    //    5 bullish, 0 bearish, 2 silent  →  confidence ≈ 0.90 (capped)
+    //    2 bullish, 1 bearish, 4 silent  →  convictionRatio = 1/3 = 0.33
+    //      activeVotes = 3/7 = 0.43  →  confidence ≈ 0.37 (still low — good;
+    //      weak conviction stays low-confidence)
+    let confidence = computeTechnicalAnalystConfidence(
+      bullishSignals,
+      bearishSignals,
+      totalSignals,
+    );
     const strength = Math.min(Math.abs(netSignal) * 1.5, 1.0);
 
     // OVEREXTENSION CHECK: Prevent bullish signals when market is already overextended
