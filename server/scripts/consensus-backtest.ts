@@ -31,6 +31,9 @@
  * winners or noise.
  */
 
+// Load .env before anything reads process.env (getDb checks DATABASE_URL).
+// The app's server entry loads dotenv on boot; CLI tools need to do it themselves.
+import 'dotenv/config';
 import { getDb } from '../db';
 import { consensusHistory } from '../../drizzle/schema';
 import { gte } from 'drizzle-orm';
