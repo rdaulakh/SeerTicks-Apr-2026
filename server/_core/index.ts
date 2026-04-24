@@ -632,6 +632,18 @@ async function startServer() {
       console.error(`[${new Date().toLocaleTimeString()}] ❌ Failed to initialize pipeline logger:`, error);
     }
 
+    // Phase 13: Start TradingSilenceWatchdog — detects 100%-rejection + no-trade-for-hours
+    // conditions that previously went silent (we had 3 days of zero trades 2026-04-21 → 04-24
+    // because every signal was rejected and nothing alarmed). Watchdog runs every 5 min and
+    // surfaces structured alarms both to console and to the pipeline log (RISK_CHECK event).
+    try {
+      const { startTradingSilenceWatchdog } = await import('../services/TradingSilenceWatchdog');
+      startTradingSilenceWatchdog();
+      console.log(`[${new Date().toLocaleTimeString()}] 🐕 Trading Silence Watchdog started — polls every 5 min`);
+    } catch (error) {
+      console.error(`[${new Date().toLocaleTimeString()}] ❌ Failed to start silence watchdog:`, error);
+    }
+
     // Phase 14A: Start GlobalMarketEngine — always-on market observation
     // This runs 29 agents per symbol ONCE for ALL users (vs N duplicated per-user engines)
     // Must start BEFORE background engine manager so global signals are available

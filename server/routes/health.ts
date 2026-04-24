@@ -42,6 +42,34 @@ router.get('/health', async (req: Request, res: Response) => {
 });
 
 /**
+ * Trading-pipeline health — is the engine actually making trades?
+ *
+ * The basic /health endpoint only tells you "process alive + DB reachable,"
+ * which is true even when the pipeline has been silent for 3 days (the
+ * 2026-04-21→04-24 incident). This endpoint exposes the watchdog's latest
+ * snapshot so external monitoring can alert when no trades / high-rejection.
+ *
+ * Returns 200 when healthy, 503 when the watchdog has any alarm set.
+ * `?window=60` overrides the trade-silence window in minutes for queries.
+ */
+router.get('/health/trading', async (_req: Request, res: Response) => {
+  try {
+    const { getLastHealthSnapshot, computeHealthSnapshot, DEFAULT_WATCHDOG_CONFIG } =
+      await import('../services/TradingSilenceWatchdog');
+    // Prefer the last cached snapshot (produced by the watchdog loop) for speed,
+    // fall back to computing live if watchdog hasn't ticked yet.
+    const snapshot = getLastHealthSnapshot() ?? computeHealthSnapshot(DEFAULT_WATCHDOG_CONFIG);
+    const statusCode = snapshot.healthy ? 200 : 503;
+    res.status(statusCode).json(snapshot);
+  } catch (error) {
+    res.status(500).json({
+      healthy: false,
+      error: error instanceof Error ? error.message : 'watchdog_unavailable',
+    });
+  }
+});
+
+/**
  * Readiness check - similar to health but stricter
  * Used by Kubernetes/orchestrators to determine if pod can receive traffic
  */

@@ -280,7 +280,17 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     this.agentManager.registerAgent(whaleTracker);
     this.agentManager.registerAgent(fundingRate);
     this.agentManager.registerAgent(liquidation);
-    this.agentManager.registerAgent(onChainFlow);
+    // Phase 13 — OnChainFlowAnalyst disabled by default. Its primary upstream
+    // (Hetzner blockchain node 65.109.171.16) is dead as of 2026-04-21; the
+    // agent cascades to FreeOnChainDataProvider which is CoinGecko-backed and
+    // rate-limited (429 every 2 min). Net effect: emits low-confidence or
+    // throwing signals that pollute the consensus calculation. Re-enable via
+    // env flag only when the upstream is restored.
+    if (process.env.ENABLE_ONCHAIN_FLOW_ANALYST === 'true') {
+      this.agentManager.registerAgent(onChainFlow);
+    } else {
+      void onChainFlow; // Keep the constructor side-effect parity; discard.
+    }
     this.agentManager.registerAgent(volumeProfile);
     this.agentManager.registerAgent(forexCorrelation);
 

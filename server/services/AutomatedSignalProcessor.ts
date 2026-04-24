@@ -346,14 +346,22 @@ export class AutomatedSignalProcessor extends EventEmitter {
       // With only 3 agents for ETH-USD, requiring all 3 to be high-confidence was too strict.
       // 2 high-confidence agents from different families is sufficient for a valid consensus.
       if (consensusEligibleSignals.length < 2) {
+        // Phase 13 fix: report the REAL denominator (actionableSignals.length)
+        // not a hardcoded `/3`. Previously "0/3" in the log was misleading when
+        // the symbol actually had 8 actionable agents and none hit the bar.
         logPipelineEvent('SIGNAL_REJECTED', {
           userId: this.userId,
           symbol,
-          reason: `Not enough high-confidence agents for consensus: ${consensusEligibleSignals.length}/3 (min confidence: ${(this.minConfidence * 100).toFixed(0)}%)`,
+          reason:
+            `Not enough high-confidence agents for consensus: ` +
+            `${consensusEligibleSignals.length}/${actionableSignals.length} eligible, ` +
+            `need ≥2 (min confidence: ${(this.minConfidence * 100).toFixed(0)}%)`,
         });
         return {
           approved: false,
-          reason: `Not enough high-confidence agents: ${consensusEligibleSignals.length}/3`,
+          reason:
+            `Not enough high-confidence agents: ` +
+            `${consensusEligibleSignals.length}/${actionableSignals.length}`,
           symbol,
           signals: actionableSignals,
         };
