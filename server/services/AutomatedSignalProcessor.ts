@@ -12,6 +12,7 @@ import { tradeDecisionLogger, TradeDecisionInput, AgentScore } from './tradeDeci
 import { getAgentWeightManager } from './AgentWeightManager';
 import { tradingLogger } from '../utils/logger';
 import { logPipelineEvent } from './TradingPipelineLogger';
+import { recordConsensus } from '../utils/ConsensusRecorder';
 import { getTradingConfig } from '../config/TradingConfig';
 import { aggregateSignals, AggregatedSignal } from './SignalAggregator';
 import { getSmoothedTradeCooldownMs, getSmoothedConsensusThresholdMultiplier } from './RegimeCalibration';
@@ -136,6 +137,43 @@ export class AutomatedSignalProcessor extends EventEmitter {
    * @param symbol Trading symbol
    * @returns ProcessedSignal with decision and reasoning
    */
+  /**
+   * Phase 16 — persist the per-agent consensus snapshot so threshold-sweep
+   * backtests have real data. Fire-and-forget: errors are swallowed inside
+   * recordConsensus so a DB hiccup can never break the trade loop. Called
+   * from BOTH the rejection path (with finalSignal=NEUTRAL) and the
+   * approval path (with the computed direction + strength) so sweeps can
+   * see every decision, not just successes.
+   */
+  private persistConsensusSnapshot(
+    symbol: string,
+    actionable: AgentSignal[],
+    final: { finalSignal: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; finalConfidence: number; consensusPercentage: number },
+  ): void {
+    const bullishVotes = actionable.filter((s) => s.signal === 'bullish').length;
+    const bearishVotes = actionable.filter((s) => s.signal === 'bearish').length;
+    const neutralVotes = actionable.filter((s) => s.signal === 'neutral').length;
+    // recordConsensus handles its own errors — we don't await so the trade
+    // loop isn't blocked on a write; if the DB is slow, this is OK to drop.
+    void recordConsensus({
+      symbol,
+      timeframe: '5m',
+      finalSignal: final.finalSignal,
+      finalConfidence: final.finalConfidence,
+      consensusPercentage: final.consensusPercentage,
+      bullishVotes,
+      bearishVotes,
+      neutralVotes,
+      agentVotes: actionable.map((s) => ({
+        agentName: s.agentName,
+        signal: s.signal,
+        confidence: s.confidence,
+        weight: this.agentWeights[s.agentName] ?? 0,
+      })),
+      userId: this.userId,
+    });
+  }
+
   async processSignals(signals: AgentSignal[], symbol: string, marketContext?: any): Promise<ProcessedSignal> {
     const now = Date.now();
 
@@ -357,6 +395,16 @@ export class AutomatedSignalProcessor extends EventEmitter {
             `${consensusEligibleSignals.length}/${actionableSignals.length} eligible, ` +
             `need ≥2 (min confidence: ${(this.minConfidence * 100).toFixed(0)}%)`,
         });
+        // Phase 16 — wire ConsensusRecorder into the rejection path so
+        // historical analysis (`npm run backtest:consensus`) has real data
+        // to sweep thresholds against. Previously this table sat empty
+        // because recordConsensus had no call sites in production. Fire
+        // & forget: errors are swallowed inside recordConsensus itself.
+        this.persistConsensusSnapshot(symbol, actionableSignals, {
+          finalSignal: 'NEUTRAL',
+          finalConfidence: 0,
+          consensusPercentage: 0,
+        });
         return {
           approved: false,
           reason:
@@ -385,6 +433,19 @@ export class AutomatedSignalProcessor extends EventEmitter {
         confidence: consensus.strength,
         reason: `${bullishCount}B/${bearishCount}Be/${neutralCount}N of ${actionableSignals.length} agents`,
         metadata: { bullishCount, bearishCount, neutralCount, totalAgents: actionableSignals.length },
+      });
+      // Phase 16 — persist consensus snapshot for threshold-sweep backtests.
+      // Fires on every APPROVED consensus so we build a historical record
+      // of per-agent confidences at the moment of decision. Fire-and-forget.
+      this.persistConsensusSnapshot(symbol, actionableSignals, {
+        finalSignal:
+          consensus.direction === 'bullish'
+            ? 'BULLISH'
+            : consensus.direction === 'bearish'
+            ? 'BEARISH'
+            : 'NEUTRAL',
+        finalConfidence: consensus.strength,
+        consensusPercentage: consensus.strength * 100,
       });
       tradingLogger.info('Consensus computed', {
         symbol,
