@@ -10,10 +10,85 @@
  */
 
 import { EventEmitter } from "events";
+import * as fs from "fs";
+import * as path from "path";
 import { getDb } from "../db";
 import { agentWeights } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { agentLogger } from '../utils/logger';
+
+/**
+ * Phase 15 — File-backed persistence for the adaptive-weight feedback loop.
+ *
+ * Pre-Phase-15 AgentWeightManager tracked `performanceHistory` and
+ * `detailedPerformance` in memory only. Every pm2 restart wiped the
+ * accumulated learning — agents that had built up a 70% win rate over 80
+ * trades reset to a default 50% baseline, and the `MIN_SAMPLES_FOR_ADJUSTMENT`
+ * threshold had to be re-earned from scratch. So in practice the system
+ * never learned across any meaningful time window.
+ *
+ * Why file over DB: a migration requires care; single pm2 process means no
+ * inter-process write contention; serializing ~6 KB of {accuracy, samples,
+ * brierScore} every 10 records costs <1ms. The tradeoff — if the file is
+ * lost (disk failure, manual delete), learning restarts. Acceptable.
+ *
+ * Path is absolute so it survives cwd changes (pm2 sometimes launches from
+ * a different working dir). File is written atomically via write-and-rename
+ * to avoid half-written JSON if the process dies mid-flush.
+ */
+/**
+ * Evaluated at call time, not module load, so SEER_DATA_DIR can be set
+ * by a process manager OR overridden in tests after import. Previous
+ * module-level constant captured the value too early and tests setting
+ * the env in beforeEach had no effect.
+ */
+function getPerformanceStorePath(): string {
+  return path.join(
+    process.env.SEER_DATA_DIR ?? path.join(process.cwd(), 'data'),
+    'agent-performance.json',
+  );
+}
+interface PersistedAgentState {
+  version: 1;
+  updatedAt: string;
+  userId: number;
+  // Keyed by agent name. Arrays are sliced to PERFORMANCE_WINDOW before save.
+  performanceHistory: Record<string, number[]>;
+  detailedPerformance: Record<string, AgentPerformanceRecord[]>;
+}
+export function __loadAgentPerformanceFromFile(
+  filePath: string = getPerformanceStorePath(),
+): PersistedAgentState | null {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || parsed.version !== 1) return null;
+    return parsed as PersistedAgentState;
+  } catch (err) {
+    agentLogger.warn(
+      `[AgentWeightManager] Failed to load persisted performance: ${(err as Error)?.message ?? err}`,
+    );
+    return null;
+  }
+}
+export function __saveAgentPerformanceToFile(
+  state: PersistedAgentState,
+  filePath: string = getPerformanceStorePath(),
+): void {
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const tmp = `${filePath}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(state), 'utf8');
+    fs.renameSync(tmp, filePath); // Atomic replace on POSIX.
+  } catch (err) {
+    // Never let persistence errors break the trade loop — log and move on.
+    agentLogger.warn(
+      `[AgentWeightManager] Failed to persist performance: ${(err as Error)?.message ?? err}`,
+    );
+  }
+}
 
 // Agent category definitions
 export const AGENT_CATEGORIES = {
@@ -117,10 +192,79 @@ export class AgentWeightManager extends EventEmitter {
   private readonly WEIGHT_RECALC_INTERVAL = 10; // Recalculate weights every 10 new records
   private recordsSinceLastRecalc: number = 0;
 
-  constructor(userId: number = 1) {
+  constructor(userId: number = 1, opts: { skipHydration?: boolean } = {}) {
     super();
     this.userId = userId;
     this.initializeDefaults();
+    // Phase 15 — rehydrate the accumulated learning from disk. If the file
+    // doesn't exist (fresh box, deleted data dir), the in-memory maps stay at
+    // their empty defaults — no throw, no crash.
+    //
+    // Hydration policy:
+    //   opts.skipHydration === true  → never hydrate (tests that want
+    //                                    clean state pass this).
+    //   opts.skipHydration === false → ALWAYS hydrate, even under vitest
+    //                                    (Phase 15 tests that verify the
+    //                                    round-trip pass this and set
+    //                                    SEER_DATA_DIR to a temp dir).
+    //   opts.skipHydration == null    → default: hydrate in prod, skip
+    //                                    under vitest (so existing
+    //                                    suites that use the default
+    //                                    constructor don't inherit state
+    //                                    from a leaked default-path file).
+    const isTestEnv = !!process.env.VITEST || process.env.NODE_ENV === 'test';
+    const shouldHydrate =
+      opts.skipHydration === false ||
+      (opts.skipHydration === undefined && !isTestEnv);
+    if (shouldHydrate) {
+      this.hydratePerformanceFromFile();
+    }
+  }
+
+  /**
+   * Phase 15 — load last-persisted performance history if present. Matches by
+   * userId so multi-user installations stay isolated (one file per userId
+   * wouldn't scale; instead we keep one file per process and only
+   * overwrite entries for this userId).
+   */
+  private hydratePerformanceFromFile(): void {
+    const state = __loadAgentPerformanceFromFile();
+    if (!state) return;
+    if (state.userId !== this.userId) return; // Different user — skip.
+    let totalRecordsRestored = 0;
+    for (const agent of ALL_AGENTS) {
+      const hist = state.performanceHistory[agent];
+      const detailed = state.detailedPerformance[agent];
+      if (Array.isArray(hist) && hist.length) {
+        this.performanceHistory.set(agent, hist.slice(-this.PERFORMANCE_WINDOW));
+        totalRecordsRestored += hist.length;
+      }
+      if (Array.isArray(detailed) && detailed.length) {
+        this.detailedPerformance.set(agent, detailed.slice(-this.PERFORMANCE_WINDOW));
+      }
+    }
+    agentLogger.info(
+      `[AgentWeightManager] Rehydrated ${totalRecordsRestored} performance records from ${getPerformanceStorePath()}`,
+    );
+  }
+
+  /** Phase 15 — serialize current performance state to disk. Called from
+   *  recordPerformance periodically (every WEIGHT_RECALC_INTERVAL records).
+   *  Atomic write-and-rename keeps the file valid even on mid-flush crash. */
+  private persistPerformanceToFile(): void {
+    const performanceHistory: Record<string, number[]> = {};
+    const detailedPerformance: Record<string, AgentPerformanceRecord[]> = {};
+    for (const agent of ALL_AGENTS) {
+      performanceHistory[agent] = this.performanceHistory.get(agent) ?? [];
+      detailedPerformance[agent] = this.detailedPerformance.get(agent) ?? [];
+    }
+    __saveAgentPerformanceToFile({
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      userId: this.userId,
+      performanceHistory,
+      detailedPerformance,
+    });
   }
   
   /**
@@ -391,6 +535,10 @@ export class AgentWeightManager extends EventEmitter {
     this.recordsSinceLastRecalc++;
     if (this.recordsSinceLastRecalc >= this.WEIGHT_RECALC_INTERVAL) {
       this.recalculateWeightsFromPerformance();
+      // Phase 15 — persist after each recalc so restart picks up the latest
+      // learning. Coupling to the recalc interval (every 10 records) limits
+      // file writes to once per ~10 trades, keeping disk I/O negligible.
+      this.persistPerformanceToFile();
       this.recordsSinceLastRecalc = 0;
     }
   }
