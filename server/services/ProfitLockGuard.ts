@@ -208,9 +208,101 @@ export function shouldAllowClose(
   };
 }
 
+/**
+ * Phase 11 — Pre-trade viability gate.
+ *
+ * Prime-directive corollary: "don't open a trade whose first profit target
+ * cannot exit profitably." Phases 6–10 hardened EXIT. That's necessary but
+ * not sufficient: if we open a position whose configured TP, when reached,
+ * would net < 0.15% after exchange-aware fee drag, the guard blocks the
+ * close → position loiters → eventually hits catastrophic SL (real loss)
+ * or time exit (blocked, bleeds further). The rational move is to refuse
+ * the entry in the first place.
+ *
+ * Given an entry price, a planned take-profit price, and the exchange,
+ * this function computes whether the implied gross TP% clears
+ * `drag + minNetProfitPercentToClose`. Returns a structured decision
+ * the caller uses to `return early` on the entry path.
+ *
+ * Pure logic — no I/O. Deterministic given config + inputs. Safe to call
+ * synchronously from the entry hook.
+ */
+export interface EntryViabilityDecision {
+  viable: boolean;
+  /** Gross TP %: (tp - entry) / entry × 100, sign-adjusted for side. */
+  grossProfitPercent: number;
+  /** Net TP % after drag. */
+  netProfitPercent: number;
+  /** Minimum gross % the entry needs to clear for this exchange. */
+  requiredGrossPercent: number;
+  /** Echoes the resolved drag (0.25% default / 0.25% binance / 1.30% coinbase). */
+  totalCostPercent: number;
+  /** Human-readable decision for logging + rejection surfacing. */
+  reason: string;
+}
+
+export function canEnterProfitably(
+  position: ProfitLockPosition,
+  entryPrice: number,
+  takeProfitPrice: number,
+): EntryViabilityDecision {
+  const config = getTradingConfig().profitLock;
+  const floor = config?.minNetProfitPercentToClose ?? 0.15;
+  const drag = resolveDragPercent(position);
+  const totalCostPercent = drag.totalCostPercent;
+  const requiredGrossPercent = floor + totalCostPercent;
+
+  // Sign-adjust gross TP% the same way we do live PnL% so longs/shorts work.
+  let grossProfitPercent: number;
+  if (!entryPrice || entryPrice <= 0 || !takeProfitPrice || takeProfitPrice <= 0) {
+    return {
+      viable: false,
+      grossProfitPercent: 0,
+      netProfitPercent: 0,
+      requiredGrossPercent,
+      totalCostPercent,
+      reason: 'entry_viability_invalid_prices',
+    };
+  }
+  if (position.side === 'long') {
+    grossProfitPercent = ((takeProfitPrice - entryPrice) / entryPrice) * 100;
+  } else {
+    grossProfitPercent = ((entryPrice - takeProfitPrice) / entryPrice) * 100;
+  }
+  const netProfitPercent = grossProfitPercent - totalCostPercent;
+
+  // A TP that sits on the wrong side of entry (e.g. TP < entry for long) is
+  // structurally broken — reject as non-viable rather than allowing a
+  // "profit target" that's actually at a loss.
+  if (grossProfitPercent <= 0) {
+    return {
+      viable: false,
+      grossProfitPercent,
+      netProfitPercent,
+      requiredGrossPercent,
+      totalCostPercent,
+      reason:
+        `entry_viability_wrong_side: takeProfit=${takeProfitPrice} vs entry=${entryPrice} side=${position.side}`,
+    };
+  }
+
+  const viable = netProfitPercent >= floor;
+  return {
+    viable,
+    grossProfitPercent,
+    netProfitPercent,
+    requiredGrossPercent,
+    totalCostPercent,
+    reason: viable
+      ? `entry_viable:netTP=${netProfitPercent.toFixed(3)}%>=${floor}% (grossTP=${grossProfitPercent.toFixed(3)}%, drag=${totalCostPercent.toFixed(3)}% ${drag.source})`
+      : `entry_not_viable:netTP=${netProfitPercent.toFixed(3)}%<${floor}% requires grossTP≥${requiredGrossPercent.toFixed(3)}% (drag=${totalCostPercent.toFixed(3)}% ${drag.source})`,
+  };
+}
+
 export default {
   shouldAllowClose,
   computeGrossPnlPercent,
   isCatastrophicReason,
   resolveDragPercent,
+  canEnterProfitably,
 };

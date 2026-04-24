@@ -30,6 +30,7 @@ import { getPaperWallet } from '../db';
 import { tradeDecisionLogger } from './tradeDecisionLogger';
 import { latencyLogger } from './LatencyLogger';
 import { getTradingConfig } from '../config/TradingConfig';
+import { canEnterProfitably } from './ProfitLockGuard';
 import { checkVaRGate, recordReturnForVaR } from './VaRRiskGate';
 import { getDynamicCorrelationTracker } from './DynamicCorrelationTracker';
 import { logPipelineEvent } from './TradingPipelineLogger';
@@ -769,6 +770,48 @@ export class EnhancedTradeExecutor extends EventEmitter {
       console.log(`[EnhancedTradeExecutor] Market Regime: ${regime}`);
       console.log(`[EnhancedTradeExecutor] Stop-Loss: $${stopLoss.toFixed(2)}`);
       console.log(`[EnhancedTradeExecutor] Take-Profit: $${takeProfit.toFixed(2)}`);
+
+      // Phase 11 — pre-trade viability gate: refuse to open a position whose
+      // planned TP can't clear exchange-aware fee drag + net-profit floor.
+      //
+      // Why: Phases 6–10 prevent NET-LOSING closes, but if we open a trade
+      // whose TP (when hit) would still net below +0.15% after fees, the
+      // guard would block that close and the position would loiter. Best
+      // case it bleeds to the hard SL and takes a real −1.45% net loss;
+      // worst case it churns and racks up time cost. The rational move is
+      // to not open the trade in the first place. Fail-closed: if the
+      // engine's exchange is unresolvable, we fall through to the default
+      // drag (Binance-equiv) — same as the exit path does.
+      //
+      // Specifically: on Coinbase (1.30% drag + 0.15% floor = 1.45% required
+      // gross TP), a default first-TP at 0.5% gross is REJECTED. That's the
+      // prime directive refusing to enter a trade we can't exit profitably.
+      {
+        const engineForExchange = (this.tradingEngine || this.paperTradingEngine) as any;
+        const exchange: string | undefined = engineForExchange?.config?.exchange;
+        const viability = canEnterProfitably(
+          {
+            side: recommendation.action === 'buy' ? 'long' : 'short',
+            entryPrice: currentPrice,
+            exchange,
+          },
+          currentPrice,
+          takeProfit,
+        );
+        if (!viability.viable) {
+          console.log(
+            `[EnhancedTradeExecutor] 🛡️ ENTRY REJECTED by ProfitLockGuard viability: ` +
+              `${viability.reason} | symbol=${symbol} side=${recommendation.action} ` +
+              `exchange=${exchange ?? 'unknown'} requiredGross≥${viability.requiredGrossPercent.toFixed(3)}%`,
+          );
+          await this.logRejection(
+            signal,
+            `Entry viability: ${viability.reason}`,
+            latencyContextId,
+          );
+          return;
+        }
+      }
 
       // Step 5.5: Phase 5 - Price Confirmation Filter
       // Verify price is moving in the signal direction before entering
