@@ -230,8 +230,9 @@ class ServiceIntegrationManager extends EventEmitter {
     await this.initService('IntelligentExitManager', async () => {
       const { IntelligentExitManager } = await import('./IntelligentExitManager');
       intelligentExitManager = new IntelligentExitManager({
-        breakevenActivationPercent: 0.5,
-        breakevenBuffer: 0.1,
+        // Phase 7 — fee-aware breakeven (see IntelligentExitManager DEFAULT_CONFIG).
+        breakevenActivationPercent: 0.8,
+        breakevenBuffer: 0.5,
         trailingActivationPercent: 1.5,
         trailingPercent: 0.5,
         maxHoldTimeHours: 4,

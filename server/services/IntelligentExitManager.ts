@@ -177,9 +177,19 @@ export interface IntelligentExitConfig {
 }
 
 const DEFAULT_CONFIG: IntelligentExitConfig = {
-  // Breakeven: Activate when position is +0.5% profitable
-  breakevenActivationPercent: 0.5,
-  breakevenBuffer: 0.1,  // 0.1% above entry
+  // Breakeven: Activate when position is +0.8% profitable
+  // Phase 7 — Fee-aware breakeven:
+  //   Round-trip fees (~0.20%) + slippage (~0.05%) = 0.25% drag per trade.
+  //   Old (0.5% activation, 0.1% buffer) locked in NET -0.15% per breakeven-stop
+  //   exit — a small loss per "protected" winner. ProfitLockGuard correctly
+  //   blocked those exits, which caused the position to bleed through to -2.5%.
+  //   New (0.8% activation, 0.5% buffer) locks in NET +0.25% per breakeven-stop
+  //   exit (gross +0.5% − 0.25% drag) — clears the 0.15% minNetProfit floor so
+  //   ProfitLockGuard ALLOWS the exit and the winner is actually protected.
+  //   Activation − buffer separation (0.3%) preserves the "price must move
+  //   further to trip the breakeven stop" property from the prior design.
+  breakevenActivationPercent: 0.8,
+  breakevenBuffer: 0.5,  // 0.5% from entry — fee-aware, nets +0.25% at trigger
   
   // Partial profit taking: Scale out progressively
   partialProfitLevels: [

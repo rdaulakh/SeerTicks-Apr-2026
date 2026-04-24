@@ -275,7 +275,16 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
     estimatedRoundTripFeePercent: 0.20,    // Coinbase Advanced taker ≈0.10% × 2 legs
     estimatedSlippagePercent: 0.05,        // Conservative slippage allowance
     allowCatastrophicStop: true,           // Hard stops still fire — blow-up protection
-    catastrophicStopPercent: -2.5,         // Gross PnL ≤ -2.5% is always allowed to exit
+    // Phase 7 — tightened to match exits.hardStopLossPercent (-1.2%).
+    //   Prior value (-2.5%) created a broken hand-off: the ProfitLockGuard
+    //   blocked the -1.2% hard-SL hit because gross PnL > catastrophic floor,
+    //   and the IntelligentExitManager fallback bypass (line ~553) required
+    //   gross ≤ -2.5% before firing — so positions bled from the real stop
+    //   level to the catastrophic floor before any exit actually closed.
+    //   Aligning the catastrophic floor to the hard-stop level means the
+    //   bypass fires at the configured SL, and losses are capped at -1.2%
+    //   gross (-1.45% net) instead of -2.5% gross (-2.75% net).
+    catastrophicStopPercent: -1.2,         // Gross PnL ≤ -1.2% is always allowed to exit
   },
 
   // Entry-gate hardening — all default to fail-closed (safe).

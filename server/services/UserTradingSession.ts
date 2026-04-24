@@ -219,8 +219,9 @@ export class UserTradingSession extends EventEmitter {
       // 7. Initialize IntelligentExitManager
       const { IntelligentExitManager } = await import('./IntelligentExitManager');
       this.exitManager = new IntelligentExitManager({
-        breakevenActivationPercent: 0.5,
-        breakevenBuffer: 0.1,
+        // Phase 7 — fee-aware breakeven (see IntelligentExitManager DEFAULT_CONFIG).
+        breakevenActivationPercent: 0.8,
+        breakevenBuffer: 0.5,
         partialProfitLevels: [
           { pnlPercent: 1.0, exitPercent: 25 },
           { pnlPercent: 1.5, exitPercent: 25 },
