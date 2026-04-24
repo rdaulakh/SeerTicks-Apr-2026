@@ -555,15 +555,21 @@ export class IntelligentExitManager extends EventEmitter {
 
     if (guard.allow) return decision;
 
-    // Exception: true emergency / stop-loss hits with catastrophic gross PnL still fire.
-    const isEmergencyReason =
-      typeof decision.reason === 'string' &&
-      (decision.reason.startsWith('Emergency exit') || decision.reason.startsWith('Stop-Loss hit'));
-    const catastrophicFloor = getTradingConfig().profitLock?.catastrophicStopPercent ?? -2.5;
-    if (isEmergencyReason && guard.grossPnlPercent <= catastrophicFloor) {
-      return decision;
-    }
-
+    // Phase 8 — the defensive bypass that used to live here
+    //   (`startsWith('Emergency exit') || startsWith('Stop-Loss hit')` with a
+    //   re-check of grossPnl <= catastrophicStopPercent) has been removed.
+    //
+    //   The guard is now the single source of truth for catastrophic exits:
+    //     • "Emergency exit: ..."  → matches the new `emergency exit` pattern
+    //                                → allowed via catastrophic_reason branch
+    //     • "Stop-Loss hit: ..." at gross ≤ catastrophicStopPercent
+    //                                → allowed via catastrophic_grossPnl branch
+    //                                  (Phase 7 aligned catastrophic to -1.2%)
+    //     • "Stop-Loss hit: ..." at gross above that floor (e.g. breakeven
+    //        stop at +0.5%) → allowed via net_profit_ok branch
+    //
+    //   Keeping the bypass would be dead code AND risky: it defaulted to
+    //   `-2.5` when the config was missing, a wider-than-intended floor.
     return {
       action: 'hold',
       reason: `[ProfitLockGuard] ${guard.reason} (was: ${decision.reason})`,
@@ -654,10 +660,19 @@ export class IntelligentExitManager extends EventEmitter {
     // 1. Check for CRITICAL loss (emergency exit)
     // Phase 40 FIX: Reduced from -5% to -2.5% — 68 trades were bleeding to -5% causing -$204 loss
     // The hard stop at -0.8% should catch most, but this is the absolute safety net
-    if (pnlPercent <= -2.5) {
+    //
+    // Phase 8 FIX: read the emergency floor from config instead of hardcoding -2.5%.
+    //   Post-Phase 7, `catastrophicStopPercent` === `hardStopLossPercent` === -1.2%.
+    //   The old -2.5% hardcode meant this "absolute safety net" actually fired
+    //   1.3% *after* the real hard stop — turning a -1.2% loss into a -2.5% loss
+    //   whenever `position.stopLoss` was missing/corrupted and the SL check at
+    //   the top of this method couldn't catch it. Reading from the same config
+    //   field puts the safety net at the hard-stop level, where it belongs.
+    const emergencyFloor = getTradingConfig().profitLock?.catastrophicStopPercent ?? -2.5;
+    if (pnlPercent <= emergencyFloor) {
       return {
         action: 'exit_full',
-        reason: `Emergency exit: Position down ${pnlPercent.toFixed(2)}% (limit: -2.5%)`,
+        reason: `Emergency exit: Position down ${pnlPercent.toFixed(2)}% (limit: ${emergencyFloor.toFixed(2)}%)`,
         confidence: 1.0,
         urgency: 'critical',
       };
@@ -1212,10 +1227,12 @@ export class IntelligentExitManager extends EventEmitter {
 
       // 5. Fallback: Check catastrophic loss only (emergency protection)
       // Phase 40 FIX: Reduced from -5% to -2.5% — tighter safety net
-      if (position.unrealizedPnlPercent <= -2.5) {
+      // Phase 8 FIX: read from config — see evaluateExitConditionsRaw for rationale.
+      const emergencyFloor = getTradingConfig().profitLock?.catastrophicStopPercent ?? -2.5;
+      if (position.unrealizedPnlPercent <= emergencyFloor) {
         const exitDecision: ExitDecision = {
           action: 'exit_full',
-          reason: `Emergency exit: Position down ${position.unrealizedPnlPercent.toFixed(2)}% (limit: -2.5%)`,
+          reason: `Emergency exit: Position down ${position.unrealizedPnlPercent.toFixed(2)}% (limit: ${emergencyFloor.toFixed(2)}%)`,
           confidence: 1.0,
           urgency: 'critical',
         };

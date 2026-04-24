@@ -29,8 +29,31 @@ export interface ProfitLockDecision {
   grossPnlPercent: number;
 }
 
-/** Exit-reason substrings that always bypass the guard (true blow-up protection). */
+/**
+ * Exit-reason substrings that always bypass the guard (true blow-up protection).
+ *
+ * Phase 8 — pattern coverage expanded to match what the engine actually emits.
+ *
+ * Pre-Phase 8 the list was underscore-prefixed identifiers only (`emergency_`,
+ * `hard_stop_`, etc.) — a format no exit manager actually produced. The real
+ * strings are either human-readable ("Emergency exit: Position down -1.45%")
+ * or underscore-SCREAM ("DEAD_MANS_SWITCH: No price data", "DAILY_LOSS_LIMIT:
+ * $X.XX > $Y.YY"). So `isCatastrophicReason` always returned false and the
+ * bypass path was structurally unreachable — emergencies were only allowed
+ * through the `catastrophicStopPercent` gross-PnL branch, which only fires
+ * after the position has already bled to the floor.
+ *
+ * Adding lowercase forms of the real emitted strings closes that gap: a
+ * dead-man's-switch or daily-loss trip now bypasses the guard *regardless*
+ * of current gross PnL (the whole point of a kill-switch).
+ *
+ * DELIBERATELY OMITTED: "stop-loss hit". That reason is emitted by both the
+ * hard-SL path AND the breakeven-stop path (which fires at gross +0.5%, a
+ * profitable close). Adding it here would route breakeven winners through
+ * the catastrophic branch instead of net_profit_ok — breaking Phase 7.
+ */
 const CATASTROPHIC_REASON_PATTERNS: readonly string[] = [
+  // Underscore-prefixed internal signals (legacy; kept for back-compat)
   'emergency_',
   'catastrophic_',
   'hard_stop_',
@@ -38,6 +61,11 @@ const CATASTROPHIC_REASON_PATTERNS: readonly string[] = [
   'manual_override_',
   'regime_kill_',
   'liquidation_',
+  // Phase 8 — strings the engine actually emits (normalized to lowercase
+  // in `isCatastrophicReason` before the `.includes` check):
+  'emergency exit',     // IntelligentExitManager.evaluateExitConditionsRaw emergency floor
+  'dead_mans_switch',   // PositionGuardian dead-man's-switch (price feed silent)
+  'daily_loss_limit',   // PositionGuardian daily-loss circuit breaker
 ];
 
 export function isCatastrophicReason(exitReason: string | undefined | null): boolean {
