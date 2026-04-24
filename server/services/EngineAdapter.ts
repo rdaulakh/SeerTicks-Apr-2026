@@ -613,27 +613,41 @@ export class EngineAdapter extends EventEmitter {
   // TRADE ACTIONS (used by router)
   // ========================================
 
-  async closePosition(_exchangeId: number, symbol: string, positionId: string, reason: string) {
+  /**
+   * Phase 9 — manual close path, routed through UserTradingSession.requestManualClose
+   * which applies the ProfitLockGuard net-positive floor before executing.
+   *
+   * Pre-Phase-9 this method called `wallet.closePosition(...)` — but `wallet`
+   * is a PaperWallet/RealWallet data interface with no methods, so the function
+   * check was always false, the fallback emitted a `manual_close_requested`
+   * event nothing listened to, and the API lied: `{success:true}` while the
+   * position stayed open. Post-Phase-9 the call actually executes via the
+   * engine's `closePositionById`, and guard blocks surface as structured
+   * `[PROFIT_LOCK_BLOCKED]` errors the API layer can map to 409/422.
+   *
+   * The `symbol` input is retained for back-compat with the router contract
+   * but no longer authoritative — we resolve the symbol from the actual
+   * in-memory position so there's one source of truth.
+   */
+  async closePosition(_exchangeId: number, _symbol: string, positionId: string, reason: string) {
     try {
-      const { priceFeedService } = await import('./priceFeedService');
-      const priceData = priceFeedService.getLatestPrice(symbol);
-      if (!priceData || priceData.price <= 0) {
-        throw new Error(`[PRICE_UNAVAILABLE] Cannot close position — no valid price for ${symbol}`);
-      }
-
-      // Use the trading engine's close method
-      const wallet = this.session.getWallet();
-      if (wallet && typeof wallet.closePosition === 'function') {
-        await wallet.closePosition(positionId, priceData.price, reason);
-        this.emit('exit_executed', { positionId, reason, price: priceData.price, symbol });
-        return { success: true, price: priceData.price };
-      }
-
-      // Fallback: emit event for exit manager to handle
-      this.emit('manual_close_requested', { positionId, symbol, reason });
-      return { success: true, message: 'Close request submitted' };
+      const result = await this.session.requestManualClose(positionId, reason);
+      this.emit('exit_executed', {
+        positionId,
+        reason,
+        price: result.price,
+        symbol: result.symbol,
+      });
+      return {
+        success: true,
+        price: result.price,
+        symbol: result.symbol,
+        guardReason: result.guardReason,
+        netPnlPercent: result.netPnlPercent,
+        grossPnlPercent: result.grossPnlPercent,
+      };
     } catch (error) {
-      console.error(`[EngineAdapter] Failed to close position ${positionId}:`, error);
+      console.error(`[EngineAdapter] Failed to close position ${positionId}:`, (error as Error)?.message);
       throw error;
     }
   }

@@ -1097,6 +1097,140 @@ export class UserTradingSession extends EventEmitter {
   }
 
   /**
+   * Phase 9 — Manual-close API path, guard-gated.
+   *
+   * Pre-Phase-9 the user-facing `closePosition` / `closeAllPositions` tRPC
+   * endpoints called `EngineAdapter.closePosition`, which invoked
+   * `wallet.closePosition(...)` — but `wallet` is a PaperWallet/RealWallet
+   * plain data interface with no methods. The typeof-function check was
+   * always false and the fallback emitted `manual_close_requested` which
+   * nothing listens to. The API returned `{success:true}` while the
+   * position stayed open — silent functional failure that could drive
+   * capital-allocation bugs (user double-commits thinking a prior
+   * position is gone).
+   *
+   * Phase 9 wires manual closes through the real engine AND through
+   * `ProfitLockGuard.shouldAllowClose` so the prime-directive net-profit
+   * floor applies to user-initiated exits too. If you need to bypass
+   * the floor for a true emergency, pass a reason containing one of the
+   * catastrophic patterns (`manual_override_...`) — that matches the
+   * guard's bypass list by design.
+   *
+   * Errors are thrown with structured codes so the API layer can
+   * surface a clean 4xx/5xx:
+   *   - `[SESSION_NOT_READY]` — trading engine not initialized
+   *   - `[POSITION_NOT_FOUND]` — no open position with that id
+   *   - `[PRICE_UNAVAILABLE]` — no valid live price for symbol
+   *   - `[PROFIT_LOCK_BLOCKED]` — guard held the close (expected)
+   *   - `[CLOSE_FAILED]` — engine-level close error (retryable)
+   */
+  async requestManualClose(
+    positionId: string,
+    reason: string = 'manual_close',
+  ): Promise<{
+    success: true;
+    price: number;
+    symbol: string;
+    guardReason: string;
+    netPnlPercent: number;
+    grossPnlPercent: number;
+  }> {
+    if (!this.tradingEngine) {
+      throw new Error('[SESSION_NOT_READY] Trading engine not initialized');
+    }
+
+    const positions = this.tradingEngine.getPositions();
+    const position = positions.find((p: any) => p.id === positionId);
+    if (!position) {
+      throw new Error(
+        `[POSITION_NOT_FOUND] No open position with id=${positionId}`,
+      );
+    }
+
+    const symbol = position.symbol;
+    const priceData = priceFeedService.getLatestPrice(symbol);
+    const currentPrice = priceData?.price ?? 0;
+    if (currentPrice <= 0) {
+      throw new Error(
+        `[PRICE_UNAVAILABLE] Cannot close ${symbol} — no valid live price`,
+      );
+    }
+
+    const guard = profitLockShouldAllowClose(
+      {
+        side: position.side as 'long' | 'short',
+        entryPrice: position.entryPrice,
+      },
+      currentPrice,
+      reason,
+    );
+
+    if (!guard.allow) {
+      console.log(
+        `[UserTradingSession] 🛡️ MANUAL CLOSE BLOCKED by ProfitLockGuard pos=${positionId} ${symbol} ${position.side}: ` +
+          `${guard.reason} | gross=${guard.grossPnlPercent.toFixed(3)}% net=${guard.netPnlPercent.toFixed(3)}%`,
+      );
+      const err = new Error(
+        `[PROFIT_LOCK_BLOCKED] Manual close blocked: ${guard.reason}`,
+      );
+      (err as any).code = 'PROFIT_LOCK_BLOCKED';
+      (err as any).guardReason = guard.reason;
+      (err as any).grossPnlPercent = guard.grossPnlPercent;
+      (err as any).netPnlPercent = guard.netPnlPercent;
+      throw err;
+    }
+
+    // Guard allowed — execute via the engine. Phase 46 phantom-close prevention:
+    // if the engine throws, we do NOT mutate the DB or emit exit_executed; the
+    // API caller sees a structured error and can retry. We do NOT enter
+    // automatic retry here — manual closes are driven by the caller, so we
+    // surface the error and let them decide.
+    let engineErrMsg: string | undefined;
+    try {
+      await this.tradingEngine.closePositionById(
+        positionId,
+        currentPrice,
+        `manual:${reason}`,
+      );
+    } catch (engineErr) {
+      engineErrMsg = (engineErr as Error)?.message;
+    }
+
+    if (engineErrMsg) {
+      console.error(
+        `[UserTradingSession] Manual close engine failure pos=${positionId}:`,
+        engineErrMsg,
+      );
+      throw new Error(
+        `[CLOSE_FAILED] Engine close failed for ${positionId}: ${engineErrMsg}`,
+      );
+    }
+
+    // Clear any prior retry state (defensive — the IEM path may have retries queued).
+    this.exitRetryCount.delete(positionId);
+    this.emit('exit_executed', {
+      positionId,
+      reason: `manual:${reason}`,
+      price: currentPrice,
+      symbol,
+    });
+
+    console.log(
+      `[UserTradingSession] ✅ MANUAL CLOSE pos=${positionId} ${symbol} ${position.side}: ` +
+        `${guard.reason} | gross=${guard.grossPnlPercent.toFixed(3)}% net=${guard.netPnlPercent.toFixed(3)}%`,
+    );
+
+    return {
+      success: true,
+      price: currentPrice,
+      symbol,
+      guardReason: guard.reason,
+      netPnlPercent: guard.netPnlPercent,
+      grossPnlPercent: guard.grossPnlPercent,
+    };
+  }
+
+  /**
    * Get agent weight configuration for this user.
    */
   getAgentWeights(): Record<string, number> {
