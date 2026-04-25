@@ -1,6 +1,11 @@
 import { exitLogger } from '../utils/logger';
 import { getRegimeAdjustedExits, getVolatilityRegime, getTradingConfig } from '../config/TradingConfig';
-import { shouldAllowClose as profitLockShouldAllowClose } from './ProfitLockGuard';
+import {
+  shouldAllowClose as profitLockShouldAllowClose,
+  evaluateThesisInvalidation,
+  evaluateStuckPosition,
+  type ProfitLockPosition,
+} from './ProfitLockGuard';
 
 /**
  * Priority Exit Manager - Agent-Intelligence-Driven Exit System (Phase 5B)
@@ -233,6 +238,69 @@ export function evaluatePriorityExitRulesRaw(
         description: `${consensus.urgentExitCount} agents recommend urgent exit: ${consensus.strongestReason || 'multiple indicators'}`,
         exitType: 'full',
         urgency: 'critical',
+      };
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PRIORITY 1.5: PHASE 27 — Thesis-invalidated / stuck-position rule
+  //
+  // Lives BEFORE the hard stop so stuck losers can be cut at small loss rather
+  // than ride to hard-stop. The hot tick path goes through this evaluator;
+  // adding the rule here is what makes Phase 24/25 actually fire on tick (the
+  // duplicate version in IntelligentExitManager.evaluateExitConditionsRaw
+  // belongs to a deprecated update path that doesn't run on tick).
+  //
+  // Helpers are pure and exported from ProfitLockGuard. Both keyed off GROSS
+  // PnL — drag is fixed, doesn't affect the "is this trade stuck" question.
+  // The downstream guard wraps the decision with the same helpers and approves
+  // the close (no double-counting; the conditions are the same gates).
+  // ═══════════════════════════════════════════════════════════════════════════
+  {
+    const profitLockCfg = getTradingConfig().profitLock;
+    const guardPos: ProfitLockPosition = {
+      side: position.side,
+      entryPrice: position.entryPrice,
+      exchange: (position as any).exchange,
+      entryDirection: position.entryDirection,
+      currentDirection: position.currentDirection,
+      currentConsensusStrength: position.currentCombinedScore,
+      peakUnrealizedPnlPercent: position.peakPnlPercent,
+      holdMinutes: holdTimeMinutes,
+    };
+    const grossPnlPct = ((position.side === 'long'
+      ? position.currentPrice - position.entryPrice
+      : position.entryPrice - position.currentPrice) / position.entryPrice) * 100;
+
+    const thesis = evaluateThesisInvalidation(
+      guardPos,
+      grossPnlPct,
+      profitLockCfg?.thesisInvalidationExit,
+    );
+    if (thesis.invalidated) {
+      exitLogger.info('THESIS_INVALIDATED', { holdMin: holdTimeMinutes.toFixed(0), peak: position.peakPnlPercent?.toFixed(3), gross: grossPnlPct.toFixed(3) });
+      return {
+        shouldExit: true,
+        rule: 'THESIS_INVALIDATED',
+        description: `Thesis invalidated: ${thesis.reason}`,
+        exitType: 'full',
+        urgency: 'high',
+      };
+    }
+
+    const stuck = evaluateStuckPosition(
+      guardPos,
+      grossPnlPct,
+      profitLockCfg?.stuckPositionExit,
+    );
+    if (stuck.stuck) {
+      exitLogger.info('STUCK_POSITION', { holdMin: holdTimeMinutes.toFixed(0), peak: position.peakPnlPercent?.toFixed(3), gross: grossPnlPct.toFixed(3) });
+      return {
+        shouldExit: true,
+        rule: 'STUCK_POSITION',
+        description: `Stuck position: ${stuck.reason}`,
+        exitType: 'full',
+        urgency: 'high',
       };
     }
   }
