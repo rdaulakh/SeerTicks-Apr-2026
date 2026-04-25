@@ -590,10 +590,24 @@ export class UserTradingSession extends EventEmitter {
         // Phase 30: Record trade entry in DecisionEvaluator for outcome tracking
         try {
           const evaluator = getDecisionEvaluator(this.userId);
+          // Phase 30 — entry price plumbing fix.
+          // EnhancedTradeExecutor.emit('trade_executed', ...) does NOT include
+          // a top-level `price` field. The actual fill price lives on
+          // data.order.filledPrice. Pre-Phase-30-fix the entry was recorded
+          // with $0.00 (visible in logs as "entry recorded: ETH-USD long @
+          // $0.00"), making any downstream slippage/return analysis useless.
+          const entryPriceResolved =
+            (typeof data.order?.filledPrice === 'number' && data.order.filledPrice > 0
+              ? data.order.filledPrice
+              : (typeof data.price === 'number' && data.price > 0
+                  ? data.price
+                  : (typeof data.entryPrice === 'number' && data.entryPrice > 0
+                      ? data.entryPrice
+                      : 0)));
           evaluator.recordTradeEntry(
             data.symbol,
             data.side || (data.signal?.consensus?.direction === 'bullish' ? 'long' : 'short'),
-            data.price || data.entryPrice || 0,
+            entryPriceResolved,
             data.signal?.consensus,
             data.signal?.signals || [],
             data.entryRegime || 'unknown',
