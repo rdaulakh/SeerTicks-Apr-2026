@@ -43,13 +43,56 @@ async function main() {
     process.exit(0);
   }
 
-  console.log('[seed-sol] inserting SOL-USD...');
+  console.log('[seed-sol] inserting SOL-USD into globalSymbols...');
   await db.insert(globalSymbols).values({
     symbol: 'SOL-USD',
     exchange: 'coinbase',
     isActive: true,
   });
-  console.log('[seed-sol] inserted. Restart pm2 to pick up the new symbol.');
+  console.log('[seed-sol] globalSymbols inserted.');
+
+  // Phase 20 — also seed PER-USER subscription so the trade pipeline
+  // (UserTradingSession) actually consumes SOL signals. globalSymbols
+  // controls who runs analyzers; tradingSymbols controls which analyzer
+  // outputs each user's session listens to. Both must agree or SOL
+  // ticks but produces no trades — the exact bug we just chased.
+  const { tradingSymbols } = await import('../../drizzle/schema');
+  const { and } = await import('drizzle-orm');
+  // Find every user that already has BTC-USD or ETH-USD active and
+  // doesn't yet have SOL-USD; add SOL-USD active for them.
+  const existingSubs = await db
+    .select()
+    .from(tradingSymbols)
+    .where(eq(tradingSymbols.symbol, 'SOL-USD'));
+  const existingSubsByUser = new Set(existingSubs.map((r) => r.userId));
+
+  const allBtc = await db
+    .select()
+    .from(tradingSymbols)
+    .where(
+      and(
+        eq(tradingSymbols.symbol, 'BTC-USD'),
+        eq(tradingSymbols.isActive, true),
+      ),
+    );
+  let added = 0;
+  for (const row of allBtc) {
+    if (existingSubsByUser.has(row.userId)) continue;
+    try {
+      await db.insert(tradingSymbols).values({
+        userId: row.userId,
+        symbol: 'SOL-USD',
+        isActive: true,
+      });
+      added++;
+    } catch {
+      /* duplicate keys / FK errors — skip */
+    }
+  }
+  console.log(
+    `[seed-sol] tradingSymbols: added SOL-USD for ${added} users (existing: ${existingSubsByUser.size}).`,
+  );
+  console.log('[seed-sol] Restart pm2 to pick up the new symbol.');
   process.exit(0);
 }
 

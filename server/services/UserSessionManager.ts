@@ -264,11 +264,15 @@ class UserSessionManager {
 
     const config = await this.loadUserConfig(userId);
 
+    // Phase 20 — defaults expanded to include SOL-USD so users without
+    // explicit `tradingSymbols` rows still observe all 3 default markets.
+    // Pre-Phase-20 the omission silently dropped SOL from the trade
+    // pipeline even though its agent analyzers were running.
     const session = new UserTradingSession(config || {
       userId,
       autoTradingEnabled: false,
       tradingMode: 'paper',
-      subscribedSymbols: ['BTC-USD', 'ETH-USD'],
+      subscribedSymbols: ['BTC-USD', 'ETH-USD', 'SOL-USD'],
     });
 
     await session.initialize();
@@ -296,9 +300,12 @@ class UserSessionManager {
       const symbolResult = await db.select().from(tradingSymbols)
         .where(and(eq(tradingSymbols.userId, userId), eq(tradingSymbols.isActive, true)));
 
+      // Phase 20 — see comment in createSessionForUser. Defaults align with
+      // GlobalMarketEngine.DEFAULT_SYMBOLS so price feed, agent analyzers,
+      // and per-user subscriptions all agree on the same 3-symbol baseline.
       const symbols = symbolResult.length > 0
         ? symbolResult.map(s => s.symbol)
-        : ['BTC-USD', 'ETH-USD']; // Defaults
+        : ['BTC-USD', 'ETH-USD', 'SOL-USD']; // Defaults
 
       return {
         userId,
