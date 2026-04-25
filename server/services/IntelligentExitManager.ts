@@ -423,13 +423,25 @@ export class IntelligentExitManager extends EventEmitter {
     const entryConfidence = position.originalConsensus || 0.65;
     const now = Date.now();
     
-    // Get current direction from consensus cache
-    const currentDirection = getCurrentDirection(position.symbol) || (position.side === 'long' ? 'bullish' : 'bearish');
-    
+    // Phase 26 fix — entryDirection MUST derive from position.side, NOT from
+    // the current consensus cache. Pre-Phase-26 the code set both `entryDirection`
+    // and `currentDirection` from `getCurrentDirection(symbol)`, which on session
+    // resume returned the LIVE direction. Result: a long position restored after
+    // consensus had flipped to bearish would get entryDirection = 'bearish' (wrong!),
+    // and Phase 24's flip detector (`entry === 'bullish' && current === 'bearish'`)
+    // could never fire because entry was retroactively bearish too. Manifested
+    // live on 2026-04-25 — BTC #4 + ETH #5 long positions held >3h with consensus
+    // clearly flipped, but the thesis-invalidation escape never triggered.
+    //
+    // Long → bullish thesis at entry; short → bearish thesis. By definition.
+    // currentDirection still reflects live consensus from cache.
+    const sideEntryDirection: 'bullish' | 'bearish' = position.side === 'long' ? 'bullish' : 'bearish';
+    const currentDirection = getCurrentDirection(position.symbol) || sideEntryDirection;
+
     // Calculate entry combined score (Confidence * 0.6 + ExecutionScore * 0.4)
     // Default execution score of 50 if not available
     const entryCombinedScore = calculateCombinedScore(entryConfidence, 50);
-    
+
     const fullPosition: Position = {
       ...position,
       highestPrice: position.currentPrice,
@@ -445,7 +457,7 @@ export class IntelligentExitManager extends EventEmitter {
       currentConfidence: entryConfidence,
       exitThreshold: entryConfidence,
       // Hard Exit Rules tracking (Grok/ChatGPT recommended)
-      entryDirection: currentDirection,
+      entryDirection: sideEntryDirection,  // Phase 26: derive from side, not cache
       entryCombinedScore,
       peakCombinedScore: entryCombinedScore,
       peakCombinedScoreTime: now,
