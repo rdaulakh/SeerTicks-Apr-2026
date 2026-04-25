@@ -42,6 +42,7 @@ import { OnChainFlowAnalyst } from '../agents/OnChainFlowAnalyst';
 import { VolumeProfileAnalyzer } from '../agents/VolumeProfileAnalyzer';
 import { MLPredictionAgent } from '../agents/MLPredictionAgent';
 import { ForexCorrelationAgent } from '../agents/ForexCorrelationAgent';
+import { OrderbookImbalanceAgent } from '../agents/OrderbookImbalanceAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -266,6 +267,10 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     const volumeProfile = new VolumeProfileAnalyzer();
     const forexCorrelation = new ForexCorrelationAgent();
 
+    // Phase 28: Orderbook microstructure agent — fills the L2 imbalance gap
+    // identified by the 2026-04-25 audit (65% consensus on losing trades).
+    const orderbookImbalance = new OrderbookImbalanceAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -293,6 +298,9 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     }
     this.agentManager.registerAgent(volumeProfile);
     this.agentManager.registerAgent(forexCorrelation);
+    // Phase 28: Register the orderbook imbalance agent. It consumes L2 events
+    // forwarded from CoinbasePublicWebSocket via the orderbook handler below.
+    this.agentManager.registerAgent(orderbookImbalance);
 
     // ML Prediction Agent (Phase 3)
     try {
@@ -343,7 +351,10 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
       webSocketFallbackManager.reportPrimaryDisconnected();
     };
 
-    // Order book handler — feed L2 data to OrderFlowAnalyst
+    // Order book handler — feed L2 data to OrderFlowAnalyst and (Phase 28)
+    // OrderbookImbalanceAgent. CoinbasePublicWebSocket already maintains the
+    // canonical book and re-emits sorted bids/asks on every l2update; both
+    // agents are decoupled from the L2 protocol.
     this.orderbookHandler = (event: any) => {
       if (event.product_id === this.symbol) {
         const orderFlowAgent = this.agentManager.getAgent('OrderFlowAnalyst');
@@ -352,6 +363,10 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
             bids: event.bids,
             asks: event.asks,
           });
+        }
+        const orderbookImbalanceAgent = this.agentManager.getAgent('OrderbookImbalanceAgent');
+        if (orderbookImbalanceAgent && typeof (orderbookImbalanceAgent as any).onOrderBook === 'function') {
+          (orderbookImbalanceAgent as any).onOrderBook(this.symbol, event.bids, event.asks);
         }
       }
     };
@@ -421,7 +436,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
       // Feed ticks to fast agents for tick-level confidence
       const tickData = { price: event.price, timestamp: event.timestamp || Date.now(), symbol: this.symbol };
-      for (const agentName of ['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst']) {
+      for (const agentName of ['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent']) {
         const agent = this.agentManager.getAgent(agentName);
         if (agent && typeof agent.onTick === 'function') {
           agent.onTick(tickData);
@@ -460,8 +475,11 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
             crossCycleMemory: crossCycleCtx,
           };
 
-          // Run fast agents via AgentManager (TechnicalAnalyst, PatternMatcher, OrderFlowAnalyst)
-          const fastAgentNames = ['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst'];
+          // Run fast agents via AgentManager (TechnicalAnalyst, PatternMatcher,
+          // OrderFlowAnalyst, OrderbookImbalanceAgent). Phase 28 added the
+          // imbalance agent here so its L2 signal flows into consensus alongside
+          // the other tick-driven agents.
+          const fastAgentNames = ['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent'];
           const signals: GlobalSignal[] = [];
 
           // Phase 33: Selective agent activation — skip agents irrelevant to current regime
@@ -699,7 +717,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
   }
 
   private getFastAgentSignals(): GlobalSignal[] {
-    const fastAgentNames = new Set(['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst']);
+    const fastAgentNames = new Set(['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent']);
     return this.latestSignals.filter(s => fastAgentNames.has(s.agentName));
   }
 }
