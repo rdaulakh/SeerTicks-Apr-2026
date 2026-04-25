@@ -241,6 +241,10 @@ export class PaperTradingEngine extends EventEmitter implements ITradingEngine {
       for (const dbPos of openPositions) {
         const position: PaperPosition = {
           id: dbPos.id.toString(),
+          // Phase 28 — set dbPositionId so closePosition's DB update path
+          // (line ~710) hits the direct-by-id branch instead of falling
+          // through to the fragile userId+symbol+open fallback.
+          dbPositionId: dbPos.id,
           userId: dbPos.userId,
           symbol: dbPos.symbol,
           exchange: dbPos.exchange || 'coinbase',
@@ -256,8 +260,17 @@ export class PaperTradingEngine extends EventEmitter implements ITradingEngine {
           commission: parseFloat(dbPos.commission?.toString() || '0'),
           strategy: dbPos.strategy || 'unknown',
         };
-        
-        this.positions.set(position.id, position);
+
+        // Phase 28 — CRITICAL FIX: store DB-loaded positions under the same
+        // map-key convention used by openPosition / closePosition / placeOrder
+        // (`${symbol}_${exchange}`). Pre-Phase-28 we used `position.id` (the
+        // DB ID like "4") which made placeOrder's symbol-keyed lookup miss
+        // and route close orders into openPosition (creating new SHORT
+        // positions instead of closing the LONG). Live evidence on
+        // 2026-04-25: 5 BTC-USD shorts and 5 ETH-USD shorts stacked on top
+        // of stuck longs — every "close" attempt opened a fresh short.
+        const positionKey = `${position.symbol}_${position.exchange}`;
+        this.positions.set(positionKey, position);
         calculatedMargin += position.entryPrice * position.quantity;
         calculatedUnrealizedPnL += position.unrealizedPnL;
       }
