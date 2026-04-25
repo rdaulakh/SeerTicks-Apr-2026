@@ -562,26 +562,32 @@ export class AutomatedSignalProcessor extends EventEmitter {
         appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} ACTIONABLE SIGNALS: ${actionableSignals.map(s => `${s.agentName}=${s.signal}@${(s.confidence*100).toFixed(1)}%`).join(', ')}\n`);
       } catch(e) {}
 
-      // Phase 40: PRICE TREND VALIDATION GATE
-      // Prevents trading AGAINST the actual price direction.
-      // If consensus says bullish but price is dropping, BLOCK or reduce.
-      // This is the single most important fix for loss prevention.
+      // Phase 40 + 21: PRICE TREND VALIDATION GATE.
+      // Prevents trading AGAINST the actual price direction. If consensus
+      // says bullish but price is dropping meaningfully, BLOCK.
+      //
+      // Phase 21 — moved both threshold (0.05% → 0.15% by default) and
+      // lookback (120000 → config.entry.contraTrendLookbackMs) to config so
+      // they're tunable without code edits, AND raised the magnitude floor
+      // out of "1-tick noise" territory. The Phase 40 0.05% was below the
+      // bid-ask spread on every traded symbol — it was rejecting real
+      // signals on noise. Real "falling knife" moves clear 0.15% in 2 min
+      // easily; trades below that magnitude are no-signal.
       try {
         const { priceFeedService: pfs } = await import('./priceFeedService');
-        const trend = pfs.getShortTermTrend(symbol, 120000); // 2 minute lookback
-        try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} TREND CHECK: ${trend.direction} (${trend.trendPct >= 0 ? '+' : ''}${trend.trendPct.toFixed(3)}%) samples=${trend.sampleCount}\n`); } catch(e) {}
+        const tradingConfig = getTradingConfig();
+        const lookbackMs = tradingConfig.entry?.contraTrendLookbackMs ?? 120_000;
+        const noiseTolerance = tradingConfig.entry?.contraTrendNoiseTolerancePct ?? 0.15;
+        const trend = pfs.getShortTermTrend(symbol, lookbackMs);
+        try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} TREND CHECK: ${trend.direction} (${trend.trendPct >= 0 ? '+' : ''}${trend.trendPct.toFixed(3)}%) samples=${trend.sampleCount} tolerance=${noiseTolerance}%\n`); } catch(e) {}
 
         if (trend.sampleCount >= 3) {
           const consensusDir = consensus.direction; // 'bullish' or 'bearish'
           const priceDir = trend.direction; // 'up', 'down', or 'flat'
 
-          // Phase 40: HARD BLOCK ALL contra-trend signals (lowered from 0.15% to 0.05%)
-          // ANY contradiction between consensus and price direction is blocked.
-          // Previously only blocked >0.15% and allowed 0.05-0.15% with penalty.
-          // This was the #1 cause of losses — system kept buying in downtrends.
           const isContratrend = (
-            (consensusDir === 'bullish' && priceDir === 'down' && trend.trendPct < -0.05) ||
-            (consensusDir === 'bearish' && priceDir === 'up' && trend.trendPct > 0.05)
+            (consensusDir === 'bullish' && priceDir === 'down' && trend.trendPct < -noiseTolerance) ||
+            (consensusDir === 'bearish' && priceDir === 'up' && trend.trendPct > noiseTolerance)
           );
 
           if (isContratrend) {

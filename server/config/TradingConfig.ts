@@ -158,6 +158,21 @@ export interface TradingConfiguration {
     // Maximum allowed staleness (ms) of the latest streamed price.
     // If older, the entry is rejected as `price_feed_stale`.
     priceFeedMaxStalenessMs: number;
+    // Phase 21 — minimum |trendPct| over the contra-trend lookback that counts
+    // as a real opposing move. Below this magnitude the move is treated as
+    // noise (within bid-ask spread / single-tick wobble) and DOES NOT block
+    // the trade. Pre-Phase-21 this was hardcoded to 0.05% in
+    // AutomatedSignalProcessor.ts which on SOL ($170) translates to $0.085 —
+    // smaller than the typical 1-tick spread. The result was hyper-noise
+    // sensitivity: the system rejected genuinely correct signals on micro-
+    // wiggles (e.g. SOL bullish consensus blocked because price was 0.069%
+    // down over 2 min — that's 12 cents on a $170 asset).
+    contraTrendNoiseTolerancePct: number;
+    // Phase 21 — lookback window in ms for the contra-trend price-trend check.
+    // Longer windows filter out micro-noise but are slower to detect real
+    // reversals. 2-minute default keeps tactical-timing utility while pairing
+    // with a meaningful-move tolerance.
+    contraTrendLookbackMs: number;
   };
 }
 
@@ -348,6 +363,13 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
   entry: {
     minHistoricalCandlesRequired: 50,      // Need ≥50 historical 1h candles before entry
     priceFeedMaxStalenessMs: 5_000,        // Reject entries with price >5s stale
+    // Phase 21 — was 0.05% (Phase 40 tightening), too noise-sensitive.
+    // 0.05% on SOL@$170 = $0.085 (bid-ask spread). Real falling knives clear
+    // 0.15%+ in 2 min easily; noise below that is no-signal. This 0.15% bar
+    // is what Phase 40 had ORIGINALLY before lowering it; the lowering hurt
+    // more than it helped now that Phase 17/18 give us confident agents.
+    contraTrendNoiseTolerancePct: 0.15,
+    contraTrendLookbackMs: 120_000,        // 2 min — same as before
   },
 };
 
