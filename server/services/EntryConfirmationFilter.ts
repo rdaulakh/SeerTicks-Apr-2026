@@ -1,15 +1,27 @@
 /**
  * Entry Confirmation Filter
- * 
+ *
  * Validates trade entries by requiring minimum agent agreement and weighted consensus.
  * Based on Claude AI recommendations for Week 5-6 Entry System Improvements.
- * 
- * Key Features:
- * - Requires 3+ agents to agree on direction
- * - Requires 70% weighted consensus threshold
- * - Filters out neutral/low-confidence agents
- * - Tracks conflicting signals for analysis
+ *
+ * Phase 19 — Aligned defaults with `TradingConfig.consensus` so this filter
+ * stops contradicting the upstream `AutomatedSignalProcessor` gate. Pre-
+ * Phase-19, the upstream gate let signals through at ≥2 eligible agents
+ * AND consensus.strength ≥ 0.65, but THIS filter then rejected them with
+ * "Insufficient agent agreement: 2/4 required" — turning every approved
+ * signal into a TRADE_REJECTED event. The mismatched threshold (4 here vs
+ * 2-3 upstream) silently killed 100% of trades after Phase 18 unblocked
+ * agent confidence. Verified in prod logs over 30 min: 104 SIGNAL_APPROVED
+ * → 0 TRADE_EXECUTED, every single one rejected here.
+ *
+ * Key features (post-Phase-19):
+ * - Default `minAgentAgreement` = `TradingConfig.consensus.minAgentAgreement`
+ *   (currently 3) — single source of truth, no more silent drift
+ * - Default `weightedThreshold` and `minConfidenceScore` stay loose enough
+ *   that real agent confidences (post-Phase-17/18) clear the bar
+ * - Caller can still override per-instance if a stricter sub-strategy needs it
  */
+import { getTradingConfig } from '../config/TradingConfig';
 
 export interface AgentSignal {
   agentName: string;
@@ -45,12 +57,19 @@ export class EntryConfirmationFilter {
   private config: EntryConfirmationConfig;
 
   constructor(config?: Partial<EntryConfirmationConfig>) {
-    // Phase 23: Align thresholds with AutomatedSignalProcessor (TradingConfig single source of truth)
-    // Previous values (3, 0.70, 0.6) were unreachable with real agent confidence levels (5-20%)
-    // Agents produce confidence in 0-1 range where 0.05-0.20 is typical for fast agents
-    // FIX: entry quality gate raised from stub values — prevents low-conviction trades
+    // Phase 19 — defaults pulled from TradingConfig.consensus so this gate
+    // can't silently drift away from the upstream AutomatedSignalProcessor
+    // again. The hardcoded `4` was strictly tighter than the central config
+    // value (3) and tighter than the upstream `≥2 eligible` filter — every
+    // signal approved upstream got killed here. After Phase 17/18 unblocked
+    // agent confidence, that mismatch became the sole reason 0 trades fired
+    // despite 104 SIGNAL_APPROVED events in 30 min.
+    //
+    // Caller override still wins (some sub-strategies may want stricter
+    // gates) — but the default tracks the single source of truth.
+    const consensusDefaults = getTradingConfig().consensus;
     this.config = {
-      minAgentAgreement: config?.minAgentAgreement ?? 4,
+      minAgentAgreement: config?.minAgentAgreement ?? consensusDefaults.minAgentAgreement,
       weightedThreshold: config?.weightedThreshold ?? 0.08,
       minConfidenceScore: config?.minConfidenceScore ?? 0.08,
       excludeNeutralAgents: config?.excludeNeutralAgents ?? true,

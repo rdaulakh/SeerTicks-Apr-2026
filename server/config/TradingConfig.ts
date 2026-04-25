@@ -236,7 +236,17 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
     minConsensusStrength: 0.60,            // Phase 5: was 0.30 — raise aggregate bar
     minConfidence: 0.65,                   // Phase 5: was 0.25 — raise individual-agent bar
     minExecutionScore: 40,                 // unchanged — tactical timing floor
-    minAgentAgreement: 3,                  // unchanged — min 3 agents agreeing on direction
+    // Phase 19: lowered from 3 → 2 to align with the upstream `≥2 eligible`
+    // gate in AutomatedSignalProcessor.processSignals. Prior 3-vs-2-vs-4
+    // mismatch (this config = 3, EntryConfirmationFilter default = 4,
+    // upstream filter = 2) silently killed every trade post-Phase-18:
+    // 104 SIGNAL_APPROVED at consensus → 0 TRADE_EXECUTED, all rejected
+    // by EntryConfirmationFilter with "Insufficient agent agreement: 2/4
+    // required". `consensus.minConsensusStrength` (0.65) and
+    // `consensus.minConfidence` (0.65) carry the QUALITY guarantee;
+    // requiring N agents on top of that is double-counting. The upstream
+    // gate is the canonical agreement floor.
+    minAgentAgreement: 2,
     minDirectionRatio: 0.60,               // unchanged — >60% directional dominance
     minCombinedScore: 0.55,                // Phase 5: was 0.25 — composite floor tracks confidence
   },
