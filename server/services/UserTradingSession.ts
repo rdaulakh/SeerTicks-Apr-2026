@@ -613,22 +613,49 @@ export class UserTradingSession extends EventEmitter {
       this.tradeExecutor.on('exit_executed', (data: any) => {
         this.emit('exit_executed', data);
 
-        // Phase 30: CRITICAL — Feed trade outcome back to DecisionEvaluator
-        // This was the MISSING feedback loop — agents never learned from trade results
-        try {
-          const evaluator = getDecisionEvaluator(this.userId);
-          evaluator.recordTradeOutcome(
-            data.symbol,
-            data.pnl || data.realizedPnl || 0,
-            data.exitPrice || data.price || 0,
-            data.reason || data.exitReason || 'unknown'
-          ).catch((err: Error) => {
-            console.warn(`[UserTradingSession] Failed to record trade outcome:`, err?.message);
-          });
-        } catch (err) {
-          console.warn(`[UserTradingSession] DecisionEvaluator outcome error:`, (err as Error)?.message);
-        }
+        // Phase 30 (revised): The exit_executed event from EnhancedTradeExecutor
+        // carries pnlPercent/pnlAbsolute, but the IEM-driven exit path emits
+        // exit_executed at line ~329 of this file WITHOUT pnl — and that's the
+        // path the platform actually uses for stuck-position closes. Result:
+        // recordTradeOutcome was getting called with pnl=0, which means
+        // wasProfit=false for every trade. Agents whose direction matched the
+        // (correctly profitable) trade got marked WRONG, agents whose direction
+        // dissented got marked CORRECT. Pre-Phase-30 the post-trade feedback
+        // loop was actively MIS-training the platform.
+        //
+        // The fix below (the position_closed listener) is the canonical
+        // feedback trigger — PaperTradingEngine emits position_closed with the
+        // real realized pnl. We forward to DecisionEvaluator from there. The
+        // exit_executed-side recordTradeOutcome is removed so we don't
+        // double-count.
       });
+
+      // Phase 30 — canonical feedback-loop trigger.
+      // PaperTradingEngine.closePosition emits position_closed with REAL
+      // realized pnl, regardless of which exit path produced the close (IEM,
+      // ScenarioEngine, manual). Listening here is the single point where
+      // trade outcomes flow into AgentWeightManager.
+      try {
+        this.tradingEngine.on('position_closed', (closedData: any) => {
+          const position = closedData?.position;
+          const pnl = closedData?.pnl ?? 0;
+          const exitPrice = position?.exitPrice ?? position?.currentPrice ?? 0;
+          if (!position?.symbol) return;
+          try {
+            const evaluator = getDecisionEvaluator(this.userId);
+            evaluator
+              .recordTradeOutcome(position.symbol, pnl, exitPrice, position.exitReason || 'engine_close')
+              .catch((err: Error) => {
+                console.warn(`[UserTradingSession] feedback recordTradeOutcome failed:`, err?.message);
+              });
+          } catch (err) {
+            console.warn(`[UserTradingSession] Phase 30 feedback wiring error:`, (err as Error)?.message);
+          }
+        });
+        console.log(`[UserTradingSession] 🔁 Post-trade feedback loop wired (position_closed → DecisionEvaluator → AgentWeightManager)`);
+      } catch (wireErr) {
+        console.warn(`[UserTradingSession] Failed to wire position_closed feedback listener:`, (wireErr as Error)?.message);
+      }
 
       // Start exit manager
       this.exitManager.start();

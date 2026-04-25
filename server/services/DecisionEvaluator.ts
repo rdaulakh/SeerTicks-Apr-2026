@@ -223,6 +223,15 @@ export class DecisionEvaluator extends EventEmitter {
     evaluationScore: number,
     signalId?: string
   ): void {
+    // Phase 30 — observability: confirm the feedback loop's entry side fires.
+    // Pre-Phase-30 there were no logs at this layer, so we couldn't tell
+    // whether silence in AgentWeightManager was due to no entries being
+    // recorded or no closes hitting the loop. With this log, ops can grep
+    // `[DecisionEvaluator] entry recorded` post-deploy and confirm wiring.
+    console.log(
+      `[DecisionEvaluator] entry recorded: ${symbol} ${direction} @ $${entryPrice.toFixed(2)} ` +
+      `agents=${agentSignals.length} signalId=${signalId ?? 'none'}`,
+    );
     this.pendingTrades.set(symbol, {
       symbol,
       direction,
@@ -253,11 +262,25 @@ export class DecisionEvaluator extends EventEmitter {
   ): Promise<void> {
     const trade = this.pendingTrades.get(symbol);
     if (!trade) {
-      // No pending trade for this symbol — might be a manual close
+      // Phase 30 — surface the silent-no-op path. Pre-Phase-30 this was a
+      // bare return with no log, so a permanent missing-entry bug looked
+      // identical to a manual close. We need to see when this fires to
+      // diagnose mismatches between the entry and exit sides.
+      console.log(`[DecisionEvaluator] outcome SKIPPED for ${symbol}: no pending trade entry (manual close or missing entry-side wiring)`);
       return;
     }
 
     this.pendingTrades.delete(symbol);
+
+    // Phase 30 — observability: confirm the feedback loop's outcome side
+    // fires AND has correct pnl. With pnl=0 the wasProfit calc is silently
+    // wrong (every trade marked as loss → agents learn to dissent). Log the
+    // pnl explicitly so any zero-pnl bug is caught immediately.
+    console.log(
+      `[DecisionEvaluator] outcome recorded: ${symbol} ${trade.direction} ` +
+      `pnl=$${pnl.toFixed(2)} exit=$${exitPrice.toFixed(2)} reason="${exitReason}" ` +
+      `→ ${pnl > 0 ? 'WIN' : 'LOSS'} for ${trade.agentSignals.length} agents`,
+    );
 
     const wasProfit = pnl > 0;
     const outcome: 'win' | 'loss' = wasProfit ? 'win' : 'loss';
