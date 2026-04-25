@@ -237,13 +237,51 @@ export class PaperTradingEngine extends EventEmitter implements ITradingEngine {
       this.positions.clear();
       let calculatedMargin = 0;
       let calculatedUnrealizedPnL = 0;
-      
+
+      // Phase 31 — duplicate-positions cleanup. PaperTradingEngine.positions
+      // is keyed by `${symbol}_${exchange}` and assumes 1 position per slot.
+      // Pre-Phase-31 if DB had multiple open positions for the same key (a
+      // common state after Phase 29's race-condition era left 5 BTC shorts
+      // + 1 BTC long all open at once), each successive load would silently
+      // OVERWRITE the prior one. Net effect: the engine could only "see"
+      // ONE position per (symbol, exchange) and `closePositionById` for the
+      // others threw "Position not found", which UserTradingSession's
+      // executeExit caught as a soft retry-3-times-then-give-up — but the
+      // DB rows stayed status='open' forever. Visible in pm2 logs as
+      // "Position 7 not found", "Position 10 not found" repeating.
+      //
+      // Fix: group by `${symbol}_${exchange}`. KEEP the oldest (smallest
+      // id) per slot. AUTO-CLOSE all the others at the current market price
+      // with reason 'duplicate_cleanup', so DB rows reach status='closed',
+      // wallet realizes the small PnL, and the engine returns to the
+      // single-position-per-slot invariant the rest of the code assumes.
+      const grouped: Record<string, typeof openPositions> = {};
       for (const dbPos of openPositions) {
+        const key = `${dbPos.symbol}_${dbPos.exchange || 'coinbase'}`;
+        (grouped[key] ??= [] as any).push(dbPos);
+      }
+
+      const duplicatesToClose: typeof openPositions = [] as any;
+      const survivors: typeof openPositions = [] as any;
+      for (const [, group] of Object.entries(grouped)) {
+        if (group.length === 1) {
+          survivors.push(group[0]);
+        } else {
+          // Keep the oldest (smallest id); close the rest.
+          const sorted = [...group].sort((a, b) => Number(a.id) - Number(b.id));
+          survivors.push(sorted[0]);
+          duplicatesToClose.push(...sorted.slice(1));
+          executionLogger.warn('Duplicate positions detected on resume — keeping oldest, closing others', {
+            symbolKey: `${sorted[0].symbol}_${sorted[0].exchange || 'coinbase'}`,
+            kept: sorted[0].id,
+            closing: sorted.slice(1).map((p: any) => p.id),
+          });
+        }
+      }
+
+      for (const dbPos of survivors) {
         const position: PaperPosition = {
           id: dbPos.id.toString(),
-          // Phase 28 — set dbPositionId so closePosition's DB update path
-          // (line ~710) hits the direct-by-id branch instead of falling
-          // through to the fragile userId+symbol+open fallback.
           dbPositionId: dbPos.id,
           userId: dbPos.userId,
           symbol: dbPos.symbol,
@@ -260,19 +298,48 @@ export class PaperTradingEngine extends EventEmitter implements ITradingEngine {
           commission: parseFloat(dbPos.commission?.toString() || '0'),
           strategy: dbPos.strategy || 'unknown',
         };
-
-        // Phase 28 — CRITICAL FIX: store DB-loaded positions under the same
-        // map-key convention used by openPosition / closePosition / placeOrder
-        // (`${symbol}_${exchange}`). Pre-Phase-28 we used `position.id` (the
-        // DB ID like "4") which made placeOrder's symbol-keyed lookup miss
-        // and route close orders into openPosition (creating new SHORT
-        // positions instead of closing the LONG). Live evidence on
-        // 2026-04-25: 5 BTC-USD shorts and 5 ETH-USD shorts stacked on top
-        // of stuck longs — every "close" attempt opened a fresh short.
         const positionKey = `${position.symbol}_${position.exchange}`;
         this.positions.set(positionKey, position);
         calculatedMargin += position.entryPrice * position.quantity;
         calculatedUnrealizedPnL += position.unrealizedPnL;
+      }
+
+      // Phase 31 — directly mark duplicate orphans closed in DB.
+      // We can't call closePositionById here because that would route
+      // through placeOrder which itself depends on the now-clean map state.
+      // Inline the minimal close logic: PnL = qty × (current - entry) × side,
+      // wallet.balance += pnl, set DB row status=closed with realizedPnl.
+      if (duplicatesToClose.length > 0) {
+        for (const dbPos of duplicatesToClose) {
+          try {
+            const entryPx = parseFloat(dbPos.entryPrice.toString());
+            const currentPx = parseFloat(dbPos.currentPrice?.toString() || dbPos.entryPrice.toString());
+            const qty = parseFloat(dbPos.quantity.toString());
+            const sideMul = dbPos.side === 'long' ? 1 : -1;
+            const realizedPnl = sideMul * (currentPx - entryPx) * qty;
+            this.wallet.balance += realizedPnl;
+            this.wallet.realizedPnL += realizedPnl;
+            this.wallet.totalPnL += realizedPnl;
+            if (realizedPnl > 0) this.wallet.winningTrades++;
+            else this.wallet.losingTrades++;
+            const completed = this.wallet.winningTrades + this.wallet.losingTrades;
+            this.wallet.winRate = completed > 0 ? (this.wallet.winningTrades / completed) * 100 : 0;
+            await db.update(paperPositions).set({
+              status: 'closed',
+              exitPrice: currentPx.toString(),
+              exitTime: new Date(),
+              exitReason: 'duplicate_cleanup (Phase 31 — duplicate position on resume)',
+              realizedPnl: realizedPnl.toFixed(8),
+            }).where(eq(paperPositions.id, dbPos.id));
+            executionLogger.info('Duplicate orphan closed inline', {
+              positionId: dbPos.id, realizedPnl: realizedPnl.toFixed(2),
+            });
+          } catch (cleanupErr) {
+            executionLogger.error('Duplicate orphan cleanup failed', {
+              positionId: dbPos.id, error: (cleanupErr as Error)?.message,
+            });
+          }
+        }
       }
       
       // ✅ CRITICAL: Update wallet margin based on actual open positions

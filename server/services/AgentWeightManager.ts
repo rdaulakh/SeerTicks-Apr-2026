@@ -649,9 +649,15 @@ export class AgentWeightManager extends EventEmitter {
     const brierAdjustment = 0.1 * (1 - brierScore * 4); // Maps 0→+0.1, 0.25→0, 0.5→-0.1
     adjustment += Math.max(-0.1, Math.min(0.1, brierAdjustment));
 
-    // Phase 15B: Hard penalty for agents performing worse than random
-    // An agent with <40% accuracy is actively harmful — halve its weight
-    if (accuracy < 0.40 && samples >= this.MIN_SAMPLES_FOR_ADJUSTMENT) {
+    // Phase 15B / Phase 32: Hard penalty for under-performing agents.
+    // Pre-Phase-32 the threshold was 0.40 (an agent at ≤40% accuracy got
+    // halved). Phase 32 tightens to 0.45 — anything below break-even after
+    // accounting for the platform's natural mean-reversion bias is treated
+    // as actively harmful. Random-flipping agents at 0.50 are spared so
+    // that a noisy-but-honest signal doesn't get gutted on a small sample.
+    // Phase 30 made the feedback loop actually populate `accuracy`, so this
+    // gate now has live data to act on (pre-Phase-30 it was dormant).
+    if (accuracy < 0.45 && samples >= this.MIN_SAMPLES_FOR_ADJUSTMENT) {
       adjustment *= 0.5;
     }
 
