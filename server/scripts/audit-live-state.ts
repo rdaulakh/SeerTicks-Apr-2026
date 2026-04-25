@@ -21,7 +21,12 @@ async function main() {
     console.error('[audit] no db');
     process.exit(1);
   }
-  const since = new Date(Date.now() - 60 * 60_000); // 1 hour
+  // Optional --since=ISO override; default 1 hour back.
+  const sinceArg = process.argv.find((a) => a.startsWith('--since='));
+  const since = sinceArg
+    ? new Date(sinceArg.split('=')[1])
+    : new Date(Date.now() - 60 * 60_000);
+  console.log(`[audit] window: since=${since.toISOString()}`);
 
   // Open positions snapshot
   const open = await db
