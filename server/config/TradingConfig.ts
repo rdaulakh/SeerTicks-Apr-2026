@@ -166,6 +166,34 @@ export interface TradingConfiguration {
       minLossToTriggerPct: number;  // e.g. -0.20: don't fire if loss is < 0.20% (noise)
       maxLossToTriggerPct: number;  // e.g. -1.00: above this, catastrophic stop owns it
     };
+    // Phase 25 — Stuck-position escape hatch.
+    //
+    // Phase 24 covers the case where agents flip on a stuck trade. But there's
+    // a worse case: agents are STILL bullish (haven't flipped) yet the market
+    // refuses to cooperate. Trade sits for 2+ hours, never tags even a 0.30%
+    // gain, just bleeds slowly. The agents are wrong AND don't know it.
+    //
+    // The Phase 25 trigger fires WITHOUT requiring agent flip — pure time +
+    // no-progress + contained-loss heuristic. Conditions:
+    //   - holdMinutes ≥ minHoldMinutes (default 120 = 2 hours)
+    //   - peakUnrealizedPnlPercent < peakProfitNotReachedPct (never had a chance)
+    //   - netPnlPercent in (maxLossToTriggerPct, minLossToTriggerPct] (real loss)
+    //
+    // No agent-direction requirement. The reasoning: if a trade has been open
+    // 2+ hours and has never even tagged 0.30% unrealized gain, the entry was
+    // structurally wrong — doesn't matter what the agents currently say. Free
+    // the slot for a fresh signal that might actually work.
+    //
+    // The peak-PnL filter is the safety: if the trade EVER crossed 0.30% (i.e.
+    // momentarily had real profit potential), Phase 25 does NOT fire. Givebacks
+    // are handled by trailing stops, not by this escape.
+    stuckPositionExit: {
+      enabled: boolean;
+      minHoldMinutes: number;          // default 120 (2 hours)
+      peakProfitNotReachedPct: number; // default 0.30%
+      minLossToTriggerPct: number;     // default -0.20%
+      maxLossToTriggerPct: number;     // default -1.00%
+    };
   };
 
   // ── Entry-Gate Hardening (audit restoration) ──
@@ -431,6 +459,17 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
       requiredOpposingStrength: 0.55, // Agents must have flipped with ≥55% conviction
       minLossToTriggerPct: -0.20,     // Loss must be ≤ -0.20% (real, not noise)
       maxLossToTriggerPct: -1.00,     // Above this, the catastrophic stop already handles it
+    },
+    // Phase 25 — see interface comment for rationale. Pure time-based stuck
+    // exit; no agent-flip requirement. Threshold deliberately longer than
+    // Phase 24 (120m vs 30m) since cutting against still-bullish consensus
+    // is more aggressive than cutting on agent flip.
+    stuckPositionExit: {
+      enabled: true,
+      minHoldMinutes: 120,             // 2 hours: a trade that hasn't worked in 2h won't work in 4h
+      peakProfitNotReachedPct: 0.30,   // Same threshold as Phase 24 — never had a real chance
+      minLossToTriggerPct: -0.20,      // Don't fire on noise
+      maxLossToTriggerPct: -1.00,      // Above this, catastrophic owns it
     },
     // Phase 7 — tightened to match exits.hardStopLossPercent (-1.2%).
     //   Prior value (-2.5%) created a broken hand-off: the ProfitLockGuard

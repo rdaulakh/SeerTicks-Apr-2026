@@ -222,6 +222,61 @@ export function evaluateThesisInvalidation(
   };
 }
 
+/**
+ * Phase 25 — pure helper: has the position been stuck without ever
+ * making real progress?
+ *
+ * Returns `{ stuck: true, reason }` when ALL conditions are met:
+ *   1. enabled
+ *   2. holdMinutes ≥ minHoldMinutes (default 120 = 2 hours)
+ *   3. peakUnrealizedPnlPercent < peakProfitNotReachedPct (default 0.30% —
+ *      the trade has NEVER produced a real unrealized gain)
+ *   4. netPnlPercent in the loss window: maxLossToTriggerPct < pnl ≤ minLossToTriggerPct
+ *
+ * Differs from Phase 24 (`evaluateThesisInvalidation`) in that there is NO
+ * agent-flip requirement. This catches trades where agents are *still*
+ * bullish but the market refuses to cooperate. Pure — no I/O.
+ */
+export interface StuckPositionConfig {
+  enabled: boolean;
+  minHoldMinutes: number;
+  peakProfitNotReachedPct: number;
+  minLossToTriggerPct: number;
+  maxLossToTriggerPct: number;
+}
+
+export function evaluateStuckPosition(
+  position: ProfitLockPosition,
+  netPnlPercent: number,
+  cfg: StuckPositionConfig | undefined,
+): { stuck: boolean; reason: string } {
+  if (!cfg || !cfg.enabled) return { stuck: false, reason: 'disabled' };
+
+  const hold = position.holdMinutes;
+  if (hold === undefined || hold < cfg.minHoldMinutes) {
+    return { stuck: false, reason: `hold_too_short:${hold ?? '?'}<${cfg.minHoldMinutes}m` };
+  }
+
+  const peak = position.peakUnrealizedPnlPercent;
+  if (peak === undefined || peak >= cfg.peakProfitNotReachedPct) {
+    return { stuck: false, reason: `peak_reached:${peak?.toFixed?.(3) ?? '?'}%>=${cfg.peakProfitNotReachedPct}%` };
+  }
+
+  if (netPnlPercent > cfg.minLossToTriggerPct) {
+    return { stuck: false, reason: `loss_too_small:${netPnlPercent.toFixed(3)}%>${cfg.minLossToTriggerPct}%` };
+  }
+  if (netPnlPercent <= cfg.maxLossToTriggerPct) {
+    return { stuck: false, reason: `loss_catastrophic:${netPnlPercent.toFixed(3)}%<=${cfg.maxLossToTriggerPct}% (catastrophic_owns_it)` };
+  }
+
+  return {
+    stuck: true,
+    reason:
+      `hold=${hold.toFixed(0)}m peak=${peak.toFixed(3)}% ` +
+      `netPnl=${netPnlPercent.toFixed(3)}% (no_progress)`,
+  };
+}
+
 export function shouldAllowClose(
   position: ProfitLockPosition,
   currentPrice: number,
@@ -292,7 +347,26 @@ export function shouldAllowClose(
     };
   }
 
-  // 5. Blocked — keep holding until net-positive or catastrophic.
+  // 5. Phase 25 — Stuck-position escape hatch. Pure time-based. Trade has
+  //    been open ≥ minHoldMinutes (default 2 hours), has NEVER produced
+  //    real unrealized gain (peak < 0.30%), and current loss is contained.
+  //    Cuts losses regardless of current consensus direction — if a trade
+  //    has been wrong for 2 hours, the agents are wrong AND don't know it.
+  const stuckCheck = evaluateStuckPosition(
+    position,
+    netPnlPercent,
+    config.stuckPositionExit,
+  );
+  if (stuckCheck.stuck) {
+    return {
+      allow: true,
+      reason: `stuck_position:${stuckCheck.reason}`,
+      netPnlPercent,
+      grossPnlPercent,
+    };
+  }
+
+  // 6. Blocked — keep holding until net-positive or catastrophic.
   const blockReason =
     `profit_lock_block: gross=${grossPnlPercent.toFixed(3)}% net=${netPnlPercent.toFixed(3)}% ` +
     `floor=${config.minNetProfitPercentToClose}% (fees+slip=${totalCostPercent.toFixed(3)}% ${drag.source}) ` +
