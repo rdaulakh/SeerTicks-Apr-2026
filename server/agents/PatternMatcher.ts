@@ -9,6 +9,37 @@ import { eq } from 'drizzle-orm';
 import { detectAllPatterns } from './PatternDetection';
 
 /**
+ * Phase 18 — pure helper for unvalidated-pattern confidence discount.
+ *
+ * Production log evidence (every few seconds for days):
+ *   `[PatternMatcher] No validated patterns found, using detected patterns
+ *    with reduced confidence`
+ *
+ * The fallback path fires constantly because the `winningPatterns` table
+ * is empty (the validation pipeline was never wired). The OLD discount
+ * was `c * 0.5` — halving even a 0.9-confidence detection to 0.45, which
+ * combined with downstream damping (overextension/regime/MTF) pinned this
+ * agent below every consensus threshold every time.
+ *
+ * Phase 16's backtest confirmed: 0% pass rate at 0.50 across 1,182
+ * production rows. Fix: replace the 50% chop with a modest 15% discount.
+ * The PatternDetection.ts confidence is already a calibrated estimate
+ * (it accounts for pattern quality, breakout strength, etc.) — applying
+ * an extra 50% penalty for "no historical validation" is double-counting
+ * a risk the detection algo already factors in.
+ *
+ * Once Phase 23 (pattern-validation loop) ships and `winningPatterns`
+ * actually populates, the validated-path branch will replace this with
+ * `dynamicConfidence + historicalBoost`. Until then this is the bridge.
+ */
+export function computeUnvalidatedPatternConfidence(
+  detectedConfidence: number,
+): number {
+  if (!Number.isFinite(detectedConfidence) || detectedConfidence <= 0) return 0.05;
+  return Math.max(0.05, Math.min(0.95, detectedConfidence * 0.85));
+}
+
+/**
  * Pattern Matcher Agent
  * Recognizes historical patterns and matches current market conditions
  * Monitors alpha decay to identify when patterns stop working
@@ -235,8 +266,14 @@ export class PatternMatcher extends AgentBase {
           signal = "neutral";
         }
         
-        // Use reduced confidence (50% of detected confidence) since not validated
-        const confidence = Math.max(0.05, Math.min(0.95, bestDetected.confidence * 0.5));
+        // Phase 18 — apply a 15% unvalidated-pattern discount instead of the
+        // old 50% halving. The detection-side confidence is already a
+        // calibrated quality estimate; halving it on top of every downstream
+        // damping factor mathematically pinned the agent below 0.50 forever
+        // (verified by Phase 16 backtest, 0% pass rate across 1,182 prod
+        // rows). The new discount keeps a real-but-small penalty for lack of
+        // historical validation while letting strong detections contribute.
+        const confidence = computeUnvalidatedPatternConfidence(bestDetected.confidence);
         const strength = confidence * 0.8; // Lower strength for unvalidated patterns
         
         const reasoning = `Detected ${bestDetected.name} pattern on ${bestDetected.timeframe} timeframe (UNVALIDATED). ${bestDetected.description}. Confidence reduced to ${(confidence * 100).toFixed(1)}% due to lack of historical validation.`;
