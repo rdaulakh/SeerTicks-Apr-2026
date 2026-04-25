@@ -738,15 +738,17 @@ export class IntelligentExitManager extends EventEmitter {
       const drag = resolveDragPercent(guardPos);
       const netPnlPct = grossPnlPct - drag.totalCostPercent;
 
+      // Phase 27: helpers take GROSS PnL — see helper docs. Drag is
+      // referenced only for the closing-decision telemetry below.
       const thesis = evaluateThesisInvalidation(
         guardPos,
-        netPnlPct,
+        grossPnlPct,
         profitLockCfg?.thesisInvalidationExit,
       );
       if (thesis.invalidated) {
         return {
           action: 'exit_full',
-          reason: `thesis_invalidated: ${thesis.reason} (netPnl=${netPnlPct.toFixed(3)}%)`,
+          reason: `thesis_invalidated: ${thesis.reason} (gross=${grossPnlPct.toFixed(3)}%, net=${netPnlPct.toFixed(3)}%)`,
           confidence: 0.9,
           urgency: 'high',
         };
@@ -754,13 +756,13 @@ export class IntelligentExitManager extends EventEmitter {
 
       const stuck = evaluateStuckPosition(
         guardPos,
-        netPnlPct,
+        grossPnlPct,
         profitLockCfg?.stuckPositionExit,
       );
       if (stuck.stuck) {
         return {
           action: 'exit_full',
-          reason: `stuck_position: ${stuck.reason} (netPnl=${netPnlPct.toFixed(3)}%)`,
+          reason: `stuck_position: ${stuck.reason} (gross=${grossPnlPct.toFixed(3)}%, net=${netPnlPct.toFixed(3)}%)`,
           confidence: 0.85,
           urgency: 'high',
         };

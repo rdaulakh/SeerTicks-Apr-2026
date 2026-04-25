@@ -105,9 +105,10 @@ describe('Phase 24 — TradingConfig.profitLock.thesisInvalidationExit defaults'
 
 describe('Phase 24 — evaluateThesisInvalidation pure helper', () => {
   it('returns invalidated=true when ALL conditions are met', () => {
+    // Phase 27: helper takes GROSS PnL (drag-independent). -0.50 is gross now.
     const r = evaluateThesisInvalidation(validInvalidatedPosition, -0.50, baseCfg);
     expect(r.invalidated).toBe(true);
-    expect(r.reason).toMatch(/hold=60m peak=0\.100% flip=bullish→bearish/);
+    expect(r.reason).toMatch(/hold=60m peak=0\.100% flip=bullish→bearish.*gross=-0\.500%/);
   });
 
   it('disabled config never invalidates', () => {

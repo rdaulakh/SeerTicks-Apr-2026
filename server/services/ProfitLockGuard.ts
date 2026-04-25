@@ -174,9 +174,17 @@ export interface ThesisInvalidationConfig {
 
 export function evaluateThesisInvalidation(
   position: ProfitLockPosition,
-  netPnlPercent: number,
+  grossPnlPercent: number,
   cfg: ThesisInvalidationConfig | undefined,
 ): { invalidated: boolean; reason: string } {
+  // Phase 27 fix — Loss-window check must run against GROSS PnL (the price
+  // move), not NET. Drag is fixed regardless of decision. On Coinbase paper
+  // (1.30% round-trip drag), any GROSS loss between -0.20% and -1.00% maps
+  // to NET between -1.50% and -2.30%, which the original net-based window
+  // misclassified as `loss_catastrophic`. Result: Phase 24 was unfireable
+  // for any Coinbase position. Switching to gross makes the "stuck/flipped"
+  // detection symbol-agnostic — the exchange's drag is accounted for in the
+  // exit's accounting, not in whether we *recognize* the stuck condition.
   if (!cfg || !cfg.enabled) return { invalidated: false, reason: 'disabled' };
 
   const hold = position.holdMinutes;
@@ -203,14 +211,14 @@ export function evaluateThesisInvalidation(
     return { invalidated: false, reason: `weak_flip:${strength?.toFixed?.(3) ?? '?'}<${cfg.requiredOpposingStrength}` };
   }
 
-  // Loss window: pnl must be in (max, min] — meaningful loss but not catastrophic.
-  // Both bounds are negative; e.g. min=-0.20, max=-1.00 means trigger when
-  // -1.00 < pnl ≤ -0.20.
-  if (netPnlPercent > cfg.minLossToTriggerPct) {
-    return { invalidated: false, reason: `loss_too_small:${netPnlPercent.toFixed(3)}%>${cfg.minLossToTriggerPct}%` };
+  // Loss window on GROSS PnL: meaningful price move but not catastrophic.
+  // Both bounds negative; e.g. min=-0.20, max=-1.00 means fire when
+  // -1.00 < gross ≤ -0.20.
+  if (grossPnlPercent > cfg.minLossToTriggerPct) {
+    return { invalidated: false, reason: `loss_too_small:gross=${grossPnlPercent.toFixed(3)}%>${cfg.minLossToTriggerPct}%` };
   }
-  if (netPnlPercent <= cfg.maxLossToTriggerPct) {
-    return { invalidated: false, reason: `loss_catastrophic:${netPnlPercent.toFixed(3)}%<=${cfg.maxLossToTriggerPct}% (catastrophic_owns_it)` };
+  if (grossPnlPercent <= cfg.maxLossToTriggerPct) {
+    return { invalidated: false, reason: `loss_catastrophic:gross=${grossPnlPercent.toFixed(3)}%<=${cfg.maxLossToTriggerPct}% (catastrophic_owns_it)` };
   }
 
   return {
@@ -218,7 +226,7 @@ export function evaluateThesisInvalidation(
     reason:
       `hold=${hold.toFixed(0)}m peak=${peak.toFixed(3)}% ` +
       `flip=${entry}→${current} str=${strength.toFixed(3)} ` +
-      `netPnl=${netPnlPercent.toFixed(3)}%`,
+      `gross=${grossPnlPercent.toFixed(3)}%`,
   };
 }
 
@@ -247,9 +255,11 @@ export interface StuckPositionConfig {
 
 export function evaluateStuckPosition(
   position: ProfitLockPosition,
-  netPnlPercent: number,
+  grossPnlPercent: number,
   cfg: StuckPositionConfig | undefined,
 ): { stuck: boolean; reason: string } {
+  // Phase 27 fix — same as evaluateThesisInvalidation: the "stuck" detection
+  // is about price-move magnitude (gross), not net-after-fees.
   if (!cfg || !cfg.enabled) return { stuck: false, reason: 'disabled' };
 
   const hold = position.holdMinutes;
@@ -262,18 +272,18 @@ export function evaluateStuckPosition(
     return { stuck: false, reason: `peak_reached:${peak?.toFixed?.(3) ?? '?'}%>=${cfg.peakProfitNotReachedPct}%` };
   }
 
-  if (netPnlPercent > cfg.minLossToTriggerPct) {
-    return { stuck: false, reason: `loss_too_small:${netPnlPercent.toFixed(3)}%>${cfg.minLossToTriggerPct}%` };
+  if (grossPnlPercent > cfg.minLossToTriggerPct) {
+    return { stuck: false, reason: `loss_too_small:gross=${grossPnlPercent.toFixed(3)}%>${cfg.minLossToTriggerPct}%` };
   }
-  if (netPnlPercent <= cfg.maxLossToTriggerPct) {
-    return { stuck: false, reason: `loss_catastrophic:${netPnlPercent.toFixed(3)}%<=${cfg.maxLossToTriggerPct}% (catastrophic_owns_it)` };
+  if (grossPnlPercent <= cfg.maxLossToTriggerPct) {
+    return { stuck: false, reason: `loss_catastrophic:gross=${grossPnlPercent.toFixed(3)}%<=${cfg.maxLossToTriggerPct}% (catastrophic_owns_it)` };
   }
 
   return {
     stuck: true,
     reason:
       `hold=${hold.toFixed(0)}m peak=${peak.toFixed(3)}% ` +
-      `netPnl=${netPnlPercent.toFixed(3)}% (no_progress)`,
+      `gross=${grossPnlPercent.toFixed(3)}% (no_progress)`,
   };
 }
 
@@ -331,11 +341,11 @@ export function shouldAllowClose(
   // 4. Phase 24 — Thesis-invalidated escape hatch. The agents that opened
   //    this trade have flipped against it with conviction, the trade has
   //    had its time, peak PnL never reached profit territory, and current
-  //    loss is real-but-not-catastrophic. Allow the close to free the slot
-  //    rather than ride to the catastrophic floor.
+  //    GROSS loss is in the actionable window. Allow the close to free the
+  //    slot rather than ride to the catastrophic floor.
   const thesisCheck = evaluateThesisInvalidation(
     position,
-    netPnlPercent,
+    grossPnlPercent,  // Phase 27 fix: gross, not net (drag-independent)
     config.thesisInvalidationExit,
   );
   if (thesisCheck.invalidated) {
@@ -349,12 +359,12 @@ export function shouldAllowClose(
 
   // 5. Phase 25 — Stuck-position escape hatch. Pure time-based. Trade has
   //    been open ≥ minHoldMinutes (default 2 hours), has NEVER produced
-  //    real unrealized gain (peak < 0.30%), and current loss is contained.
+  //    real unrealized gain (peak < 0.30%), and gross loss is contained.
   //    Cuts losses regardless of current consensus direction — if a trade
   //    has been wrong for 2 hours, the agents are wrong AND don't know it.
   const stuckCheck = evaluateStuckPosition(
     position,
-    netPnlPercent,
+    grossPnlPercent,  // Phase 27 fix: gross, not net
     config.stuckPositionExit,
   );
   if (stuckCheck.stuck) {

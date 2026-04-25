@@ -87,9 +87,10 @@ describe('Phase 25 — TradingConfig.profitLock.stuckPositionExit defaults', () 
 
 describe('Phase 25 — evaluateStuckPosition pure helper', () => {
   it('returns stuck=true when ALL conditions are met', () => {
+    // Phase 27: helper takes GROSS PnL (drag-independent).
     const r = evaluateStuckPosition(stuckLong, -0.50, baseCfg);
     expect(r.stuck).toBe(true);
-    expect(r.reason).toMatch(/hold=150m peak=0\.100% netPnl=-0\.500% \(no_progress\)/);
+    expect(r.reason).toMatch(/hold=150m peak=0\.100% gross=-0\.500% \(no_progress\)/);
   });
 
   it('disabled config never triggers', () => {
