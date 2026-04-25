@@ -454,8 +454,36 @@ export class EnhancedTradeExecutor extends EventEmitter {
       }
 
       // Phase 40 FIX 16: Skip trade if already have an open position for this symbol in the same direction
+      // Phase 29 FIX: previous check read from PositionManager which queries the
+      // `positions` table — but paper trades write to `paperPositions`, so the
+      // check was always seeing 0 paper positions. Result: 5 BTC shorts and 5
+      // ETH shorts stacked on 2026-04-25 because each successive signal
+      // believed there was no existing position. Read paperPositions directly
+      // so the check actually sees what's there.
       const incomingDirection: 'long' | 'short' = recommendation.action === 'buy' ? 'long' : 'short';
-      const existingSameDir = openPositions.find((p: any) => p.symbol === symbol && p.side === incomingDirection && p.status === 'open');
+      let existingSameDir: { id: number | string } | undefined =
+        openPositions.find((p: any) => p.symbol === symbol && p.side === incomingDirection && p.status === 'open');
+      if (!existingSameDir) {
+        // Fallback to direct paperPositions read — covers the paper-mode gap.
+        try {
+          const { getDb } = await import('../db');
+          const { paperPositions } = await import('../../drizzle/schema');
+          const { eq, and } = await import('drizzle-orm');
+          const db = await getDb();
+          if (db) {
+            const rows = await db.select().from(paperPositions).where(and(
+              eq(paperPositions.userId, this.userId),
+              eq(paperPositions.symbol, symbol),
+              eq(paperPositions.side, incomingDirection),
+              eq(paperPositions.status, 'open'),
+            )).limit(1);
+            if (rows.length > 0) existingSameDir = { id: rows[0].id };
+          }
+        } catch (dupCheckErr) {
+          console.warn('[EnhancedTradeExecutor] paperPositions duplicate-check query failed:', (dupCheckErr as Error)?.message);
+          // Fall through — caller will still proceed; better to allow than to fail-closed on a query error.
+        }
+      }
       if (existingSameDir) {
         console.log(`[EnhancedTradeExecutor] ⛔ DUPLICATE BLOCKED: Already have ${incomingDirection} position for ${symbol} (#${existingSameDir.id})`);
         await this.logRejection(signal, `Duplicate position blocked: already ${incomingDirection} on ${symbol}`, latencyContextId);
