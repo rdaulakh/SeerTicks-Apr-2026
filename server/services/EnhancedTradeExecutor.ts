@@ -747,12 +747,17 @@ export class EnhancedTradeExecutor extends EventEmitter {
         }));
         
         const regimeFromContext = (signal as any).marketContext?.regime || (signal as any).consensus?.regime;
+        // Phase 35 — pass incomingDirection so PortfolioRiskManager can
+        // apply the net-directional-bias cap (max 2 same-direction
+        // positions in any correlated group).
+        const incomingTradeDirection: 'long' | 'short' = recommendation.action === 'buy' ? 'long' : 'short';
         const assessment = await portfolioRisk.assessTradeRisk(
           symbol,
           positionSize,
           equity,
           portfolioPositions,
           regimeFromContext,
+          incomingTradeDirection,
         );
         
         if (!assessment.canTrade) {

@@ -64,15 +64,37 @@ export interface PortfolioMetrics {
   haltedUntil?: number;               // When halt expires (timestamp)
 }
 
-// Correlated asset groups — assets that tend to move together
+// Correlated asset groups — assets that tend to move together.
+// Phase 35 update: added a single 'crypto_majors' group covering BTC, ETH,
+// and SOL across both exchange naming conventions (Binance USDT vs Coinbase
+// USD). The platform's primary trading symbols (BTC-USD, ETH-USD, SOL-USD)
+// were previously split across `btc_ecosystem` / `eth_ecosystem` / nowhere
+// (SOL-USD wasn't in any group), so the correlation gate never recognized
+// that taking long BTC + long ETH + long SOL is one compounded directional
+// bet. Crypto majors all move together at the 1m–1h horizon — they belong
+// in one group for risk purposes.
 const CORRELATED_GROUPS: Record<string, string[]> = {
-  'btc_ecosystem': ['BTCUSDT', 'BTCUSD', 'WBTCUSDT'],
-  'eth_ecosystem': ['ETHUSDT', 'ETHUSD', 'STETHUSDT'],
-  'large_cap_l1': ['SOLUSDT', 'AVAXUSDT', 'ADAUSDT', 'DOTUSDT', 'NEARUSDT'],
+  // Note: SYMBOL_TO_GROUP build (below) iterates groups in declaration order
+  // and the LAST assignment wins. So `crypto_majors` is declared LAST so any
+  // major (BTC/ETH/SOL across naming conventions) ends up in crypto_majors —
+  // the broadest grouping, which is correct for risk purposes (all majors
+  // move together at the 1m–1h horizon).
+  'btc_ecosystem': ['BTCUSDT', 'BTCUSD', 'BTC-USD', 'WBTCUSDT'],
+  'eth_ecosystem': ['ETHUSDT', 'ETHUSD', 'ETH-USD', 'STETHUSDT'],
+  'large_cap_l1': ['AVAXUSDT', 'ADAUSDT', 'DOTUSDT', 'NEARUSDT'],
   'defi_blue_chip': ['UNIUSDT', 'AAVEUSDT', 'MKRUSDT', 'LINKUSDT'],
   'meme_coins': ['DOGEUSDT', 'SHIBUSDT', 'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT'],
   'layer2': ['ARBUSDT', 'OPUSDT', 'MATICUSDT', 'STRKUSDT'],
   'ai_tokens': ['FETUSDT', 'RENDERUSDT', 'TAOUSDT', 'AGIXUSDT'],
+  // Phase 35 — primary group covering the platform's actual trading symbols
+  // in BOTH exchange naming conventions. Last in declaration so it wins the
+  // SYMBOL_TO_GROUP overwrite. The net-directional-bias cap and group-
+  // exposure cap now correctly apply across BTC/ETH/SOL together.
+  'crypto_majors': [
+    'BTC-USD', 'BTCUSD', 'BTCUSDT', 'WBTCUSDT',
+    'ETH-USD', 'ETHUSD', 'ETHUSDT', 'STETHUSDT',
+    'SOL-USD', 'SOLUSD', 'SOLUSDT',
+  ],
 };
 
 // Build reverse lookup: symbol → group name
@@ -139,6 +161,10 @@ export class PortfolioRiskManager {
     equity: number,
     openPositions: OpenPositionInfo[],
     currentRegime?: string,
+    // Phase 35 — direction of the incoming trade. Used by the net-bias
+    // gate inside the correlated-group check below. Optional for back-compat
+    // with existing callers; when omitted the gate is skipped.
+    incomingDirection?: 'long' | 'short',
   ): Promise<PortfolioRiskAssessment> {
     const reasons: string[] = [];
     let maxAllowedSize = requestedSize;
@@ -303,6 +329,39 @@ export class PortfolioRiskManager {
       if (maxAllowedSize > remainingGroupExposure) {
         maxAllowedSize = remainingGroupExposure;
         reasons.push(`Capped at $${remainingGroupExposure.toFixed(2)} (correlated group '${targetGroup}' limit)`);
+      }
+
+      // Phase 35 — Net directional bias on correlated group.
+      // Pre-Phase-35 we capped TOTAL group exposure but didn't cap net delta.
+      // A user could go long BTC + long ETH + long SOL (3 correlated longs)
+      // up to $25/$25/$25k (the 25% group cap × hypothetical $300k equity)
+      // and that's a 3x compounded directional bet on crypto-up. If the
+      // crypto market sneezes, all three lose simultaneously.
+      //
+      // Cap: at most 2 same-direction positions in any correlated group at
+      // any time. If user already has 2 longs on BTC+ETH, refuse the SOL
+      // long until one closes (or flips). Doesn't block hedges (1 long +
+      // 1 short on the same group is fine — that IS the hedge).
+      //
+      // Skipped when `incomingDirection` is not provided (back-compat).
+      if (incomingDirection !== undefined) {
+        const sameDirGroupCount = groupPositions.filter(
+          (p) => p.side === incomingDirection,
+        ).length;
+        const MAX_SAME_DIR_PER_GROUP = 2;
+        if (sameDirGroupCount >= MAX_SAME_DIR_PER_GROUP) {
+          return {
+            canTrade: false,
+            maxAllowedSize: 0,
+            adjustedSize: 0,
+            reasons: [
+              `Net directional bias: already ${sameDirGroupCount} ${incomingDirection} ` +
+              `positions in correlated group '${targetGroup}' (limit: ${MAX_SAME_DIR_PER_GROUP}). ` +
+              `Adding another ${incomingDirection} compounds the same bet.`,
+            ],
+            metrics: this.calculateMetrics(equity, openPositions),
+          };
+        }
       }
     }
     
