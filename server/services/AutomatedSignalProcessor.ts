@@ -39,6 +39,92 @@ export function getMLGateStats() {
 }
 
 /**
+ * Phase 22 — pure helper for the R:R pre-validation gate.
+ *
+ * Walks a sorted S/R level array (`resistance` ascending for bullish,
+ * `support` descending for bearish — both encode "first is nearest") and
+ * returns the reward distance to use for the R:R check.
+ *
+ * Selection rule:
+ *   1. First level whose distance ≥ riskDistance × minRR — that level
+ *      offers adequate upside, take it.
+ *   2. If no level clears the bar, return the FURTHEST distance — the
+ *      caller's R:R check then catches it ("no structural target gives
+ *      adequate upside"), which is the legitimate reject case.
+ *   3. If the array is empty/undefined, return `atrFallback` so the gate
+ *      still has a sensible reward when the agent didn't supply S/R.
+ *
+ * Why this exists: pre-Phase-22 the inline logic blindly used `array[0]`
+ * (nearest level), which on SOL@$169.50 with `resistance[0]=$170.15`
+ * (recent local high, 65 cents away) crushed reward to $0.65 against
+ * 2×ATR risk of $1.54 → R:R = 0.42, blocking valid breakout trades on
+ * every symbol approaching local highs. The walk lets the gate "look
+ * past" microstructure obstacles to the next meaningful level.
+ *
+ * Pure function — no I/O, no globals — exported for direct unit testing.
+ */
+export function selectRewardDistance(
+  srArray: number[] | undefined,
+  currentPrice: number,
+  riskDistance: number,
+  minRR: number,
+  atrFallback: number,
+): number {
+  if (!srArray || srArray.length === 0 || !Number.isFinite(currentPrice) || currentPrice <= 0) {
+    return atrFallback;
+  }
+  let furthest = 0;
+  for (const level of srArray) {
+    if (!Number.isFinite(level)) continue;
+    const dist = Math.abs(level - currentPrice);
+    if (dist > furthest) furthest = dist;
+    if (dist >= riskDistance * minRR) return dist;
+  }
+  // No level cleared the bar — return furthest. Caller's R:R check will
+  // reject if even this is insufficient. Use atrFallback if every level
+  // was non-finite.
+  return furthest > 0 ? furthest : atrFallback;
+}
+
+/**
+ * Phase 22 — pure helper to choose the regime-aware minimum R:R.
+ *
+ * Three regimes:
+ *   - Trending + calm:  superTrend agrees with consensus AND atrRatio < trendingMax → minRrTrending
+ *   - High volatility:  atrRatio > volatileMin                                       → minRrVolatile
+ *   - Counter-trend:    superTrend disagrees with consensus                          → minRrCounterTrend
+ *   - Otherwise (default normal-vol same-direction without atrRatio data) →           minRrDefault
+ *
+ * The order matters: trending+calm beats volatile (low atrRatio precludes
+ * volatile classification anyway, but the early return keeps logic clear),
+ * and counter-trend overrides default. Pure function for testability.
+ */
+export function selectMinRr(
+  consensusDirection: 'bullish' | 'bearish' | 'neutral',
+  superTrendDirection: string | undefined,
+  atrRatio: number,
+  cfg: {
+    minRrTrending: number;
+    minRrVolatile: number;
+    minRrCounterTrend: number;
+    minRrDefault: number;
+    atrRatioTrendingMax: number;
+    atrRatioVolatileMin: number;
+  },
+): number {
+  if (superTrendDirection === consensusDirection && atrRatio < cfg.atrRatioTrendingMax) {
+    return cfg.minRrTrending;
+  }
+  if (atrRatio > cfg.atrRatioVolatileMin) {
+    return cfg.minRrVolatile;
+  }
+  if (superTrendDirection && superTrendDirection !== consensusDirection) {
+    return cfg.minRrCounterTrend;
+  }
+  return cfg.minRrDefault;
+}
+
+/**
  * Automated Signal Processor
  *
  * Continuously processes agent signals and queues high-confidence signals for automated execution.
@@ -736,43 +822,48 @@ export class AutomatedSignalProcessor extends EventEmitter {
       }
 
       // Phase 5B: Regime-Aware R:R Pre-Validation Gate
-      // Uses ATR for risk distance and nearest S/R for reward distance.
-      // R:R minimum varies by regime: trending 1.2, volatile 1.5, ranging 2.0
+      // Phase 22: tunables extracted to TradingConfig.entry.rr; reward
+      // distance uses `selectRewardDistance` to walk the S/R array past
+      // microstructure-close levels rather than blindly taking [0]. Regime
+      // selection lives in the `selectMinRr` helper. Both helpers are pure
+      // and exported above for unit testing.
       const techSignal = signals.find(s => s.agentName === 'TechnicalAnalyst');
       const techEvidence = techSignal?.evidence as any;
       const atr = techEvidence?.atr as number || 0;
       if (atr > 0) {
         const currentPrice = this.getLatestPrice(highQualitySignals);
         if (currentPrice > 0) {
-          const riskDistance = atr * 2.0;  // 2x ATR stop
+          const rrCfg = getTradingConfig().entry.rr;
+          const riskDistance = atr * rrCfg.riskAtrMultiplier;
+          const atrFallbackReward = atr * rrCfg.defaultRewardAtrMultiplier;
 
-          // Determine reward distance from nearest support/resistance
-          let rewardDistance = atr * 3.0;  // Default: 3x ATR
-          const resistance = techEvidence?.resistance as number[] | undefined;
-          const support = techEvidence?.support as number[] | undefined;
-          if (consensus.direction === 'bullish' && resistance?.[0]) {
-            rewardDistance = Math.abs(resistance[0] - currentPrice);
-          } else if (consensus.direction === 'bearish' && support?.[0]) {
-            rewardDistance = Math.abs(currentPrice - support[0]);
-          }
-
-          const rrRatio = riskDistance > 0 ? rewardDistance / riskDistance : 0;
-
-          // Determine minimum R:R based on regime (from superTrend + volatility)
-          let minRR = 1.5; // default
+          // Determine minimum R:R from regime BEFORE selecting reward —
+          // the reward selection uses minRR as the target floor when
+          // walking the S/R array.
           const superTrend = techEvidence?.superTrend;
           const avgATR = techEvidence?.avgATR as number || 0;
           const atrRatio = avgATR > 0 ? atr / avgATR : 1.0;
-          if (superTrend?.direction === consensus.direction && atrRatio < 1.2) {
-            // Trending + low volatility: trend carries profit, lower R:R OK
-            minRR = 1.2;
-          } else if (atrRatio > 1.5) {
-            // High volatility: need bigger reward to compensate
-            minRR = 1.5;
-          } else if (superTrend?.direction !== consensus.direction) {
-            // Counter-trend (ranging): need much higher R:R
-            minRR = 2.0;
+          const minRR = selectMinRr(
+            consensus.direction,
+            superTrend?.direction,
+            atrRatio,
+            rrCfg,
+          );
+
+          // Walk S/R array nearest→furthest, take first level clearing minRR.
+          // For bullish trades the agent's `resistance` array (sorted ascending)
+          // is used; for bearish trades, `support` (sorted descending — closest
+          // first by price, but distance comparison is absolute either way).
+          let rewardDistance = atrFallbackReward;
+          const resistance = techEvidence?.resistance as number[] | undefined;
+          const support = techEvidence?.support as number[] | undefined;
+          if (consensus.direction === 'bullish') {
+            rewardDistance = selectRewardDistance(resistance, currentPrice, riskDistance, minRR, atrFallbackReward);
+          } else if (consensus.direction === 'bearish') {
+            rewardDistance = selectRewardDistance(support, currentPrice, riskDistance, minRR, atrFallbackReward);
           }
+
+          const rrRatio = riskDistance > 0 ? rewardDistance / riskDistance : 0;
 
           try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} R:R CHECK: ratio=${rrRatio.toFixed(2)} minRR=${minRR} atr=${atr.toFixed(2)} reward=${rewardDistance.toFixed(2)} risk=${riskDistance.toFixed(2)}\n`); } catch(e) {}
           if (rrRatio < minRR) {

@@ -173,6 +173,52 @@ export interface TradingConfiguration {
     // reversals. 2-minute default keeps tactical-timing utility while pairing
     // with a meaningful-move tolerance.
     contraTrendLookbackMs: number;
+    // Phase 22 — Risk:Reward pre-validation gate tunables. The gate uses ATR
+    // for risk distance and the technical S/R structure for reward distance,
+    // and rejects trades whose reward/risk ratio falls below a regime-aware
+    // minimum. Pre-Phase-22 these were hardcoded constants in
+    // AutomatedSignalProcessor with a particularly nasty bug: the reward
+    // distance used `resistance[0]` (the NEAREST level above price) blindly,
+    // so when price was testing a recent high — which IS a meaningful S/R
+    // level but only a microstructure obstacle, not a destination — the
+    // gate computed e.g. R:R = 0.42 on SOL@$169.50 (resistance[0]=$170.15,
+    // 65 cents away, vs 2×ATR risk of $1.54). That blocked valid breakout
+    // trades on every symbol once price approached recent local highs/lows.
+    //
+    // Phase 22 fix: walk the S/R array nearest→furthest and pick the first
+    // level that produces R:R ≥ minRR (i.e. project to the next meaningful
+    // level past microstructure). Falls back to ATR-default reward when no
+    // S/R clears the bar — letting the gate reject only when truly no
+    // structural target gives adequate upside.
+    rr: {
+      // Risk distance multiplier on ATR. 2.0 ≈ 2-σ stop assuming ATR ≈ 1σ
+      // intraday. Lowering this widens R:R artificially; raising it tightens
+      // the gate and also makes stops too wide for fast scalps.
+      riskAtrMultiplier: number;
+      // Default reward distance multiplier on ATR when S/R is unavailable
+      // or no structural level clears minRR. 3.0 yields R:R = 1.5 against
+      // a 2.0 risk multiplier — comfortably above the 1.2 trending floor.
+      defaultRewardAtrMultiplier: number;
+      // Minimum R:R when superTrend agrees with consensus AND atrRatio is
+      // low (trending + calm). The trend itself carries profit so a smaller
+      // R:R is acceptable.
+      minRrTrending: number;
+      // Minimum R:R when atrRatio > volatile threshold. Higher volatility
+      // means wider noise so reward must be larger to compensate.
+      minRrVolatile: number;
+      // Minimum R:R when superTrend disagrees with consensus (counter-
+      // trend / ranging). Without trend tailwind, statistical edge requires
+      // a much bigger reward asymmetry.
+      minRrCounterTrend: number;
+      // Default minimum R:R when none of the regime conditions match.
+      minRrDefault: number;
+      // atrRatio threshold (current ATR / avg ATR). At or below this AND
+      // superTrend agrees → trending+calm regime.
+      atrRatioTrendingMax: number;
+      // atrRatio threshold above which the regime is considered "volatile"
+      // regardless of superTrend agreement.
+      atrRatioVolatileMin: number;
+    };
   };
 }
 
@@ -370,6 +416,20 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
     // more than it helped now that Phase 17/18 give us confident agents.
     contraTrendNoiseTolerancePct: 0.15,
     contraTrendLookbackMs: 120_000,        // 2 min — same as before
+    // Phase 22 — R:R gate tunables, see interface comment for rationale.
+    // Defaults match the prior hardcoded values so behavior is unchanged
+    // for the regime-detection knobs; the substantive change is the S/R
+    // walk in AutomatedSignalProcessor (helper `selectRewardDistance`).
+    rr: {
+      riskAtrMultiplier: 2.0,
+      defaultRewardAtrMultiplier: 3.0,
+      minRrTrending: 1.2,
+      minRrVolatile: 1.5,
+      minRrCounterTrend: 2.0,
+      minRrDefault: 1.5,
+      atrRatioTrendingMax: 1.2,
+      atrRatioVolatileMin: 1.5,
+    },
   },
 };
 
