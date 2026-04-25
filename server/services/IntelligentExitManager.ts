@@ -41,7 +41,13 @@ import {
 } from './PriorityExitManager';
 import { getTradingConfig } from '../config/TradingConfig';
 import { logPipelineEvent, PipelineEventType } from './TradingPipelineLogger';
-import { shouldAllowClose as profitLockShouldAllowClose } from './ProfitLockGuard';
+import {
+  shouldAllowClose as profitLockShouldAllowClose,
+  evaluateThesisInvalidation,
+  evaluateStuckPosition,
+  resolveDragPercent,
+  computeGrossPnlPercent,
+} from './ProfitLockGuard';
 
 export interface Position {
   id: string;
@@ -703,7 +709,64 @@ export class IntelligentExitManager extends EventEmitter {
         urgency: 'critical',
       };
     }
-    
+
+    // Phase 27 — Thesis-invalidated / stuck-position exit RULE.
+    //
+    // Phase 24 + 25 added escape paths INSIDE ProfitLockGuard, but the guard
+    // only runs when an upstream rule produces an exit decision. With no rule
+    // for "stuck loser whose agents flipped," the guard was never invoked
+    // and stuck longs (e.g. BTC #4 +203m hold, no flip-detected close) sat
+    // indefinitely. Phase 27 calls the same pure helpers from ProfitLockGuard
+    // here in the decision evaluator so the rule fires actively. The guard's
+    // matching paths then approve the close (no double-counting — the
+    // decision passes through, guard recognizes the same conditions).
+    {
+      const profitLockCfg = getTradingConfig().profitLock;
+      const guardPos = {
+        side: position.side,
+        entryPrice: position.entryPrice,
+        exchange: (position as any).exchange,
+        entryDirection: position.entryDirection,
+        currentDirection: position.currentDirection ?? undefined,
+        currentConsensusStrength: position.currentCombinedScore,
+        peakUnrealizedPnlPercent: position.peakPnlPercent,
+        holdMinutes: position.entryTime
+          ? (Date.now() - position.entryTime) / 60_000
+          : undefined,
+      };
+      const grossPnlPct = computeGrossPnlPercent(guardPos, position.currentPrice);
+      const drag = resolveDragPercent(guardPos);
+      const netPnlPct = grossPnlPct - drag.totalCostPercent;
+
+      const thesis = evaluateThesisInvalidation(
+        guardPos,
+        netPnlPct,
+        profitLockCfg?.thesisInvalidationExit,
+      );
+      if (thesis.invalidated) {
+        return {
+          action: 'exit_full',
+          reason: `thesis_invalidated: ${thesis.reason} (netPnl=${netPnlPct.toFixed(3)}%)`,
+          confidence: 0.9,
+          urgency: 'high',
+        };
+      }
+
+      const stuck = evaluateStuckPosition(
+        guardPos,
+        netPnlPct,
+        profitLockCfg?.stuckPositionExit,
+      );
+      if (stuck.stuck) {
+        return {
+          action: 'exit_full',
+          reason: `stuck_position: ${stuck.reason} (netPnl=${netPnlPct.toFixed(3)}%)`,
+          confidence: 0.85,
+          urgency: 'high',
+        };
+      }
+    }
+
     // 2. Check breakeven activation — Phase 5: actually moves position.stopLoss
     //    to entry+buffer so the hard-SL check above fires at breakeven on the
     //    next tick, rather than relying on the fragile secondary pnl check.
