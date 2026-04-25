@@ -31,25 +31,24 @@ async function main() {
   if (existing.length > 0) {
     const row = existing[0];
     if (row.isActive) {
-      console.log(`[seed-sol] SOL-USD already active (id=${row.id}). No-op.`);
-      process.exit(0);
+      console.log(`[seed-sol] globalSymbols: SOL-USD already active (id=${row.id}). Skipping insert.`);
+    } else {
+      console.log(`[seed-sol] globalSymbols: SOL-USD exists but inactive (id=${row.id}). Activating...`);
+      await db
+        .update(globalSymbols)
+        .set({ isActive: true })
+        .where(eq(globalSymbols.id, row.id));
     }
-    console.log(`[seed-sol] SOL-USD exists but inactive (id=${row.id}). Activating...`);
-    await db
-      .update(globalSymbols)
-      .set({ isActive: true })
-      .where(eq(globalSymbols.id, row.id));
-    console.log('[seed-sol] activated.');
-    process.exit(0);
+  } else {
+    console.log('[seed-sol] globalSymbols: inserting SOL-USD...');
+    await db.insert(globalSymbols).values({
+      symbol: 'SOL-USD',
+      exchange: 'coinbase',
+      isActive: true,
+    });
   }
-
-  console.log('[seed-sol] inserting SOL-USD into globalSymbols...');
-  await db.insert(globalSymbols).values({
-    symbol: 'SOL-USD',
-    exchange: 'coinbase',
-    isActive: true,
-  });
-  console.log('[seed-sol] globalSymbols inserted.');
+  // Continue to per-user backfill below regardless of whether globalSymbols
+  // needed an insert — these are independent failure modes.
 
   // Phase 20 — also seed PER-USER subscription so the trade pipeline
   // (UserTradingSession) actually consumes SOL signals. globalSymbols
