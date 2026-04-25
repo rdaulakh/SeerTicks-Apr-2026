@@ -552,6 +552,16 @@ export class IntelligentExitManager extends EventEmitter {
         side: position.side,
         entryPrice: position.entryPrice,
         exchange: (position as any).exchange, // Phase 10 — fee drag is exchange-aware
+        // Phase 24 — thesis-invalidation context (optional fields).
+        // currentDirection: null when unknown — pass undefined so the guard
+        // skips the flip check rather than treating null as 'neutral'.
+        entryDirection: position.entryDirection,
+        currentDirection: position.currentDirection ?? undefined,
+        currentConsensusStrength: position.currentCombinedScore,
+        peakUnrealizedPnlPercent: position.peakPnlPercent,
+        holdMinutes: position.entryTime
+          ? (Date.now() - position.entryTime) / 60_000
+          : undefined,
       },
       position.currentPrice,
       decision.reason,

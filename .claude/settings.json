@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "mcp__Claude_Preview__*",
+      "mcp__computer-use__*",
+      "mcp__github__*",
+      "mcp__scheduled-tasks__*",
+      "mcp__context7__*",
+      "mcp__ccd_session__*",
+      "mcp__mcp-registry__*",
+      "Agent",
+      "TodoWrite",
+      "NotebookEdit"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf /*)",
+      "Bash(git push --force origin main)",
+      "Bash(git push -f origin main)"
+    ]
+  }
+}

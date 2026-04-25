@@ -58,3 +58,5 @@ screenshots/
 *.png
 *.jpg
 *.jpeg
+
+.claude/settings.local.json

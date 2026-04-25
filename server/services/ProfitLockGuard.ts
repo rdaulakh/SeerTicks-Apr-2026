@@ -28,6 +28,17 @@ export interface ProfitLockPosition {
   side: 'long' | 'short';
   entryPrice: number;
   exchange?: string;
+  // Phase 24 — optional thesis-invalidation context. When present AND
+  // `profitLock.thesisInvalidationExit.enabled` is true, the guard adds a
+  // fourth allow path: close trades whose entry thesis has clearly been
+  // invalidated by agent consensus, even at small loss. Callers that don't
+  // populate these fields skip the check (back-compat — guard behaves as
+  // before when context is missing).
+  entryDirection?: 'bullish' | 'bearish' | 'neutral';
+  currentDirection?: 'bullish' | 'bearish' | 'neutral';
+  currentConsensusStrength?: number;     // 0..1, weighted consensus of current agents
+  peakUnrealizedPnlPercent?: number;     // peak PnL% reached during the hold (running max)
+  holdMinutes?: number;                  // time since entry, in minutes
 }
 
 export interface ProfitLockDecision {
@@ -136,6 +147,81 @@ export function resolveDragPercent(
   };
 }
 
+/**
+ * Phase 24 — pure helper: does the position's entry thesis still hold?
+ *
+ * Returns `{ invalidated: true, reason }` only when EVERY condition is met:
+ *   1. enabled
+ *   2. holdMinutes ≥ minHoldMinutes (give the trade time to develop)
+ *   3. peakUnrealizedPnlPercent < peakProfitNotReachedPct (the trade NEVER
+ *      had real upside — this is not a giveback from profit)
+ *   4. currentDirection is the OPPOSITE of entryDirection (long↔bearish,
+ *      short↔bullish) — agents have flipped on us
+ *   5. currentConsensusStrength ≥ requiredOpposingStrength (flip is convicted)
+ *   6. netPnlPercent is in the actionable loss window:
+ *      maxLossToTriggerPct < netPnlPercent ≤ minLossToTriggerPct
+ *
+ * Pure — no I/O, no globals. Exported for direct testing.
+ */
+export interface ThesisInvalidationConfig {
+  enabled: boolean;
+  minHoldMinutes: number;
+  peakProfitNotReachedPct: number;
+  requiredOpposingStrength: number;
+  minLossToTriggerPct: number;
+  maxLossToTriggerPct: number;
+}
+
+export function evaluateThesisInvalidation(
+  position: ProfitLockPosition,
+  netPnlPercent: number,
+  cfg: ThesisInvalidationConfig | undefined,
+): { invalidated: boolean; reason: string } {
+  if (!cfg || !cfg.enabled) return { invalidated: false, reason: 'disabled' };
+
+  const hold = position.holdMinutes;
+  if (hold === undefined || hold < cfg.minHoldMinutes) {
+    return { invalidated: false, reason: `hold_too_short:${hold ?? '?'}<${cfg.minHoldMinutes}m` };
+  }
+
+  const peak = position.peakUnrealizedPnlPercent;
+  if (peak === undefined || peak >= cfg.peakProfitNotReachedPct) {
+    return { invalidated: false, reason: `peak_reached:${peak?.toFixed?.(3) ?? '?'}%>=${cfg.peakProfitNotReachedPct}%` };
+  }
+
+  const entry = position.entryDirection;
+  const current = position.currentDirection;
+  const flipped =
+    (entry === 'bullish' && current === 'bearish') ||
+    (entry === 'bearish' && current === 'bullish');
+  if (!flipped) {
+    return { invalidated: false, reason: `not_flipped:entry=${entry ?? '?'},current=${current ?? '?'}` };
+  }
+
+  const strength = position.currentConsensusStrength;
+  if (strength === undefined || strength < cfg.requiredOpposingStrength) {
+    return { invalidated: false, reason: `weak_flip:${strength?.toFixed?.(3) ?? '?'}<${cfg.requiredOpposingStrength}` };
+  }
+
+  // Loss window: pnl must be in (max, min] — meaningful loss but not catastrophic.
+  // Both bounds are negative; e.g. min=-0.20, max=-1.00 means trigger when
+  // -1.00 < pnl ≤ -0.20.
+  if (netPnlPercent > cfg.minLossToTriggerPct) {
+    return { invalidated: false, reason: `loss_too_small:${netPnlPercent.toFixed(3)}%>${cfg.minLossToTriggerPct}%` };
+  }
+  if (netPnlPercent <= cfg.maxLossToTriggerPct) {
+    return { invalidated: false, reason: `loss_catastrophic:${netPnlPercent.toFixed(3)}%<=${cfg.maxLossToTriggerPct}% (catastrophic_owns_it)` };
+  }
+
+  return {
+    invalidated: true,
+    reason:
+      `hold=${hold.toFixed(0)}m peak=${peak.toFixed(3)}% ` +
+      `flip=${entry}→${current} str=${strength.toFixed(3)} ` +
+      `netPnl=${netPnlPercent.toFixed(3)}%`,
+  };
+}
+
 export function shouldAllowClose(
   position: ProfitLockPosition,
   currentPrice: number,
@@ -187,7 +273,26 @@ export function shouldAllowClose(
     };
   }
 
-  // 4. Blocked — keep holding until net-positive or catastrophic.
+  // 4. Phase 24 — Thesis-invalidated escape hatch. The agents that opened
+  //    this trade have flipped against it with conviction, the trade has
+  //    had its time, peak PnL never reached profit territory, and current
+  //    loss is real-but-not-catastrophic. Allow the close to free the slot
+  //    rather than ride to the catastrophic floor.
+  const thesisCheck = evaluateThesisInvalidation(
+    position,
+    netPnlPercent,
+    config.thesisInvalidationExit,
+  );
+  if (thesisCheck.invalidated) {
+    return {
+      allow: true,
+      reason: `thesis_invalidated:${thesisCheck.reason}`,
+      netPnlPercent,
+      grossPnlPercent,
+    };
+  }
+
+  // 5. Blocked — keep holding until net-positive or catastrophic.
   const blockReason =
     `profit_lock_block: gross=${grossPnlPercent.toFixed(3)}% net=${netPnlPercent.toFixed(3)}% ` +
     `floor=${config.minNetProfitPercentToClose}% (fees+slip=${totalCostPercent.toFixed(3)}% ${drag.source}) ` +

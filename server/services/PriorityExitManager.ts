@@ -156,6 +156,13 @@ export function evaluatePriorityExitRules(
       side: position.side,
       entryPrice: position.entryPrice,
       exchange: (position as any).exchange, // Phase 10 — fee drag is exchange-aware
+      // Phase 24 — pass thesis-invalidation context so the guard's fourth
+      // allow path can fire when agents have flipped on a stuck loser.
+      entryDirection: position.entryDirection,
+      currentDirection: position.currentDirection,
+      currentConsensusStrength: position.currentCombinedScore,
+      peakUnrealizedPnlPercent: position.peakPnlPercent,
+      holdMinutes: (Date.now() - position.entryTime) / 60_000,
     },
     position.currentPrice,
     reasonForGuard,

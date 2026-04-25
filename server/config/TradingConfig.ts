@@ -127,6 +127,45 @@ export interface TradingConfiguration {
       string,
       { roundTripFeePercent: number; slippagePercent: number }
     >;
+    // Phase 24 — Thesis-invalidation escape hatch.
+    //
+    // Pre-Phase-24: ProfitLockGuard had only three allow paths — net-positive,
+    // catastrophic exit reason, or gross PnL ≤ catastrophicStopPercent. Result:
+    // a position that opens, never moves into profit, and whose entry thesis
+    // has clearly been invalidated by agents (consensus flipped to opposite
+    // direction with conviction) just sits there bleeding slowly until it
+    // either hits the -1.2% cat stop OR drifts back to break-even (rare).
+    // Live audit on 2026-04-25 found 3 open positions held >3h with peak
+    // unrealized PnL of +0.08% (BTC), -0.05% (ETH never went green), +0.01%
+    // (SOL) — none had a real chance to close at profit, all blocking new
+    // signal slots in their symbols.
+    //
+    // Phase 24 adds a fourth allow path: when the agents themselves have
+    // invalidated the entry thesis AND the trade has had its chance, the
+    // guard allows close at small loss. This is NOT a betrayal of the prime
+    // directive — it's the agents admitting the entry was a mistake. Cutting
+    // now (small documented loss) is strictly better than holding to
+    // catastrophic (larger loss) or holding forever (opportunity cost +
+    // capital lock).
+    //
+    // Conditions (ALL must be true):
+    //   - enabled === true
+    //   - holdMinutes ≥ minHoldMinutes (give the trade time)
+    //   - peakUnrealizedPnlPercent < peakProfitNotReachedPct (never had real
+    //     upside; this is NOT a giveback after profit, it's a never-worked trade)
+    //   - currentDirection is opposite of entryDirection (agents flipped)
+    //   - currentConsensusStrength ≥ requiredOpposingStrength (flip is convicted)
+    //   - netPnlPercent is in the loss window: ≤ minLossToTriggerPct (real loss,
+    //     not noise) AND > maxLossToTriggerPct (above this, catastrophic owns it)
+    thesisInvalidationExit: {
+      enabled: boolean;
+      minHoldMinutes: number;
+      peakProfitNotReachedPct: number;
+      requiredOpposingStrength: number;
+      // Loss window: trigger when minLossToTriggerPct ≥ netPnl > maxLossToTriggerPct
+      minLossToTriggerPct: number;  // e.g. -0.20: don't fire if loss is < 0.20% (noise)
+      maxLossToTriggerPct: number;  // e.g. -1.00: above this, catastrophic stop owns it
+    };
   };
 
   // ── Entry-Gate Hardening (audit restoration) ──
@@ -383,6 +422,15 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
       // low-edge scalps are unprofitable; the guard surfaces that truth
       // instead of booking fake profits that are actually losses net of fees.
       coinbase: { roundTripFeePercent: 1.20, slippagePercent: 0.10 },
+    },
+    // Phase 24 — see interface comment for rationale.
+    thesisInvalidationExit: {
+      enabled: true,
+      minHoldMinutes: 30,             // Trade gets 30 min before this kicks in
+      peakProfitNotReachedPct: 0.30,  // Peak PnL must have stayed below 0.30% (never had a real chance)
+      requiredOpposingStrength: 0.55, // Agents must have flipped with ≥55% conviction
+      minLossToTriggerPct: -0.20,     // Loss must be ≤ -0.20% (real, not noise)
+      maxLossToTriggerPct: -1.00,     // Above this, the catastrophic stop already handles it
     },
     // Phase 7 — tightened to match exits.hardStopLossPercent (-1.2%).
     //   Prior value (-2.5%) created a broken hand-off: the ProfitLockGuard
