@@ -23,7 +23,14 @@
 import { EventEmitter } from 'events';
 import { GlobalSymbolAnalyzer, GlobalSignal, GlobalSymbolStatus } from './GlobalSymbolAnalyzer';
 
-const DEFAULT_SYMBOLS = ['BTC-USD', 'ETH-USD'];
+// Phase 20 — SOL-USD added to defaults. Pre-Phase-20 the price feeds
+// subscribed to SOL but the GlobalMarketEngine never spun up its analyzer,
+// so SOL got 0 signals and 0 trades despite being in the trading set. The
+// `globalSymbols` DB table is the runtime source of truth (operators can
+// hot-add via the symbols router); this constant only matters when the
+// table is empty (fresh install) or the seeded set hasn't been migrated.
+// Keep this in sync with the price-feed subscription list in _core/index.ts.
+const DEFAULT_SYMBOLS = ['BTC-USD', 'ETH-USD', 'SOL-USD'];
 
 export interface GlobalMarketEngineStatus {
   isRunning: boolean;
