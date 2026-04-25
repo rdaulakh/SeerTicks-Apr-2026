@@ -35,6 +35,7 @@ pids/
 *.pid
 *.seed
 *.pid.lock
+data/agent-performance.json
 
 # Coverage
 coverage/

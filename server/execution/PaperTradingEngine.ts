@@ -109,10 +109,24 @@ export class PaperTradingEngine extends EventEmitter implements ITradingEngine {
   private readyPromise: Promise<void>;
   private isReady: boolean = false;
 
-  // Commission rates by exchange
+  // Commission rates by exchange — Phase 34 split into maker / taker.
+  // Pre-Phase-34 a single rate was used for all fills (0.1% binance / 0.5%
+  // coinbase). That blended-flat rate matches taker behavior reasonably for
+  // market orders but UNDERSTATES the savings available when limit orders
+  // post-only get filled at the maker rate. Real Coinbase taker is 0.6%,
+  // maker is 0.4% — switching to maker on patient orders saves 0.2% per
+  // leg = 0.4% per round-trip. Real Binance taker is 0.10% (VIP0), maker
+  // is 0.10% on spot for VIP0 (no maker discount at base tier — but futures
+  // VIP0 maker is 0.02%, which is what most automated trading uses).
+  //
+  // Numbers below: keep existing taker matching the prior flat rate so
+  // production behavior is unchanged for market orders. Maker is the
+  // SHOULD-BE-USED rate for limit-and-rest orders. The placeOrder code
+  // selects which to charge based on order.type ('limit' → maker;
+  // 'market' / 'stop_loss' / 'take_profit' → taker).
   private readonly COMMISSION_RATES = {
-    binance: 0.001, // 0.1%
-    coinbase: 0.005, // 0.5%
+    binance: { taker: 0.001, maker: 0.0002 },   // 0.10% / 0.02%
+    coinbase: { taker: 0.005, maker: 0.0035 },  // 0.50% / 0.35% (matches paper-sim history)
   };
 
   // Slippage parameters
@@ -463,8 +477,15 @@ export class PaperTradingEngine extends EventEmitter implements ITradingEngine {
       await new Promise(resolve => setTimeout(resolve, latency));
     }
 
-    // Execute order immediately for market orders
+    // Execute order immediately for market orders.
+    // Phase 34 — also execute limit orders immediately in paper mode (no
+    // orderbook simulation). The price field is taken as the limit price
+    // and used as the execution price; commission is charged at the maker
+    // rate (see executeOrder). This makes the paper engine's fee accounting
+    // honestly reflect what a real maker-first deployment would pay.
     if (params.type === 'market') {
+      await this.executeOrder(orderId, params.price || 0);
+    } else if (params.type === 'limit') {
       await this.executeOrder(orderId, params.price || 0);
     }
 
@@ -506,10 +527,20 @@ export class PaperTradingEngine extends EventEmitter implements ITradingEngine {
       }
     }
 
-    // Calculate commission
+    // Calculate commission — Phase 34: maker rate for resting limits, taker
+    // rate for market / stop / TP. Limit orders that we intend to "post" get
+    // the maker discount; aggressive limit-takers (immediate-or-cancel above
+    // mid for buys, below mid for sells) would technically be takers, but
+    // for paper sim we always charge maker on type='limit' since the engine
+    // doesn't model fill probability — net effect: paper PnL reflects an
+    // optimistic-but-honest maker scenario. Real-mode adapters should still
+    // route to the live exchange's actual taker/maker fill report.
     const orderValue = executionPrice * order.quantity;
+    const exchangeRates = this.COMMISSION_RATES[this.config.exchange];
+    const isMaker = order.type === 'limit';
+    const commissionRate = isMaker ? exchangeRates.maker : exchangeRates.taker;
     const commission = this.config.enableCommission
-      ? orderValue * this.COMMISSION_RATES[this.config.exchange]
+      ? orderValue * commissionRate
       : 0;
 
     // ✅ CRITICAL FIX: Check available balance (balance - margin used)

@@ -41,18 +41,30 @@ import { getPortfolioRiskManager, type OpenPositionInfo } from './PortfolioRiskM
 export interface EnhancedTradeExecutorConfig {
   // Entry validation
   requireEntryValidation: boolean;
-  
+
   // Exit management
   useIntegratedExitManager: boolean;
-  
+
   // Risk management
   useWeek9RiskManager: boolean;
-  
+
   // Fallback settings (when advanced features disabled)
   maxPositionSize: number;
   defaultStopLoss: number;
   defaultTakeProfit: number;
   maxPositions: number;
+
+  // Phase 34 — maker-first execution.
+  // When true, entry orders are placed as 'limit' (paying maker rate ~0.35%
+  // on Coinbase paper sim instead of 0.50% taker), saving ~0.30% per
+  // round-trip on the configured exchange. Paper mode fills limits
+  // immediately at the limit price — there's no orderbook simulation, so
+  // the savings reflect "honest maker pricing if the limit had filled at
+  // the post price." Real-mode adapters must enforce post-only / IOC
+  // semantics to actually realize the maker rebate. Defaults to false to
+  // preserve prior production behavior; flip to true after measuring
+  // expected fill probability.
+  preferMakerOnEntry?: boolean;
 }
 
 // Phase 18: Defaults aligned with TradingConfig (single source of truth)
@@ -64,6 +76,7 @@ const DEFAULT_CONFIG: EnhancedTradeExecutorConfig = {
   defaultStopLoss: Math.abs(getTradingConfig().exits.hardStopLossPercent) / 100,
   defaultTakeProfit: getTradingConfig().exits.profitTargets[2] / 100,
   maxPositions: getTradingConfig().positionSizing.maxConcurrentPositions,
+  preferMakerOnEntry: false,
 };
 
 export class EnhancedTradeExecutor extends EventEmitter {
@@ -857,9 +870,16 @@ export class EnhancedTradeExecutor extends EventEmitter {
       const engine = this.tradingEngine || this.paperTradingEngine;
       if (!engine) throw new Error('No trading engine available');
 
+      // Phase 34 — opt-in maker-first entry. When the config flag is set,
+      // route entry orders as 'limit' so the paper engine charges the maker
+      // commission rate. Saves ~0.30% per round-trip on Coinbase paper sim.
+      // Live-exchange adapters must enforce post-only or IOC semantics to
+      // actually realize the rebate; the paper engine simulates an
+      // optimistic fill at the limit price.
+      const orderType: 'market' | 'limit' = this.config.preferMakerOnEntry ? 'limit' : 'market';
       const order = await engine.placeOrder({
         symbol,
-        type: 'market',
+        type: orderType,
         side: recommendation.action === 'buy' ? 'buy' : 'sell',
         quantity,
         price: currentPrice,
