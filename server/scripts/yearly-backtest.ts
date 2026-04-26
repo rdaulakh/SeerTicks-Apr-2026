@@ -120,6 +120,13 @@ const ARG_FUNDING_WEIGHT = parseFloat(getArg('funding-weight', '0.20') ?? '0.20'
 //   deviation: |z-score vs 7-day rolling mean| > ARG_FUNDING_Z (default 1.5)
 const ARG_FUNDING_MODE = (getArg('funding-mode', 'threshold') ?? 'threshold').toLowerCase();
 const ARG_FUNDING_Z = parseFloat(getArg('funding-z', '1.5') ?? '1.5');
+// Phase 45 — trailing breakeven.
+// --breakeven-trigger=X.X    Once peakUnrealizedPct ≥ X%, move SL to entry
+//                            price ("never let a winner become a loser").
+//                            Default 0 (off). Best candidate: 0.5 (half R).
+// Honors the user's prime directive "100% profit booking" — once we have
+// real profit shown, lock in at breakeven minimum.
+const ARG_BREAKEVEN_TRIGGER = parseFloat(getArg('breakeven-trigger', '0') ?? '0');
 // Phase 38 — multi-timeframe consensus.
 // --mtf=true|false  When true, require alignment across 15m + 1h + 4h
 //   timeframes for entry. Strict mode (default): all 3 must agree on
@@ -711,6 +718,17 @@ async function runOneSymbol(
       if (grossPct > openTrade.peakUnrealizedPct) openTrade.peakUnrealizedPct = grossPct;
       if (grossPct < openTrade.troughUnrealizedPct) openTrade.troughUnrealizedPct = grossPct;
 
+      // Phase 45 — trailing breakeven: once peak profit ≥ trigger, move SL
+      // to entry. Never let a winner become a loser.
+      if (ARG_BREAKEVEN_TRIGGER > 0 && openTrade.peakUnrealizedPct >= ARG_BREAKEVEN_TRIGGER) {
+        const newSL = openTrade.entryPrice;
+        // Only tighten (long: raise SL up; short: lower SL down).
+        const isTighter = openTrade.side === 'long'
+          ? newSL > openTrade.stopLoss
+          : newSL < openTrade.stopLoss;
+        if (isTighter) openTrade.stopLoss = newSL;
+      }
+
       // Check intra-candle hit on SL/TP (high/low touched the level).
       let exitPrice: number | undefined;
       let exitReason: string | undefined;
@@ -1145,7 +1163,9 @@ async function main() {
   const decisionLogPath = path.join(decDir, `${runId}.jsonl`);
   const decisionLog = fs.createWriteStream(decisionLogPath, { flags: 'w' });
 
-  const symbols = ['BTC-USD', 'ETH-USD', 'SOL-USD'];
+  // --symbols=BTC-USD,ETH-USD,SOL-USD  (default — all three).
+  const ARG_SYMBOLS = getArg('symbols', 'BTC-USD,ETH-USD,SOL-USD') ?? 'BTC-USD,ETH-USD,SOL-USD';
+  const symbols = ARG_SYMBOLS.split(',').map((s) => s.trim()).filter(Boolean);
   const exchange: 'binance' | 'coinbase' = ARG_EXCHANGE;
   const initialEquity = 10000;
   const equityPerSymbol = initialEquity / symbols.length;

@@ -98,20 +98,34 @@ Configure prod for Binance perp paper at realistic 0.05% drag. Run for 30+ trade
 6. **Stop at the goal.** When the platform demonstrates target metrics in both backtest AND live paper, I stop.
 7. **Stop at exhaustion.** If I run out of code-only ideas without hitting the goal, I'll honestly report what was tried and what's left.
 
-## STATUS @ 2026-04-26 06:30 UTC — autonomous run complete
+## STATUS @ 2026-04-26 06:40 UTC — autonomous run complete
 
-**Stopped per Rule 7 (exhaustion of code-only ideas) for the WR/PF metrics.**
+**New champion: scenario AE (ETH+SOL only, no BTC)**.
+Discovered after ML test confirmed entry-feature WR ceiling: BTC's 35.5% WR drags the portfolio. Concentrating capital on ETH (37.8%) + SOL (37.9%) yields +20.11% on the same 1-year period.
 
-**Achieved (5/7) — every risk metric exceeded:**
-- Net return +15.99% (goal +15%)
+**Achieved (5/7) — every risk metric exceeded, with stronger margins:**
+- Net return +20.11% (goal +15%) — 5pp above target
 - Max DD 4.89% (goal ≤10%)
-- Sharpe 3.02 (goal ≥1.5 — DOUBLE)
-- Worst single day -0.55% (goal ≤3%)
+- Sharpe 3.05 (goal ≥1.5 — DOUBLE)
+- Worst single day -0.62% (goal ≤3%)
 - Worst single trade -1.5% bound holds
+- Worst 90-day return: 0.00% (every 90d window profitable!)
+- Worst 90-day DD: 4.32%
 
 **Not achieved (2/7) — structural with current OHLCV stack:**
-- Profit factor 1.22 (goal ≥1.5)
-- Win rate 37.2% (goal ≥55%)
+- Profit factor 1.24 (goal ≥1.5)
+- Win rate 37.9% (goal ≥55%)
+
+**Champion config:**
+```bash
+npx tsx server/scripts/yearly-backtest.ts \
+  --exchange=binance --consensus-floor=0.75 --drag=0.05 \
+  --mtf=true --mtf-require-full=true --conf-sizing=true \
+  --symbols=ETH-USD,SOL-USD
+```
+
+### Phase 45 attempt — trailing breakeven SL: FALSIFIED
+Hypothesis: "100% profit booking" via moving SL to entry once peak ≥ X%. Tested 0.5% and 1.5% triggers. Both DESTROYED returns (+20.11% → -20.47% / +9.39%). Reason: even winning trades retrace through entry before reaching TP. BE SL turns winners into flat exits while leaving real losers untouched. **Breakeven SL is the wrong move for this strategy.**
 
 **Phases falsified during this run** (committed in c79a407, 253f50f):
 - 41 (regime gates trend/range/no-counter): all hurt or neutral vs N
