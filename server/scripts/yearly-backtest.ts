@@ -1077,10 +1077,16 @@ async function runOneSymbol(
         // Phase 39 sizing curve — exponential boost for high-conviction.
         // Tuned on K-scenario data: ≥0.85 conf has same WR but should claim
         // disproportionately more capital because gross PnL/trade is higher.
-        if (consensus.strength >= 0.95) sizeMultiplier = 2.0;
-        else if (consensus.strength >= 0.85) sizeMultiplier = 1.6;
-        else if (consensus.strength >= 0.75) sizeMultiplier = 1.0;
-        else sizeMultiplier = 0.5;
+        // CLI override available via --size-095 / --size-085 / --size-075 /
+        // --size-low for sweep tuning (defaults are champion N values).
+        const s95 = parseFloat(getArg('size-095', '2.0') ?? '2.0');
+        const s85 = parseFloat(getArg('size-085', '1.6') ?? '1.6');
+        const s75 = parseFloat(getArg('size-075', '1.0') ?? '1.0');
+        const sLo = parseFloat(getArg('size-low', '0.5') ?? '0.5');
+        if (consensus.strength >= 0.95) sizeMultiplier = s95;
+        else if (consensus.strength >= 0.85) sizeMultiplier = s85;
+        else if (consensus.strength >= 0.75) sizeMultiplier = s75;
+        else sizeMultiplier = sLo;
       }
       const notional = equity * cfg.positionSizing.maxPositionSizePercent * sizeMultiplier;
       const quantity = notional / lastClose;
