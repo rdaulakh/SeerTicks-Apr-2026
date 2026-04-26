@@ -114,6 +114,12 @@ const ARG_DRAG_OVERRIDE = parseFloat(getArg('drag', '0') ?? '0');
 // --funding-weight=0.20  Override FundingRateAnalyst weight (0..1). Higher
 // makes funding dominate the consensus.
 const ARG_FUNDING_WEIGHT = parseFloat(getArg('funding-weight', '0.20') ?? '0.20');
+// Phase 40 — funding-deviation mode.
+// --funding-mode=threshold|deviation
+//   threshold: absolute |rate| > 0.0001 (default, prior behavior)
+//   deviation: |z-score vs 7-day rolling mean| > ARG_FUNDING_Z (default 1.5)
+const ARG_FUNDING_MODE = (getArg('funding-mode', 'threshold') ?? 'threshold').toLowerCase();
+const ARG_FUNDING_Z = parseFloat(getArg('funding-z', '1.5') ?? '1.5');
 // Phase 38 — multi-timeframe consensus.
 // --mtf=true|false  When true, require alignment across 15m + 1h + 4h
 //   timeframes for entry. Strict mode (default): all 3 must agree on
@@ -199,7 +205,7 @@ if (ARG_FUNDING_WEIGHT > 0 && ARG_FUNDING_WEIGHT !== 0.20) {
   }
   defaultAgentWeights.FundingRateAnalyst = ARG_FUNDING_WEIGHT;
 }
-console.log(`[backtest] params: exchange=${ARG_EXCHANGE} consensusFloor=${ARG_CONSENSUS_FLOOR} sl=${ARG_SL_ATR}×ATR tp=${ARG_TP_ATR}×ATR walkedTP=${ARG_USE_WALKED_TP} dragOverride=${ARG_DRAG_OVERRIDE > 0 ? ARG_DRAG_OVERRIDE.toFixed(2) + '%' : '(use exchange default)'} fundingWeight=${ARG_FUNDING_WEIGHT.toFixed(2)} mtf=${ARG_MTF}/${ARG_MTF_REQUIRE_FULL ? 'strict' : 'lenient'} confSizing=${ARG_CONF_SIZING} maxAtrRatio=${ARG_MAX_ATR_RATIO} dynSL=${ARG_DYN_SL} regime=${RESOLVED_REGIME_MODE}(band=${ARG_REGIME_BAND_PCT}%) vwapGate=${ARG_VWAP_GATE}(zMin=${ARG_VWAP_Z_MIN}) timeFilter=${ARG_TIME_FILTER} confCap=${ARG_CONF_CAP} minAligned=${ARG_MIN_ALIGNED} label=${ARG_LABEL || '(none)'}`);
+console.log(`[backtest] params: exchange=${ARG_EXCHANGE} consensusFloor=${ARG_CONSENSUS_FLOOR} sl=${ARG_SL_ATR}×ATR tp=${ARG_TP_ATR}×ATR walkedTP=${ARG_USE_WALKED_TP} dragOverride=${ARG_DRAG_OVERRIDE > 0 ? ARG_DRAG_OVERRIDE.toFixed(2) + '%' : '(use exchange default)'} fundingWeight=${ARG_FUNDING_WEIGHT.toFixed(2)} mtf=${ARG_MTF}/${ARG_MTF_REQUIRE_FULL ? 'strict' : 'lenient'} confSizing=${ARG_CONF_SIZING} maxAtrRatio=${ARG_MAX_ATR_RATIO} dynSL=${ARG_DYN_SL} regime=${RESOLVED_REGIME_MODE}(band=${ARG_REGIME_BAND_PCT}%) vwapGate=${ARG_VWAP_GATE}(zMin=${ARG_VWAP_Z_MIN}) timeFilter=${ARG_TIME_FILTER} confCap=${ARG_CONF_CAP} minAligned=${ARG_MIN_ALIGNED} fundingMode=${ARG_FUNDING_MODE}(z=${ARG_FUNDING_Z}) label=${ARG_LABEL || '(none)'}`);
 
 // Apply drag override to TradingConfig if specified.
 if (ARG_DRAG_OVERRIDE > 0) {
@@ -359,6 +365,59 @@ function buildFundingSignal(events: FundingEvent[] | undefined, symbol: string, 
     timestamp: t,
     executionScore: 65,
     evidence: { fundingRate: rate, fundingTime: latest.t },
+  } as any;
+}
+
+// Phase 40 — funding-deviation signal.
+// Instead of absolute thresholds (binary at 0.0001/8h), use deviation from
+// 7-day (21-event) rolling average. Hypothesis: regime-relative funding
+// signals when the leverage crowding has CHANGED, which is more
+// predictive than absolute level (the level is regime-dependent).
+//
+// Logic at evaluation time t:
+//   take latest funding + prior 20 events (7-day window)
+//   mean = average rate across the 21
+//   stdDev = standard deviation of rates across the 21
+//   z = (latest.rate - mean) / stdDev
+//   if z > +ARG_FUNDING_Z_THRESHOLD   → BEARISH (long crowding spike)
+//   if z < -ARG_FUNDING_Z_THRESHOLD   → BULLISH (short crowding spike)
+//   else → no signal
+function buildFundingDeviationSignal(
+  events: FundingEvent[] | undefined,
+  symbol: string,
+  t: number,
+  zThreshold: number,
+): AgentSignal | null {
+  if (!events) return null;
+  const latest = findLatestFunding(events, t);
+  if (!latest) return null;
+  // Find index of latest in events (linear search ok — small array overall).
+  // Actually since we used binary search in findLatestFunding, repeat it.
+  let lo = 0, hi = events.length - 1, latestIdx = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (events[mid].t <= t) { latestIdx = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  if (latestIdx < 20) return null; // need at least 21 events of history (7 days)
+  const window = events.slice(latestIdx - 20, latestIdx + 1);
+  const mean = window.reduce((s, e) => s + e.rate, 0) / window.length;
+  const variance = window.reduce((s, e) => s + (e.rate - mean) ** 2, 0) / window.length;
+  const stdDev = Math.sqrt(variance);
+  if (stdDev <= 0) return null;
+  const z = (latest.rate - mean) / stdDev;
+  if (Math.abs(z) < zThreshold) return null;
+  const direction: 'bullish' | 'bearish' = z > 0 ? 'bearish' : 'bullish';
+  // Confidence scales with |z|. Bounded [0.55, 0.90].
+  const confidence = Math.min(0.90, 0.55 + (Math.abs(z) - zThreshold) * 0.15);
+  return {
+    agentName: 'FundingRateAnalyst',
+    symbol,
+    signal: direction,
+    confidence,
+    reasoning: `funding-z=${z.toFixed(2)} (rate ${(latest.rate * 100).toFixed(4)}% vs 7d-avg ${(mean * 100).toFixed(4)}%)`,
+    timestamp: t,
+    executionScore: 65,
+    evidence: { fundingRate: latest.rate, mean, stdDev, z, fundingTime: latest.t },
   } as any;
 }
 
@@ -583,7 +642,9 @@ function buildAgentSignals(
   }
 
   // Agent 5: FundingRateAnalyst — Binance perp funding rate (8h cadence).
-  const fundingSig = buildFundingSignal(fundingEvents, symbol, t);
+  const fundingSig = ARG_FUNDING_MODE === 'deviation'
+    ? buildFundingDeviationSignal(fundingEvents, symbol, t, ARG_FUNDING_Z)
+    : buildFundingSignal(fundingEvents, symbol, t);
   if (fundingSig) signals.push(fundingSig);
 
   // Phase 42 — VwapDeviation no longer used as a voting agent (correlates
@@ -1196,6 +1257,61 @@ function generateReport(
     }
   }
 
+  // Phase 44 prep — Sharpe ratio + worst-day DD.
+  // Daily PnL: aggregate by exit-day (when PnL is realized).
+  const dailyPnl: Record<string, number> = {};
+  for (const t of allTrades) {
+    if (t.exitTime === undefined) continue;
+    const day = new Date(t.exitTime).toISOString().slice(0, 10);
+    dailyPnl[day] = (dailyPnl[day] ?? 0) + (t.netPnlAbs ?? 0);
+  }
+  const days = Object.keys(dailyPnl).sort();
+  const dailyReturns = days.map((d) => dailyPnl[d] / initialEquity);
+  let sharpeAnnualized = 0;
+  if (dailyReturns.length > 1) {
+    const meanDaily = dailyReturns.reduce((s, r) => s + r, 0) / dailyReturns.length;
+    const variance = dailyReturns.reduce((s, r) => s + (r - meanDaily) ** 2, 0) / dailyReturns.length;
+    const stdDaily = Math.sqrt(variance);
+    if (stdDaily > 0) sharpeAnnualized = (meanDaily / stdDaily) * Math.sqrt(365);
+  }
+  // Worst single-day drawdown (% of initial equity)
+  const worstDayPct = dailyReturns.length > 0
+    ? Math.min(...dailyReturns) * 100
+    : 0;
+
+  // 90-day rolling-window worst metrics (the goal specifies "any 90-day window").
+  const windowDays = 90;
+  let worstWindowReturn = 0;
+  let worstWindowDD = 0;
+  let worstWindowWinRate = 100;
+  if (days.length >= windowDays) {
+    for (let i = 0; i + windowDays <= days.length; i++) {
+      const window = days.slice(i, i + windowDays);
+      const sumReturn = window.reduce((s, d) => s + dailyPnl[d], 0) / initialEquity * 100;
+      // peak-to-trough DD inside the window
+      let cumulative = 0;
+      let peak = 0;
+      let dd = 0;
+      for (const d of window) {
+        cumulative += dailyPnl[d];
+        if (cumulative > peak) peak = cumulative;
+        const ddNow = peak > 0 ? ((peak - cumulative) / initialEquity) * 100 : 0;
+        if (ddNow > dd) dd = ddNow;
+      }
+      if (sumReturn < worstWindowReturn) worstWindowReturn = sumReturn;
+      if (dd > worstWindowDD) worstWindowDD = dd;
+      // Win rate in window
+      const startMs = new Date(window[0]).getTime();
+      const endMs = new Date(window[window.length - 1]).getTime() + 86400_000;
+      const trs = allTrades.filter((t) => t.exitTime !== undefined && t.exitTime >= startMs && t.exitTime < endMs);
+      if (trs.length > 0) {
+        const w = trs.filter((t) => (t.netPnlAbs ?? 0) > 0).length;
+        const wr = (w / trs.length) * 100;
+        if (wr < worstWindowWinRate) worstWindowWinRate = wr;
+      }
+    }
+  }
+
   // Per-symbol breakdown
   const perSymbol = symbols.map((sym) => {
     const ts = symbolResults[sym]?.trades ?? [];
@@ -1290,6 +1406,13 @@ function generateReport(
   lines.push(`| **Avg loss** | $${avgLoss.toFixed(2)} |`);
   lines.push(`| **Profit factor** | ${isFinite(profitFactor) ? profitFactor.toFixed(2) : '∞'} |`);
   lines.push(`| **Max drawdown** | ${maxDrawdownPct.toFixed(2)}% |`);
+  lines.push(`| **Sharpe (daily, annualized)** | ${sharpeAnnualized.toFixed(2)} |`);
+  lines.push(`| **Worst single day** | ${worstDayPct.toFixed(2)}% |`);
+  if (days.length >= windowDays) {
+    lines.push(`| **Worst 90d return** | ${worstWindowReturn.toFixed(2)}% |`);
+    lines.push(`| **Worst 90d DD** | ${worstWindowDD.toFixed(2)}% |`);
+    lines.push(`| **Worst 90d WR** | ${worstWindowWinRate.toFixed(1)}% |`);
+  }
   lines.push(``);
 
   lines.push(`---`);
