@@ -34,8 +34,15 @@ const SYMBOLS: Array<{ display: string; binance: string }> = [
   { display: 'SOL-USD', binance: 'SOLUSDT' },
 ];
 
-const INTERVAL = '15m';
-const INTERVAL_MS = 15 * 60_000;
+// Phase 38 — make INTERVAL CLI-controllable so we can fetch 1h and 4h too.
+function getArg(name: string, fallback: string): string {
+  const prefix = `--${name}=`;
+  const found = process.argv.find((a) => a.startsWith(prefix));
+  return found ? found.slice(prefix.length) : fallback;
+}
+const INTERVAL = getArg('interval', '15m');
+const INTERVAL_MS_BY = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000 } as const;
+const INTERVAL_MS = (INTERVAL_MS_BY as any)[INTERVAL] ?? 900_000;
 const NOW = Date.now();
 const ONE_YEAR_MS = 365 * 24 * 60 * 60_000;
 const START_TIME = NOW - ONE_YEAR_MS;
@@ -118,7 +125,8 @@ async function main() {
       fetchedAt: new Date().toISOString(),
       candles,
     };
-    const outPath = path.join(outDir, `${display}.json`);
+    // Filename includes the interval so 15m / 1h / 4h coexist.
+    const outPath = path.join(outDir, `${display}-${INTERVAL}.json`);
     fs.writeFileSync(outPath, JSON.stringify(out));
     const sizeMb = (fs.statSync(outPath).size / 1024 / 1024).toFixed(2);
     console.log(`[fetch-yearly] ${display}: wrote ${outPath} (${sizeMb} MB)`);

@@ -81,6 +81,9 @@ setTradingConfig({ ...PRODUCTION_CONFIG });
 // horizon). Weighting: gave it 0.30 — funding has documented predictive
 // edge in academic literature; the OHLCV-derived agents are weighted
 // proportionally lower to make room.
+// Phase 42 revert — VWAP-as-agent inflated trade count via correlation with
+// TechnicalAnalyst. Reverted to 5-agent weights; VWAP now used only as a
+// gate (--vwap-gate=true), see entry logic.
 const defaultAgentWeights: Record<string, number> = {
   TechnicalAnalyst: 0.25,
   PatternMatcher: 0.20,
@@ -111,6 +114,81 @@ const ARG_DRAG_OVERRIDE = parseFloat(getArg('drag', '0') ?? '0');
 // --funding-weight=0.20  Override FundingRateAnalyst weight (0..1). Higher
 // makes funding dominate the consensus.
 const ARG_FUNDING_WEIGHT = parseFloat(getArg('funding-weight', '0.20') ?? '0.20');
+// Phase 38 — multi-timeframe consensus.
+// --mtf=true|false  When true, require alignment across 15m + 1h + 4h
+//   timeframes for entry. Strict mode (default): all 3 must agree on
+//   direction. Lenient mode (--mtf-require-full=false): 1h must match or
+//   be neutral, 4h must match or be neutral.
+// NOTE: default is STRICT — this was the configuration that produced the
+// +15.99% champion run (scenario N). Lenient mode adds many more entries
+// at lower win-rate.
+const ARG_MTF = (getArg('mtf', 'false') ?? 'false').toLowerCase() === 'true';
+const ARG_MTF_REQUIRE_FULL = (getArg('mtf-require-full', 'true') ?? 'true').toLowerCase() === 'true';
+// Phase 39 — confidence-conditional position sizing.
+// --conf-sizing=true|false  When true, size positions by consensus strength:
+//   strength ≥ 0.85 → 1.5× base sizing
+//   0.75 ≤ strength < 0.85 → 1.0× base sizing
+//   below 0.75 (shouldn't pass entry) → 0.5× safety
+// Boosts EV-weighted exposure without changing trade frequency. Most strongly-
+// believed trades get more capital, marginal trades less.
+const ARG_CONF_SIZING = (getArg('conf-sizing', 'false') ?? 'false').toLowerCase() === 'true';
+// Phase 41 — volatility regime filter.
+// --max-atr-ratio=2.0  Skip trades when current ATR exceeds N× the 7-day
+//   rolling-average ATR. Captures the "volatile-dislocated" regime where
+//   our 2×ATR SL is too narrow — those trades disproportionately hit
+//   catastrophic stop. Default off (set to 0 to disable).
+const ARG_MAX_ATR_RATIO = parseFloat(getArg('max-atr-ratio', '0') ?? '0');
+// Phase 41 — dynamic SL widening based on volatility regime.
+// --dyn-sl=true|false  When true, scale SL multiplier UP in high-volatility
+//   regimes. atrRatio (current/rolling-avg) is used. Logic:
+//     atrRatio < 1.0 → SL × 1.0 (low-vol, normal SL)
+//     1.0 ≤ atrRatio < 1.5 → SL × 1.0 (normal-vol, normal)
+//     atrRatio ≥ 1.5 → SL × 1.5 (high-vol, wider SL)
+//   Catastrophic floor scales similarly. Aim: reduce CATASTROPHIC exits
+//   from 10% of losses by giving high-vol trades more room.
+const ARG_DYN_SL = (getArg('dyn-sl', 'false') ?? 'false').toLowerCase() === 'true';
+// Phase 41 — regime-mode trading.
+// --regime-mode=off|trend|range|no-counter
+//   off          (default): no regime filter
+//   trend        only trade when consensus direction matches 4h SMA50/200 regime
+//                (rejects range and counter-trend) — proved BAD in scenario Q
+//   range        only trade when 4h is ranging (|SMA50-SMA200| < band)
+//                — hypothesis: agent stack is mean-reverting, prefers chop
+//   no-counter   reject only explicit counter-trend trades (allow range + aligned)
+//                — least restrictive
+// Detection: SMA50 > SMA200 + band → up; < SMA200 - band → down; else range.
+// Band default 0.25%. Need ≥ 200 4h candles (~33d).
+const ARG_REGIME_MODE = (getArg('regime-mode', 'off') ?? 'off').toLowerCase();
+const ARG_REGIME_BAND_PCT = parseFloat(getArg('regime-band-pct', '0.25') ?? '0.25');
+// Back-compat: --trend-only=true → --regime-mode=trend.
+const ARG_TREND_ONLY = (getArg('trend-only', 'false') ?? 'false').toLowerCase() === 'true';
+const RESOLVED_REGIME_MODE = ARG_TREND_ONLY ? 'trend' : ARG_REGIME_MODE;
+// Phase 43 — empirical entry filters (slices found via analyze-trade-features
+// over scenario N).
+// --time-filter=true|false   When true, skip trades during empirically lossy
+//   UTC hour buckets (18-21h, WR 30.2%) and Saturday (UTC day 6, WR 29.6%).
+// --conf-cap=X.XX            When set, reject entries where average agent
+//   confidence > X (default 1.0 = off). Best at 0.75 — high conf was lossy.
+// --min-aligned=N            Require at least N agents agreeing with consensus
+//   direction. Default 1 (off). Setting to 2 filters the worst 1-aligned bucket.
+const ARG_TIME_FILTER = (getArg('time-filter', 'false') ?? 'false').toLowerCase() === 'true';
+const ARG_CONF_CAP = parseFloat(getArg('conf-cap', '1.0') ?? '1.0');
+const ARG_MIN_ALIGNED = parseInt(getArg('min-aligned', '1') ?? '1', 10);
+// Phase 42 — VWAP gate.
+// --vwap-gate=true|false  When true, require price-to-VWAP relationship.
+// --vwap-gate-mode=mean-rev|trend  Default mean-rev.
+//   mean-rev: long pass only if z ≤ -X (price below VWAP, bounce up).
+//             short pass only if z ≥ +X (price above VWAP, drop down).
+//   trend:    long pass only if z ≥ +X (price above VWAP, ride up).
+//             short pass only if z ≤ -X (price below VWAP, ride down).
+// --vwap-z-min=X.X   z-score threshold (default 1.5).
+// Investigation found ~50% of TechnicalAnalyst signals are mean-rev (RSI
+// extremes) and ~50% are trend-cont (SMA stack). A single gate mode only
+// helps half the time. Both modes provided for empirical comparison; ML
+// (Phase 43) is the real fix to learn signal-type per trade.
+const ARG_VWAP_GATE = (getArg('vwap-gate', 'false') ?? 'false').toLowerCase() === 'true';
+const ARG_VWAP_GATE_MODE = (getArg('vwap-gate-mode', 'mean-rev') ?? 'mean-rev').toLowerCase();
+const ARG_VWAP_Z_MIN = parseFloat(getArg('vwap-z-min', '1.5') ?? '1.5');
 if (ARG_FUNDING_WEIGHT > 0 && ARG_FUNDING_WEIGHT !== 0.20) {
   // Renormalize: rescale the other 4 agents proportionally so total ≈ 1.
   const otherTotal = 1.0 - ARG_FUNDING_WEIGHT;
@@ -121,7 +199,7 @@ if (ARG_FUNDING_WEIGHT > 0 && ARG_FUNDING_WEIGHT !== 0.20) {
   }
   defaultAgentWeights.FundingRateAnalyst = ARG_FUNDING_WEIGHT;
 }
-console.log(`[backtest] params: exchange=${ARG_EXCHANGE} consensusFloor=${ARG_CONSENSUS_FLOOR} sl=${ARG_SL_ATR}×ATR tp=${ARG_TP_ATR}×ATR walkedTP=${ARG_USE_WALKED_TP} dragOverride=${ARG_DRAG_OVERRIDE > 0 ? ARG_DRAG_OVERRIDE.toFixed(2) + '%' : '(use exchange default)'} fundingWeight=${ARG_FUNDING_WEIGHT.toFixed(2)} label=${ARG_LABEL || '(none)'}`);
+console.log(`[backtest] params: exchange=${ARG_EXCHANGE} consensusFloor=${ARG_CONSENSUS_FLOOR} sl=${ARG_SL_ATR}×ATR tp=${ARG_TP_ATR}×ATR walkedTP=${ARG_USE_WALKED_TP} dragOverride=${ARG_DRAG_OVERRIDE > 0 ? ARG_DRAG_OVERRIDE.toFixed(2) + '%' : '(use exchange default)'} fundingWeight=${ARG_FUNDING_WEIGHT.toFixed(2)} mtf=${ARG_MTF}/${ARG_MTF_REQUIRE_FULL ? 'strict' : 'lenient'} confSizing=${ARG_CONF_SIZING} maxAtrRatio=${ARG_MAX_ATR_RATIO} dynSL=${ARG_DYN_SL} regime=${RESOLVED_REGIME_MODE}(band=${ARG_REGIME_BAND_PCT}%) vwapGate=${ARG_VWAP_GATE}(zMin=${ARG_VWAP_Z_MIN}) timeFilter=${ARG_TIME_FILTER} confCap=${ARG_CONF_CAP} minAligned=${ARG_MIN_ALIGNED} label=${ARG_LABEL || '(none)'}`);
 
 // Apply drag override to TradingConfig if specified.
 if (ARG_DRAG_OVERRIDE > 0) {
@@ -281,6 +359,65 @@ function buildFundingSignal(events: FundingEvent[] | undefined, symbol: string, 
     timestamp: t,
     executionScore: 65,
     evidence: { fundingRate: rate, fundingTime: latest.t },
+  } as any;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Phase 42 — VWAP-deviation agent.
+//
+// Why VWAP and not another moving average: VWAP weights price by volume,
+// so it converges to where actual contracts traded — the "fair value" of
+// the recent session. Deviations above/below VWAP that are large in z-score
+// terms tend to revert. This is documented intra-day mean-reversion edge.
+//
+// Window: rolling 96 bars (24h on 15m). Compute:
+//   vwap_t  = Σ(p_i × v_i) / Σ(v_i)  for i in last 96
+//   sigma_t = std deviation of (close_i - vwap_t) over the same window
+//   z_t     = (close_t - vwap_t) / sigma_t
+// Signal:
+//   z > +2  → BEARISH (price stretched above fair → expect revert)
+//   z < -2  → BULLISH (price stretched below fair → expect revert)
+//   |z| ≤ 1 → NEUTRAL (no edge)
+//   1 < |z| < 2 → weak signal, lower confidence
+// ─────────────────────────────────────────────────────────────────────────
+function buildVwapSignal(history: Candle[], symbol: string, t: number): AgentSignal | null {
+  const N = 96;
+  if (history.length < N) return null;
+  const window = history.slice(-N);
+  let pvSum = 0, vSum = 0;
+  for (const c of window) {
+    const tp = (c.h + c.l + c.c) / 3;
+    pvSum += tp * c.v;
+    vSum += c.v;
+  }
+  if (vSum <= 0) return null;
+  const vwap = pvSum / vSum;
+  // std dev of (close - vwap) over the window.
+  let sqSum = 0;
+  for (const c of window) sqSum += (c.c - vwap) ** 2;
+  const sigma = Math.sqrt(sqSum / window.length);
+  if (sigma <= 0) return null;
+  const last = history[history.length - 1].c;
+  const z = (last - vwap) / sigma;
+  const absZ = Math.abs(z);
+  // Always return the raw z so callers can apply their own threshold.
+  // Direction is mean-reversion: above VWAP → expect down (bearish), and
+  // below → expect up (bullish). 'neutral' if z==0 exactly.
+  let direction: 'bullish' | 'bearish' | 'neutral';
+  if (z > 0) direction = 'bearish';
+  else if (z < 0) direction = 'bullish';
+  else direction = 'neutral';
+  // Confidence scales with |z|. Bounded [0.50, 0.90].
+  const confidence = Math.min(0.90, 0.50 + absZ * 0.15);
+  return {
+    agentName: 'VwapDeviation',
+    symbol,
+    signal: direction,
+    confidence,
+    reasoning: `VWAP z=${z.toFixed(2)} (price ${last.toFixed(2)} vs VWAP ${vwap.toFixed(2)} σ=${sigma.toFixed(2)})`,
+    timestamp: t,
+    executionScore: 60,
+    evidence: { vwap, sigma, z },
   } as any;
 }
 
@@ -449,6 +586,10 @@ function buildAgentSignals(
   const fundingSig = buildFundingSignal(fundingEvents, symbol, t);
   if (fundingSig) signals.push(fundingSig);
 
+  // Phase 42 — VwapDeviation no longer used as a voting agent (correlates
+  // with TechnicalAnalyst, inflated eligibility). Used as an entry-gate
+  // only (see ARG_VWAP_GATE branch in runOneSymbol).
+
   return signals;
 }
 
@@ -462,7 +603,32 @@ async function runOneSymbol(
   initialEquity: number,
   decisionLog: fs.WriteStream,
   fundingEvents?: FundingEvent[],
+  candles1h: Candle[] = [],
+  candles4h: Candle[] = [],
 ): Promise<{ trades: BacktestTrade[]; equityCurve: Array<{ t: number; equity: number }> }> {
+
+  // Phase 38 — helper: get the slice of higher-timeframe candles up to time t.
+  // Binary-searches once per call; called rarely (only on entry evaluation).
+  function sliceUpTo(arr: Candle[], t: number): Candle[] {
+    if (arr.length === 0 || t < arr[0].t) return [];
+    let lo = 0, hi = arr.length - 1, ans = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (arr[mid].t <= t) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    return ans >= 0 ? arr.slice(0, ans + 1) : [];
+  }
+
+  // Phase 38 — compute consensus direction for a single timeframe.
+  function consensusOnTimeframe(history: Candle[]): 'bullish' | 'bearish' | 'neutral' {
+    if (history.length < 50) return 'neutral';
+    const sigs = buildAgentSignals(history, symbol, history[history.length - 1].t, fundingEvents);
+    const eligible = sigs.filter((s) => s.signal !== 'neutral' && s.confidence >= 0.50);
+    if (eligible.length < 2) return 'neutral';
+    const c = aggregateSignals(eligible, defaultAgentWeights, undefined);
+    if (c.strength < 0.50) return 'neutral';
+    return c.direction === 'bullish' || c.direction === 'bearish' ? c.direction : 'neutral';
+  }
   const cfg = getTradingConfig();
   const minHistory = 50;
   const trades: BacktestTrade[] = [];
@@ -590,6 +756,159 @@ async function runOneSymbol(
         continue;
       }
 
+      // Phase 43 — empirical entry filters from feature-bucket analysis.
+      // Time-of-day filter: hour 18-21 UTC (WR 30.2%) and Saturday (WR 29.6%).
+      if (ARG_TIME_FILTER) {
+        const d = new Date(candle.t);
+        const utcHour = d.getUTCHours();
+        const utcDay = d.getUTCDay(); // 0=Sun, 6=Sat
+        if ((utcHour >= 18 && utcHour < 21) || utcDay === 6) {
+          decisionLog.write(JSON.stringify({
+            t: candle.t, symbol, type: 'entry_rejected',
+            reason: `time_filter:hour=${utcHour} day=${utcDay}`,
+          }) + '\n');
+          equityCurve.push({ t: candle.t, equity });
+          continue;
+        }
+      }
+      // Confidence cap: high avg confidence (≥ 0.75) bucket had WR 26.8%.
+      if (ARG_CONF_CAP < 1.0) {
+        const avgConf = eligible.reduce((s, v) => s + v.confidence, 0) / Math.max(1, eligible.length);
+        if (avgConf > ARG_CONF_CAP) {
+          decisionLog.write(JSON.stringify({
+            t: candle.t, symbol, type: 'entry_rejected',
+            reason: `conf_cap:avg=${avgConf.toFixed(3)}>${ARG_CONF_CAP}`,
+          }) + '\n');
+          equityCurve.push({ t: candle.t, equity });
+          continue;
+        }
+      }
+      // Min-aligned: too few agents agreeing with consensus direction = noise.
+      if (ARG_MIN_ALIGNED > 1) {
+        const aligned = eligible.filter((v) => v.signal === consensus.direction).length;
+        if (aligned < ARG_MIN_ALIGNED) {
+          decisionLog.write(JSON.stringify({
+            t: candle.t, symbol, type: 'entry_rejected',
+            reason: `min_aligned:${aligned}<${ARG_MIN_ALIGNED}`,
+          }) + '\n');
+          equityCurve.push({ t: candle.t, equity });
+          continue;
+        }
+      }
+
+      // Phase 38 — multi-timeframe alignment.
+      // 15m alone is too noisy; require the 1h consensus to agree (or be
+      // neutral) AND the 4h consensus to NOT contradict. With ARG_MTF_REQUIRE_FULL,
+      // BOTH 1h and 4h must explicitly agree (strict). Otherwise: 1h must
+      // agree, 4h must not contradict.
+      if (ARG_MTF) {
+        const dir = consensus.direction;
+        const slice1h = sliceUpTo(candles1h, candle.t);
+        const slice4h = sliceUpTo(candles4h, candle.t);
+        const cons1h = consensusOnTimeframe(slice1h);
+        const cons4h = consensusOnTimeframe(slice4h);
+        let aligned: boolean;
+        if (ARG_MTF_REQUIRE_FULL) {
+          aligned = (cons1h === dir) && (cons4h === dir);
+        } else {
+          aligned = (cons1h === dir || cons1h === 'neutral') && (cons4h === dir || cons4h === 'neutral');
+        }
+        if (!aligned) {
+          decisionLog.write(JSON.stringify({
+            t: candle.t, symbol, type: 'entry_rejected',
+            reason: `mtf_misaligned:15m=${dir} 1h=${cons1h} 4h=${cons4h}`,
+          }) + '\n');
+          equityCurve.push({ t: candle.t, equity });
+          continue;
+        }
+      }
+
+      // Phase 41 — regime filter (4h SMA50 vs SMA200).
+      // Why 4h not 15m: 15m SMA200 = 50h, too short to define a regime.
+      // 4h SMA200 ≈ 33 days = market-wide trend scale.
+      // Modes (RESOLVED_REGIME_MODE): off / trend / range / no-counter.
+      if (RESOLVED_REGIME_MODE !== 'off') {
+        const slice4h = sliceUpTo(candles4h, candle.t);
+        if (slice4h.length >= 200) {
+          const closes4h = slice4h.map((c) => c.c);
+          const sma50_4h = sma(closes4h, 50);
+          const sma200_4h = sma(closes4h, 200);
+          if (sma50_4h !== undefined && sma200_4h !== undefined) {
+            const spreadPct = ((sma50_4h - sma200_4h) / sma200_4h) * 100;
+            const band = ARG_REGIME_BAND_PCT;
+            let regime: 'up' | 'down' | 'range';
+            if (spreadPct > band) regime = 'up';
+            else if (spreadPct < -band) regime = 'down';
+            else regime = 'range';
+
+            const dir = consensus.direction;
+            const aligned =
+              (regime === 'up' && dir === 'bullish') ||
+              (regime === 'down' && dir === 'bearish');
+            const counter =
+              (regime === 'up' && dir === 'bearish') ||
+              (regime === 'down' && dir === 'bullish');
+
+            let reject = false;
+            let reason = '';
+            if (RESOLVED_REGIME_MODE === 'trend') {
+              if (!aligned) { reject = true; reason = 'trend_misaligned'; }
+            } else if (RESOLVED_REGIME_MODE === 'range') {
+              if (regime !== 'range') { reject = true; reason = 'not_range'; }
+            } else if (RESOLVED_REGIME_MODE === 'no-counter') {
+              if (counter) { reject = true; reason = 'counter_trend'; }
+            }
+
+            if (reject) {
+              decisionLog.write(JSON.stringify({
+                t: candle.t, symbol, type: 'entry_rejected',
+                reason: `regime_${reason}:dir=${dir} regime=${regime} spread=${spreadPct.toFixed(2)}% mode=${RESOLVED_REGIME_MODE}`,
+              }) + '\n');
+              equityCurve.push({ t: candle.t, equity });
+              continue;
+            }
+          }
+        }
+      }
+
+      // Phase 42 — VWAP gate (mean-reversion alignment).
+      // Reject entries unless price is stretched in the direction we'd
+      // expect a reversion from. This narrows entries to the genuine
+      // mean-reversion setups the agent stack is best at.
+      if (ARG_VWAP_GATE) {
+        const vwapSig = buildVwapSignal(history, symbol, candle.t);
+        if (!vwapSig) {
+          decisionLog.write(JSON.stringify({
+            t: candle.t, symbol, type: 'entry_rejected',
+            reason: `vwap_gate:no_stretch (need |z|≥${ARG_VWAP_Z_MIN})`,
+          }) + '\n');
+          equityCurve.push({ t: candle.t, equity });
+          continue;
+        }
+        const z = (vwapSig as any).evidence?.z ?? 0;
+        const dir = consensus.direction;
+        let aligned: boolean;
+        if (ARG_VWAP_GATE_MODE === 'trend') {
+          // Trend: long needs z ≥ +X; short needs z ≤ -X (ride the move).
+          aligned =
+            (dir === 'bullish' && z >= ARG_VWAP_Z_MIN) ||
+            (dir === 'bearish' && z <= -ARG_VWAP_Z_MIN);
+        } else {
+          // Mean-rev (default): long needs z ≤ -X; short needs z ≥ +X.
+          aligned =
+            (dir === 'bullish' && z <= -ARG_VWAP_Z_MIN) ||
+            (dir === 'bearish' && z >= ARG_VWAP_Z_MIN);
+        }
+        if (!aligned) {
+          decisionLog.write(JSON.stringify({
+            t: candle.t, symbol, type: 'entry_rejected',
+            reason: `vwap_gate:misaligned dir=${dir} z=${z.toFixed(2)} mode=${ARG_VWAP_GATE_MODE}`,
+          }) + '\n');
+          equityCurve.push({ t: candle.t, equity });
+          continue;
+        }
+      }
+
       // Phase 22 — R:R gate
       const techSig = sigs.find((s) => s.agentName === 'TechnicalAnalyst');
       const techEvidence = techSig?.evidence as any;
@@ -598,9 +917,37 @@ async function runOneSymbol(
         equityCurve.push({ t: candle.t, equity });
         continue;
       }
+
+      // Phase 41 — volatility regime filter.
+      // 7-day rolling ATR: 7 × 24 × 4 = 672 candles at 15m. Use last 672.
+      if (ARG_MAX_ATR_RATIO > 0 && history.length >= 672) {
+        const atrSlice = history.slice(-672);
+        const recentAtr = atr(atrSlice.map(c => c.h), atrSlice.map(c => c.l), atrSlice.map(c => c.c), 100);
+        if (recentAtr && recentAtr > 0) {
+          const atrRatio = _atr / recentAtr;
+          if (atrRatio > ARG_MAX_ATR_RATIO) {
+            decisionLog.write(JSON.stringify({
+              t: candle.t, symbol, type: 'entry_rejected',
+              reason: `volatility_regime:atrRatio=${atrRatio.toFixed(2)}>${ARG_MAX_ATR_RATIO}`,
+            }) + '\n');
+            equityCurve.push({ t: candle.t, equity });
+            continue;
+          }
+        }
+      }
       const rrCfg = cfg.entry.rr;
       // Phase 37 sweep — use CLI-overridden multipliers if specified.
-      const riskDistance = _atr * ARG_SL_ATR;
+      // Phase 41 — dynamic SL widening if --dyn-sl=true and volatility elevated.
+      let dynamicSlMul = ARG_SL_ATR;
+      if (ARG_DYN_SL && history.length >= 672) {
+        const atrSlice = history.slice(-672);
+        const recentAtr = atr(atrSlice.map(c => c.h), atrSlice.map(c => c.l), atrSlice.map(c => c.c), 100);
+        if (recentAtr && recentAtr > 0) {
+          const atrRatio = _atr / recentAtr;
+          if (atrRatio >= 1.5) dynamicSlMul = ARG_SL_ATR * 1.5;
+        }
+      }
+      const riskDistance = _atr * dynamicSlMul;
       const atrFallbackReward = _atr * ARG_TP_ATR;
       const minRR = selectMinRr(
         consensus.direction,
@@ -644,8 +991,19 @@ async function runOneSymbol(
         continue;
       }
 
-      // Position sizing — 5% of equity per trade
-      const notional = equity * cfg.positionSizing.maxPositionSizePercent;
+      // Position sizing — 5% of equity per trade base.
+      // Phase 39: optionally scale by consensus strength.
+      let sizeMultiplier = 1.0;
+      if (ARG_CONF_SIZING) {
+        // Phase 39 sizing curve — exponential boost for high-conviction.
+        // Tuned on K-scenario data: ≥0.85 conf has same WR but should claim
+        // disproportionately more capital because gross PnL/trade is higher.
+        if (consensus.strength >= 0.95) sizeMultiplier = 2.0;
+        else if (consensus.strength >= 0.85) sizeMultiplier = 1.6;
+        else if (consensus.strength >= 0.75) sizeMultiplier = 1.0;
+        else sizeMultiplier = 0.5;
+      }
+      const notional = equity * cfg.positionSizing.maxPositionSizePercent * sizeMultiplier;
       const quantity = notional / lastClose;
 
       openTrade = {
@@ -741,14 +1099,27 @@ async function main() {
   const fundingDir = path.join(baseDir, 'funding');
 
   for (const symbol of symbols) {
-    const candlePath = path.join(candleDir, `${symbol}.json`);
+    // Phase 38 — accept either old `{symbol}.json` or new `{symbol}-15m.json` naming.
+    let candlePath = path.join(candleDir, `${symbol}-15m.json`);
+    if (!fs.existsSync(candlePath)) candlePath = path.join(candleDir, `${symbol}.json`);
     if (!fs.existsSync(candlePath)) {
-      console.error(`[backtest] missing candle file: ${candlePath}`);
+      console.error(`[backtest] missing 15m candle file for ${symbol}`);
       continue;
     }
     const data = JSON.parse(fs.readFileSync(candlePath, 'utf8'));
     const candles: Candle[] = data.candles;
     console.log(`\n[backtest] ${symbol}: ${candles.length} candles ${data.startISO} → ${data.endISO}`);
+
+    // Phase 38 — load 1h and 4h alongside 15m if MTF mode is on.
+    let candles1h: Candle[] = [];
+    let candles4h: Candle[] = [];
+    if (ARG_MTF) {
+      const p1h = path.join(candleDir, `${symbol}-1h.json`);
+      const p4h = path.join(candleDir, `${symbol}-4h.json`);
+      if (fs.existsSync(p1h)) candles1h = JSON.parse(fs.readFileSync(p1h, 'utf8')).candles;
+      if (fs.existsSync(p4h)) candles4h = JSON.parse(fs.readFileSync(p4h, 'utf8')).candles;
+      console.log(`[backtest] ${symbol}: MTF on — ${candles1h.length} × 1h + ${candles4h.length} × 4h`);
+    }
 
     let fundingEvents: { t: number; rate: number }[] | undefined;
     const fundingPath = path.join(fundingDir, `${symbol}.json`);
@@ -760,7 +1131,7 @@ async function main() {
       console.log(`[backtest] ${symbol}: no funding data — agent stack will be 4-agent only`);
     }
 
-    const { trades, equityCurve } = await runOneSymbol(symbol, candles, exchange, equityPerSymbol, decisionLog, fundingEvents);
+    const { trades, equityCurve } = await runOneSymbol(symbol, candles, exchange, equityPerSymbol, decisionLog, fundingEvents, candles1h, candles4h);
     symbolResults[symbol] = { trades, equityCurve };
     allTrades.push(...trades);
 
@@ -883,9 +1254,11 @@ function generateReport(
   const top5 = sortedByNet.slice(0, 5);
   const bot5 = sortedByNet.slice(-5).reverse();
 
-  // Date range from candle files
+  // Date range from candle files (Phase 38 — try new naming first).
   const firstSym = symbols[0];
-  const candleData = JSON.parse(fs.readFileSync(path.join(candleDir, `${firstSym}.json`), 'utf8'));
+  let candleFile = path.join(candleDir, `${firstSym}-15m.json`);
+  if (!fs.existsSync(candleFile)) candleFile = path.join(candleDir, `${firstSym}.json`);
+  const candleData = JSON.parse(fs.readFileSync(candleFile, 'utf8'));
 
   const lines: string[] = [];
   lines.push(`# Yearly Backtest Report`);
