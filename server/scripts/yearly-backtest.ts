@@ -127,6 +127,29 @@ const ARG_FUNDING_Z = parseFloat(getArg('funding-z', '1.5') ?? '1.5');
 // Honors the user's prime directive "100% profit booking" — once we have
 // real profit shown, lock in at breakeven minimum.
 const ARG_BREAKEVEN_TRIGGER = parseFloat(getArg('breakeven-trigger', '0') ?? '0');
+// Phase 46 — cross-symbol BTC bias for ETH/SOL.
+// --btc-bias=true|false       Use BTC's N-bar momentum as a leading
+//                             indicator for ETH/SOL entries.
+// --btc-bias-bars=N           Lookback bars (default 5 = 75 min on 15m)
+// --btc-bias-min=X.X          |BTC momentum %| threshold to apply gate
+//                             (default 0.3 — below this, BTC is "flat" and
+//                             the gate does not block).
+// Logic: when |BTC mom| ≥ threshold AND consensus.dir contradicts BTC mom,
+// reject the trade. When BTC is flat, no opinion (trade goes through).
+// Audit found DynamicCorrelationTracker existed but was dead code.
+// This is the lightweight backtest equivalent.
+const ARG_BTC_BIAS = (getArg('btc-bias', 'false') ?? 'false').toLowerCase() === 'true';
+const ARG_BTC_BIAS_BARS = parseInt(getArg('btc-bias-bars', '5') ?? '5', 10);
+const ARG_BTC_BIAS_MIN = parseFloat(getArg('btc-bias-min', '0.3') ?? '0.3');
+// Phase 47 — walked-TP minimum reach.
+// --min-tp-atr=X.X            Minimum reward distance in ×ATR. The walked
+//                             S/R logic in Phase 22 sometimes picks the
+//                             very-near first level (lazy TP). Audit shows
+//                             this caused avg-win ~1.80% vs avg intraday
+//                             range 2-3% — leaving money on the table.
+//                             Default 0 (off, i.e. walked picks freely).
+//                             Best candidate: 1.0 (one full ATR minimum).
+const ARG_MIN_TP_ATR = parseFloat(getArg('min-tp-atr', '0') ?? '0');
 // Phase 38 — multi-timeframe consensus.
 // --mtf=true|false  When true, require alignment across 15m + 1h + 4h
 //   timeframes for entry. Strict mode (default): all 3 must agree on
@@ -212,7 +235,7 @@ if (ARG_FUNDING_WEIGHT > 0 && ARG_FUNDING_WEIGHT !== 0.20) {
   }
   defaultAgentWeights.FundingRateAnalyst = ARG_FUNDING_WEIGHT;
 }
-console.log(`[backtest] params: exchange=${ARG_EXCHANGE} consensusFloor=${ARG_CONSENSUS_FLOOR} sl=${ARG_SL_ATR}×ATR tp=${ARG_TP_ATR}×ATR walkedTP=${ARG_USE_WALKED_TP} dragOverride=${ARG_DRAG_OVERRIDE > 0 ? ARG_DRAG_OVERRIDE.toFixed(2) + '%' : '(use exchange default)'} fundingWeight=${ARG_FUNDING_WEIGHT.toFixed(2)} mtf=${ARG_MTF}/${ARG_MTF_REQUIRE_FULL ? 'strict' : 'lenient'} confSizing=${ARG_CONF_SIZING} maxAtrRatio=${ARG_MAX_ATR_RATIO} dynSL=${ARG_DYN_SL} regime=${RESOLVED_REGIME_MODE}(band=${ARG_REGIME_BAND_PCT}%) vwapGate=${ARG_VWAP_GATE}(zMin=${ARG_VWAP_Z_MIN}) timeFilter=${ARG_TIME_FILTER} confCap=${ARG_CONF_CAP} minAligned=${ARG_MIN_ALIGNED} fundingMode=${ARG_FUNDING_MODE}(z=${ARG_FUNDING_Z}) label=${ARG_LABEL || '(none)'}`);
+console.log(`[backtest] params: exchange=${ARG_EXCHANGE} consensusFloor=${ARG_CONSENSUS_FLOOR} sl=${ARG_SL_ATR}×ATR tp=${ARG_TP_ATR}×ATR walkedTP=${ARG_USE_WALKED_TP} dragOverride=${ARG_DRAG_OVERRIDE > 0 ? ARG_DRAG_OVERRIDE.toFixed(2) + '%' : '(use exchange default)'} fundingWeight=${ARG_FUNDING_WEIGHT.toFixed(2)} mtf=${ARG_MTF}/${ARG_MTF_REQUIRE_FULL ? 'strict' : 'lenient'} confSizing=${ARG_CONF_SIZING} maxAtrRatio=${ARG_MAX_ATR_RATIO} dynSL=${ARG_DYN_SL} regime=${RESOLVED_REGIME_MODE}(band=${ARG_REGIME_BAND_PCT}%) vwapGate=${ARG_VWAP_GATE}(zMin=${ARG_VWAP_Z_MIN}) timeFilter=${ARG_TIME_FILTER} confCap=${ARG_CONF_CAP} minAligned=${ARG_MIN_ALIGNED} fundingMode=${ARG_FUNDING_MODE}(z=${ARG_FUNDING_Z}) btcBias=${ARG_BTC_BIAS}(${ARG_BTC_BIAS_BARS}bar/${ARG_BTC_BIAS_MIN}%) label=${ARG_LABEL || '(none)'}`);
 
 // Apply drag override to TradingConfig if specified.
 if (ARG_DRAG_OVERRIDE > 0) {
@@ -673,6 +696,7 @@ async function runOneSymbol(
   fundingEvents?: FundingEvent[],
   candles1h: Candle[] = [],
   candles4h: Candle[] = [],
+  btcCandles: Candle[] = [],
 ): Promise<{ trades: BacktestTrade[]; equityCurve: Array<{ t: number; equity: number }> }> {
 
   // Phase 38 — helper: get the slice of higher-timeframe candles up to time t.
@@ -988,6 +1012,32 @@ async function runOneSymbol(
         }
       }
 
+      // Phase 46 — cross-symbol BTC bias for ETH/SOL.
+      // BTC tends to LEAD ETH/SOL by 1-15 minutes. If BTC is moving in one
+      // direction with conviction (|N-bar momentum| ≥ threshold), an ETH/SOL
+      // entry in the OPPOSITE direction is fighting the leader and tends
+      // to fail. Skip those.
+      // BTC entries are exempt — BTC is the leader, not the follower.
+      if (ARG_BTC_BIAS && symbol !== 'BTC-USD' && btcCandles.length >= ARG_BTC_BIAS_BARS + 1) {
+        const btcSlice = sliceUpTo(btcCandles, candle.t);
+        if (btcSlice.length >= ARG_BTC_BIAS_BARS + 1) {
+          const cur = btcSlice[btcSlice.length - 1].c;
+          const ref = btcSlice[btcSlice.length - 1 - ARG_BTC_BIAS_BARS].c;
+          const btcMomPct = ((cur - ref) / ref) * 100;
+          let btcDir: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+          if (btcMomPct >= ARG_BTC_BIAS_MIN) btcDir = 'bullish';
+          else if (btcMomPct <= -ARG_BTC_BIAS_MIN) btcDir = 'bearish';
+          if (btcDir !== 'neutral' && btcDir !== consensus.direction) {
+            decisionLog.write(JSON.stringify({
+              t: candle.t, symbol, type: 'entry_rejected',
+              reason: `btc_bias:dir=${consensus.direction} btcMom=${btcMomPct.toFixed(2)}% btcDir=${btcDir}`,
+            }) + '\n');
+            equityCurve.push({ t: candle.t, equity });
+            continue;
+          }
+        }
+      }
+
       // Phase 22 — R:R gate
       const techSig = sigs.find((s) => s.agentName === 'TechnicalAnalyst');
       const techEvidence = techSig?.evidence as any;
@@ -1036,9 +1086,15 @@ async function runOneSymbol(
       );
       const srArray = consensus.direction === 'bullish' ? techEvidence?.resistance : techEvidence?.support;
       // Walk S/R if --use-walked-tp=true, else use ATR-default.
-      const rewardDistance = ARG_USE_WALKED_TP
+      let rewardDistance = ARG_USE_WALKED_TP
         ? selectRewardDistance(srArray, lastClose, riskDistance, minRR, atrFallbackReward)
         : atrFallbackReward;
+      // Phase 47 — enforce minimum TP reach. If walked-TP picked a level
+      // closer than min, walk the TP out to the minimum.
+      if (ARG_MIN_TP_ATR > 0) {
+        const minReward = _atr * ARG_MIN_TP_ATR;
+        if (rewardDistance < minReward) rewardDistance = minReward;
+      }
       const rrRatio = riskDistance > 0 ? rewardDistance / riskDistance : 0;
       if (rrRatio < minRR) {
         decisionLog.write(JSON.stringify({
@@ -1185,6 +1241,21 @@ async function main() {
   // Phase 37 Step 2 — load funding events if available.
   const fundingDir = path.join(baseDir, 'funding');
 
+  // Phase 46 — cross-symbol bias. Load BTC 15m candles ONCE up-front and pass
+  // to every per-symbol run. ETH/SOL entries use BTC's recent momentum as a
+  // leading-indicator gate. Audit finding: this was the dead-code DynamicCorrelationTracker.
+  let btcCandles: Candle[] = [];
+  if (ARG_BTC_BIAS) {
+    let btcPath = path.join(candleDir, `BTC-USD-15m.json`);
+    if (!fs.existsSync(btcPath)) btcPath = path.join(candleDir, `BTC-USD.json`);
+    if (fs.existsSync(btcPath)) {
+      btcCandles = JSON.parse(fs.readFileSync(btcPath, 'utf8')).candles;
+      console.log(`[backtest] BTC-bias enabled: loaded ${btcCandles.length} BTC reference candles`);
+    } else {
+      console.warn(`[backtest] BTC-bias requested but no BTC candle file found — disabling bias`);
+    }
+  }
+
   for (const symbol of symbols) {
     // Phase 38 — accept either old `{symbol}.json` or new `{symbol}-15m.json` naming.
     let candlePath = path.join(candleDir, `${symbol}-15m.json`);
@@ -1218,7 +1289,7 @@ async function main() {
       console.log(`[backtest] ${symbol}: no funding data — agent stack will be 4-agent only`);
     }
 
-    const { trades, equityCurve } = await runOneSymbol(symbol, candles, exchange, equityPerSymbol, decisionLog, fundingEvents, candles1h, candles4h);
+    const { trades, equityCurve } = await runOneSymbol(symbol, candles, exchange, equityPerSymbol, decisionLog, fundingEvents, candles1h, candles4h, btcCandles);
     symbolResults[symbol] = { trades, equityCurve };
     allTrades.push(...trades);
 

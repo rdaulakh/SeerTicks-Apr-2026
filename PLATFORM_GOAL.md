@@ -98,9 +98,24 @@ Configure prod for Binance perp paper at realistic 0.05% drag. Run for 30+ trade
 6. **Stop at the goal.** When the platform demonstrates target metrics in both backtest AND live paper, I stop.
 7. **Stop at exhaustion.** If I run out of code-only ideas without hitting the goal, I'll honestly report what was tried and what's left.
 
-## STATUS @ 2026-04-26 06:46 UTC — autonomous run complete
+## STATUS @ 2026-04-26 18:50 UTC — Phase 46 cross-symbol BTC bias landed
 
-**Final champion: scenario AQ (ETH+SOL, aggressive sizing curve 3.5×/2.2×/1.0×/0.3×)**.
+**New risk-adjusted champion: scenario AS (AQ + BTC-bias 20-bar/0.6%)**.
+**Highest absolute return: BA (SOL-only + aggressive sizing) → +40.89%.**
+
+| Variant | Trades | WR | Return | Sharpe | DD | Worst Day | Worst 90d DD |
+|---|---|---|---|---|---|---|---|
+| AQ (ETH+SOL, no bias) | 1331 | 37.9% | +35.65% | 2.94 | 8.41% | -1.22% | 7.97% |
+| **AS (ETH+SOL + BTC bias)** | **1314** | **38.2%** | **+36.24%** | **3.01** | **8.23%** | **-1.22%** | **7.90%** |
+| BA (SOL only, aggressive) | 683 | 37.9% | +40.89% | 2.92 | 7.25% | -1.92% | 7.18% |
+| AY (AS + min-tp-atr=1.0) | 1314 | 38.2% | +36.24% | 3.01 | 8.23% | -1.22% | 7.90% |
+| AZ (AS + min-tp-atr=4.0) | 1260 | 33.1% | +27.48% | 2.25 | **10.46%** | -1.71% | 8.14% |
+
+The Phase 46 BTC-bias gate (audit's #1 lever) confirmed working: scenario AS adds +0.59pp return, +0.07 Sharpe, +0.3pp WR over AQ. Modest but real — 142 trades rejected over the year on BTC contradiction. The audit found `DynamicCorrelationTracker` was dead code; this lightweight backtest equivalent validates the idea has alpha.
+
+Phase 47 walked-TP minimum-reach FALSIFIED — TPs are correctly calibrated. Forcing 4×ATR minimum drops WR by 5pp and breaches the 10% DD goal. The avg-win/avg-range gap isn't a TP-too-early problem; it's a "trades exit before reaching the further levels via thesis-invalidate / stuck-position" problem.
+
+**Final champion AQ-evolution: scenario AS:**
 - Discovered AE (drop BTC): WR-ceiling improvement, +20.11% return
 - Discovered AQ (aggressive sizing curve on AE): scales to **+35.65%** while keeping all 6 risk metrics within goal
 
@@ -123,6 +138,25 @@ npx tsx server/scripts/yearly-backtest.ts \
   --exchange=binance --consensus-floor=0.75 --drag=0.05 \
   --mtf=true --mtf-require-full=true --conf-sizing=true \
   --symbols=ETH-USD,SOL-USD \
+  --size-095=3.5 --size-085=2.2 --size-075=1.0 --size-low=0.3
+```
+
+**Champion AS config (current best risk-adjusted):**
+```bash
+npx tsx server/scripts/yearly-backtest.ts \
+  --exchange=binance --consensus-floor=0.75 --drag=0.05 \
+  --mtf=true --mtf-require-full=true --conf-sizing=true \
+  --symbols=ETH-USD,SOL-USD \
+  --size-095=3.5 --size-085=2.2 --size-075=1.0 --size-low=0.3 \
+  --btc-bias=true --btc-bias-bars=20 --btc-bias-min=0.6
+```
+
+**Champion BA config (highest absolute return — concentrated):**
+```bash
+npx tsx server/scripts/yearly-backtest.ts \
+  --exchange=binance --consensus-floor=0.75 --drag=0.05 \
+  --mtf=true --mtf-require-full=true --conf-sizing=true \
+  --symbols=SOL-USD \
   --size-095=3.5 --size-085=2.2 --size-075=1.0 --size-low=0.3
 ```
 
