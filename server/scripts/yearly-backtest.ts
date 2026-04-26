@@ -31,7 +31,20 @@
  *   data/backtest-yearly/reports/{runId}.md        (Markdown summary)
  *
  * Usage:
- *   npx tsx server/scripts/yearly-backtest.ts
+ *   npx tsx server/scripts/yearly-backtest.ts [opts]
+ *
+ *   --exchange=binance|coinbase   (default: coinbase, drag 1.30%)
+ *   --consensus-floor=0.50        (default: 0.50; min weighted strength to enter)
+ *   --sl-atr=2.0                  (default: 2.0; SL = atr × this)
+ *   --tp-atr=3.0                  (default: 3.0; TP = atr × this; pre-walks S/R if available)
+ *   --label=...                   (optional run label for the report header)
+ *   --use-walked-tp=true|false    (default: true; when false, skip S/R walk and use atr × tp-atr)
+ *
+ * Scenarios commonly run (all data persisted, all decisions logged):
+ *   - baseline:        defaults
+ *   - binance-fees:    --exchange=binance
+ *   - tight-consensus: --exchange=binance --consensus-floor=0.75
+ *   - wide-tp:         --exchange=binance --consensus-floor=0.75 --sl-atr=1.5 --tp-atr=4.0
  */
 
 import 'dotenv/config';
@@ -68,6 +81,41 @@ const defaultAgentWeights: Record<string, number> = {
   OrderFlowAnalyst: 0.25,
   OrderbookImbalance: 0.20,
 };
+
+// ─────────────────────────────────────────────────────────────────────────
+// CLI args (parameterizable for the scenario sweep)
+// ─────────────────────────────────────────────────────────────────────────
+function getArg(name: string, fallback?: string): string | undefined {
+  const prefix = `--${name}=`;
+  const found = process.argv.find((a) => a.startsWith(prefix));
+  return found ? found.slice(prefix.length) : fallback;
+}
+const ARG_EXCHANGE = (getArg('exchange', 'coinbase') as 'binance' | 'coinbase');
+const ARG_CONSENSUS_FLOOR = parseFloat(getArg('consensus-floor', '0.50') ?? '0.50');
+const ARG_SL_ATR = parseFloat(getArg('sl-atr', '2.0') ?? '2.0');
+const ARG_TP_ATR = parseFloat(getArg('tp-atr', '3.0') ?? '3.0');
+const ARG_USE_WALKED_TP = (getArg('use-walked-tp', 'true') ?? 'true').toLowerCase() === 'true';
+const ARG_LABEL = getArg('label', '');
+// --drag=0.05  Manual round-trip drag override (in %). Use 0.05 for Binance
+// perp futures VIP0 (0.04% taker × 2 + 0.01% slippage cushion). Useful for
+// modeling exchange/account-tier differences without touching TradingConfig.
+// When set (>0), overrides the per-exchange override map.
+const ARG_DRAG_OVERRIDE = parseFloat(getArg('drag', '0') ?? '0');
+console.log(`[backtest] params: exchange=${ARG_EXCHANGE} consensusFloor=${ARG_CONSENSUS_FLOOR} sl=${ARG_SL_ATR}×ATR tp=${ARG_TP_ATR}×ATR walkedTP=${ARG_USE_WALKED_TP} dragOverride=${ARG_DRAG_OVERRIDE > 0 ? ARG_DRAG_OVERRIDE.toFixed(2) + '%' : '(use exchange default)'} label=${ARG_LABEL || '(none)'}`);
+
+// Apply drag override to TradingConfig if specified.
+if (ARG_DRAG_OVERRIDE > 0) {
+  const cfg = { ...PRODUCTION_CONFIG };
+  cfg.profitLock = {
+    ...cfg.profitLock,
+    exchangeFeeOverrides: {
+      ...cfg.profitLock.exchangeFeeOverrides,
+      binance: { roundTripFeePercent: ARG_DRAG_OVERRIDE * 0.8, slippagePercent: ARG_DRAG_OVERRIDE * 0.2 },
+      coinbase: { roundTripFeePercent: ARG_DRAG_OVERRIDE * 0.8, slippagePercent: ARG_DRAG_OVERRIDE * 0.2 },
+    },
+  };
+  setTradingConfig(cfg);
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Types
@@ -446,10 +494,10 @@ async function runOneSymbol(
         continue;
       }
       const consensus = aggregateSignals(eligible, defaultAgentWeights, undefined);
-      if (consensus.direction === 'neutral' || consensus.strength < 0.50) {
+      if (consensus.direction === 'neutral' || consensus.strength < ARG_CONSENSUS_FLOOR) {
         decisionLog.write(JSON.stringify({
           t: candle.t, symbol, type: 'entry_rejected',
-          reason: `consensus_too_weak:${(consensus.strength * 100).toFixed(1)}%`,
+          reason: `consensus_too_weak:${(consensus.strength * 100).toFixed(1)}%<${(ARG_CONSENSUS_FLOOR*100).toFixed(0)}%`,
           consensus: { direction: consensus.direction, strength: consensus.strength },
         }) + '\n');
         equityCurve.push({ t: candle.t, equity });
@@ -465,8 +513,9 @@ async function runOneSymbol(
         continue;
       }
       const rrCfg = cfg.entry.rr;
-      const riskDistance = _atr * rrCfg.riskAtrMultiplier;
-      const atrFallbackReward = _atr * rrCfg.defaultRewardAtrMultiplier;
+      // Phase 37 sweep — use CLI-overridden multipliers if specified.
+      const riskDistance = _atr * ARG_SL_ATR;
+      const atrFallbackReward = _atr * ARG_TP_ATR;
       const minRR = selectMinRr(
         consensus.direction,
         techEvidence?.superTrend?.direction,
@@ -474,7 +523,10 @@ async function runOneSymbol(
         rrCfg,
       );
       const srArray = consensus.direction === 'bullish' ? techEvidence?.resistance : techEvidence?.support;
-      const rewardDistance = selectRewardDistance(srArray, lastClose, riskDistance, minRR, atrFallbackReward);
+      // Walk S/R if --use-walked-tp=true, else use ATR-default.
+      const rewardDistance = ARG_USE_WALKED_TP
+        ? selectRewardDistance(srArray, lastClose, riskDistance, minRR, atrFallbackReward)
+        : atrFallbackReward;
       const rrRatio = riskDistance > 0 ? rewardDistance / riskDistance : 0;
       if (rrRatio < minRR) {
         decisionLog.write(JSON.stringify({
@@ -576,7 +628,8 @@ async function runOneSymbol(
 // Main
 // ─────────────────────────────────────────────────────────────────────────
 async function main() {
-  const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  const labelSuffix = ARG_LABEL ? `--${ARG_LABEL}` : '';
+  const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}${labelSuffix}`;
   const baseDir = path.join(process.cwd(), 'data', 'backtest-yearly');
   const candleDir = path.join(baseDir, 'candles');
   const tradeDir = path.join(baseDir, 'trades');
@@ -588,7 +641,7 @@ async function main() {
   const decisionLog = fs.createWriteStream(decisionLogPath, { flags: 'w' });
 
   const symbols = ['BTC-USD', 'ETH-USD', 'SOL-USD'];
-  const exchange: 'binance' | 'coinbase' = 'coinbase';
+  const exchange: 'binance' | 'coinbase' = ARG_EXCHANGE;
   const initialEquity = 10000;
   const equityPerSymbol = initialEquity / symbols.length;
 
@@ -739,9 +792,12 @@ function generateReport(
   lines.push(`# Yearly Backtest Report`);
   lines.push(``);
   lines.push(`**Run ID:** ${runId}`);
+  lines.push(`**Label:** ${ARG_LABEL || '(unlabeled)'}`);
   lines.push(`**Generated:** ${new Date().toISOString()}`);
   lines.push(`**Period:** ${candleData.startISO} → ${candleData.endISO}`);
-  lines.push(`**Exchange:** ${exchange} (drag-aware: 1.30% round-trip)`);
+  const dragSnapshot = resolveDragPercent({ side: 'long', entryPrice: 100, exchange: exchange as any });
+  lines.push(`**Exchange:** ${exchange} (drag: ${dragSnapshot.totalCostPercent.toFixed(2)}% round-trip)`);
+  lines.push(`**Parameters:** consensus≥${(ARG_CONSENSUS_FLOOR*100).toFixed(0)}% | SL=${ARG_SL_ATR}×ATR | TP=${ARG_TP_ATR}×ATR | walkedTP=${ARG_USE_WALKED_TP}`);
   lines.push(`**Initial equity:** $${initialEquity.toLocaleString()}`);
   lines.push(`**Symbols:** ${symbols.join(', ')}`);
   lines.push(`**Candle resolution:** 15-minute (real Binance public data)`);
