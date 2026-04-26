@@ -70,16 +70,23 @@ import type { AgentSignal } from '../agents/AgentBase';
 // Ensure live config is loaded (Phase 22-35 defaults).
 setTradingConfig({ ...PRODUCTION_CONFIG });
 
-// Default agent weights for the 4-agent stub. aggregateSignals expects this
+// Default agent weights for the agent stub. aggregateSignals expects this
 // param to map every voting agent to a weight (0..1 normalized). Production
-// uses AgentWeightManager but for the backtest we feed flat weights so all
-// 4 agents contribute equally; downstream Phase 32 calibration would then
-// adjust them based on observed accuracy.
+// uses AgentWeightManager but for the backtest we feed flat weights;
+// downstream Phase 32 calibration would adjust them based on observed accuracy.
+//
+// Phase 37 Step 2 — added FundingRateAnalyst (5th agent). Funding rate is
+// the only public-data alpha source we can backtest against (perp futures
+// charge it every 8h; sign + magnitude predicts mean-reversion at 4-8h
+// horizon). Weighting: gave it 0.30 — funding has documented predictive
+// edge in academic literature; the OHLCV-derived agents are weighted
+// proportionally lower to make room.
 const defaultAgentWeights: Record<string, number> = {
-  TechnicalAnalyst: 0.30,
-  PatternMatcher: 0.25,
-  OrderFlowAnalyst: 0.25,
-  OrderbookImbalance: 0.20,
+  TechnicalAnalyst: 0.25,
+  PatternMatcher: 0.20,
+  OrderFlowAnalyst: 0.20,
+  OrderbookImbalance: 0.15,
+  FundingRateAnalyst: 0.20,
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -101,7 +108,20 @@ const ARG_LABEL = getArg('label', '');
 // modeling exchange/account-tier differences without touching TradingConfig.
 // When set (>0), overrides the per-exchange override map.
 const ARG_DRAG_OVERRIDE = parseFloat(getArg('drag', '0') ?? '0');
-console.log(`[backtest] params: exchange=${ARG_EXCHANGE} consensusFloor=${ARG_CONSENSUS_FLOOR} sl=${ARG_SL_ATR}×ATR tp=${ARG_TP_ATR}×ATR walkedTP=${ARG_USE_WALKED_TP} dragOverride=${ARG_DRAG_OVERRIDE > 0 ? ARG_DRAG_OVERRIDE.toFixed(2) + '%' : '(use exchange default)'} label=${ARG_LABEL || '(none)'}`);
+// --funding-weight=0.20  Override FundingRateAnalyst weight (0..1). Higher
+// makes funding dominate the consensus.
+const ARG_FUNDING_WEIGHT = parseFloat(getArg('funding-weight', '0.20') ?? '0.20');
+if (ARG_FUNDING_WEIGHT > 0 && ARG_FUNDING_WEIGHT !== 0.20) {
+  // Renormalize: rescale the other 4 agents proportionally so total ≈ 1.
+  const otherTotal = 1.0 - ARG_FUNDING_WEIGHT;
+  const otherKeys = ['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalance'];
+  const otherSum = otherKeys.reduce((s, k) => s + (defaultAgentWeights[k] ?? 0), 0);
+  for (const k of otherKeys) {
+    defaultAgentWeights[k] = (defaultAgentWeights[k] / otherSum) * otherTotal;
+  }
+  defaultAgentWeights.FundingRateAnalyst = ARG_FUNDING_WEIGHT;
+}
+console.log(`[backtest] params: exchange=${ARG_EXCHANGE} consensusFloor=${ARG_CONSENSUS_FLOOR} sl=${ARG_SL_ATR}×ATR tp=${ARG_TP_ATR}×ATR walkedTP=${ARG_USE_WALKED_TP} dragOverride=${ARG_DRAG_OVERRIDE > 0 ? ARG_DRAG_OVERRIDE.toFixed(2) + '%' : '(use exchange default)'} fundingWeight=${ARG_FUNDING_WEIGHT.toFixed(2)} label=${ARG_LABEL || '(none)'}`);
 
 // Apply drag override to TradingConfig if specified.
 if (ARG_DRAG_OVERRIDE > 0) {
@@ -121,6 +141,7 @@ if (ARG_DRAG_OVERRIDE > 0) {
 // Types
 // ─────────────────────────────────────────────────────────────────────────
 interface Candle { t: number; o: number; h: number; l: number; c: number; v: number; }
+interface FundingEvent { t: number; rate: number; }
 
 interface BacktestTrade {
   id: string;
@@ -209,9 +230,69 @@ function atr(highs: number[], lows: number[], closes: number[], n: number): numb
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Agent stubs — 4 production-faithful signals from candles
+// Funding-rate signal helper.
+//
+// Binary-search the funding events for the latest one at or before `t`.
+// Funding fires every 8h on Binance perps. Rate sign indicates leverage
+// crowding:
+//   rate > 0  → longs paying shorts  → leveraged longs over-crowded
+//   rate < 0  → shorts paying longs  → leveraged shorts over-crowded
+//
+// At extreme magnitudes (|rate| > 0.01% per 8h ≈ 11% annualized) the
+// crowded side has tended to mean-revert at the 4-8h horizon. Translate:
+//   high positive rate  → BEARISH bias (expect long unwind)
+//   high negative rate  → BULLISH bias (expect short squeeze)
+// Neutral funding (|rate| ≤ 0.005%) → no signal.
 // ─────────────────────────────────────────────────────────────────────────
-function buildAgentSignals(history: Candle[], symbol: string, t: number): AgentSignal[] {
+function findLatestFunding(events: FundingEvent[], t: number): FundingEvent | null {
+  if (!events.length || t < events[0].t) return null;
+  let lo = 0, hi = events.length - 1, ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (events[mid].t <= t) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return ans >= 0 ? events[ans] : null;
+}
+
+function buildFundingSignal(events: FundingEvent[] | undefined, symbol: string, t: number): AgentSignal | null {
+  if (!events) return null;
+  const latest = findLatestFunding(events, t);
+  if (!latest) return null;
+  const rate = latest.rate; // e.g. 0.0001 = 0.01% per 8h
+  const ratePct = rate * 100;
+  // Threshold: 0.01% per 8h is the documented "elevated" threshold —
+  // typical neutral funding is 0.001%-0.005%.
+  let direction: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+  let confidence = 0.5;
+  if (rate > 0.0001) {
+    direction = 'bearish';
+    confidence = Math.min(0.85, 0.55 + Math.min(rate * 1000, 0.30));
+  } else if (rate < -0.0001) {
+    direction = 'bullish';
+    confidence = Math.min(0.85, 0.55 + Math.min(Math.abs(rate) * 1000, 0.30));
+  }
+  if (direction === 'neutral') return null;
+  return {
+    agentName: 'FundingRateAnalyst',
+    symbol,
+    signal: direction,
+    confidence,
+    reasoning: `8h funding=${(ratePct).toFixed(4)}% (${rate > 0 ? 'longs paying shorts' : 'shorts paying longs'})`,
+    timestamp: t,
+    executionScore: 65,
+    evidence: { fundingRate: rate, fundingTime: latest.t },
+  } as any;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Agent stubs — production-faithful signals from candles + funding
+// ─────────────────────────────────────────────────────────────────────────
+function buildAgentSignals(
+  history: Candle[],
+  symbol: string,
+  t: number,
+  fundingEvents?: FundingEvent[],
+): AgentSignal[] {
   const closes = history.map((c) => c.c);
   const highs = history.map((c) => c.h);
   const lows = history.map((c) => c.l);
@@ -364,6 +445,10 @@ function buildAgentSignals(history: Candle[], symbol: string, t: number): AgentS
     }
   }
 
+  // Agent 5: FundingRateAnalyst — Binance perp funding rate (8h cadence).
+  const fundingSig = buildFundingSignal(fundingEvents, symbol, t);
+  if (fundingSig) signals.push(fundingSig);
+
   return signals;
 }
 
@@ -376,6 +461,7 @@ async function runOneSymbol(
   exchange: 'binance' | 'coinbase',
   initialEquity: number,
   decisionLog: fs.WriteStream,
+  fundingEvents?: FundingEvent[],
 ): Promise<{ trades: BacktestTrade[]; equityCurve: Array<{ t: number; equity: number }> }> {
   const cfg = getTradingConfig();
   const minHistory = 50;
@@ -420,7 +506,7 @@ async function runOneSymbol(
       // Phase 24/25 — thesis-invalidated / stuck-position.
       if (!exitPrice) {
         const holdMinutes = (candle.t - openTrade.entryTime) / 60_000;
-        const sigs = buildAgentSignals(history, symbol, candle.t);
+        const sigs = buildAgentSignals(history, symbol, candle.t, fundingEvents);
         const consensusNow = aggregateSignals(sigs, defaultAgentWeights, undefined);
         const guardPos: ProfitLockPosition = {
           side: openTrade.side,
@@ -483,7 +569,7 @@ async function runOneSymbol(
 
     // 2. If no position, evaluate entry.
     if (!openTrade && (candle.t - lastEntryTime) >= cooldownMs) {
-      const sigs = buildAgentSignals(history, symbol, candle.t);
+      const sigs = buildAgentSignals(history, symbol, candle.t, fundingEvents);
       const eligible = sigs.filter((s) => s.signal !== 'neutral' && s.confidence >= 0.50);
       if (eligible.length < 2) {
         decisionLog.write(JSON.stringify({
@@ -651,6 +737,9 @@ async function main() {
   const allTrades: BacktestTrade[] = [];
   const symbolResults: Record<string, { trades: BacktestTrade[]; equityCurve: Array<{ t: number; equity: number }> }> = {};
 
+  // Phase 37 Step 2 — load funding events if available.
+  const fundingDir = path.join(baseDir, 'funding');
+
   for (const symbol of symbols) {
     const candlePath = path.join(candleDir, `${symbol}.json`);
     if (!fs.existsSync(candlePath)) {
@@ -661,7 +750,17 @@ async function main() {
     const candles: Candle[] = data.candles;
     console.log(`\n[backtest] ${symbol}: ${candles.length} candles ${data.startISO} → ${data.endISO}`);
 
-    const { trades, equityCurve } = await runOneSymbol(symbol, candles, exchange, equityPerSymbol, decisionLog);
+    let fundingEvents: { t: number; rate: number }[] | undefined;
+    const fundingPath = path.join(fundingDir, `${symbol}.json`);
+    if (fs.existsSync(fundingPath)) {
+      const f = JSON.parse(fs.readFileSync(fundingPath, 'utf8'));
+      fundingEvents = f.events as Array<{ t: number; rate: number }>;
+      console.log(`[backtest] ${symbol}: ${fundingEvents.length} funding events loaded`);
+    } else {
+      console.log(`[backtest] ${symbol}: no funding data — agent stack will be 4-agent only`);
+    }
+
+    const { trades, equityCurve } = await runOneSymbol(symbol, candles, exchange, equityPerSymbol, decisionLog, fundingEvents);
     symbolResults[symbol] = { trades, equityCurve };
     allTrades.push(...trades);
 
