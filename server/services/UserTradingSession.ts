@@ -128,10 +128,18 @@ export class UserTradingSession extends EventEmitter {
 
       // 2. Initialize PaperTradingEngine (user's wallet)
       const { PaperTradingEngine } = await import('../execution/PaperTradingEngine');
+      // Phase 44 alignment — paper-trade against Binance perp economics
+      // (0.10% taker / 0.02% maker, ~0.25% drag), matching the AS champion
+      // backtest. Coinbase's 0.50% taker → 1.30% drag is incompatible with
+      // the strategy's small-edge geometry, which the audit + a manual
+      // close-attempt confirmed (ProfitLockGuard correctly refused to book
+      // a +0.20% gross win that would have netted -1.10% under Coinbase).
+      // Override via PAPER_EXCHANGE=coinbase if you need to test that path.
+      const paperExchange = (process.env.PAPER_EXCHANGE as 'binance' | 'coinbase') || 'binance';
       this.tradingEngine = new PaperTradingEngine({
         userId: this.userId,
         initialBalance: 10000,
-        exchange: 'coinbase',
+        exchange: paperExchange,
         enableSlippage: true,
         enableCommission: true,
         enableMarketImpact: true,
