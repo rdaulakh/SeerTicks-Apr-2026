@@ -98,6 +98,27 @@ Configure prod for Binance perp paper at realistic 0.05% drag. Run for 30+ trade
 6. **Stop at the goal.** When the platform demonstrates target metrics in both backtest AND live paper, I stop.
 7. **Stop at exhaustion.** If I run out of code-only ideas without hitting the goal, I'll honestly report what was tried and what's left.
 
+## STATUS @ 2026-04-27 — on-chain data unlocked
+
+User provided Whale Alert + Dune keys (committed only to local `.env`,
+gitignored). Smoke test passed:
+- Whale Alert: HTTP 200, 100 txns ≥ $1M in last hour (real-time signal)
+- Dune Analytics: HTTP 200, key authenticated
+
+What this unlocks:
+- `OnChainAnalyst` no longer returns mock data with `isSyntheticData=true`.
+  Now consumes real Whale Alert v1 transactions feed.
+- `OnChainFlowAnalyst` re-enabled via `ENABLE_ONCHAIN_FLOW_ANALYST=true`,
+  with Dune as on-chain query backend.
+- Agent vote count per consensus rises from ~4–10 to ~6–12 — two
+  previously-dead agents now contribute real evidence.
+
+Backtest cannot validate this (Whale Alert doesn't expose 1-year history
+on the free tier; Dune queries cost credits). Validation must happen in
+**live paper trading**: start the SEER server, let it accumulate ≥30
+real trades with the new agents voting, compare live WR to backtest's
+38.2% AS ceiling.
+
 ## STATUS @ 2026-04-26 18:50 UTC — Phase 46 cross-symbol BTC bias landed
 
 **New risk-adjusted champion: scenario AS (AQ + BTC-bias 20-bar/0.6%)**.
