@@ -53,9 +53,13 @@ export interface LeadLagEvent {
 }
 
 const RING_SIZE = 200;
-const MIN_MOVE_BPS = 5;           // 5 bps = 0.05% — filters out noise
-const SETTLE_MS = 2000;           // wait up to 2s for the follower to confirm
+const MIN_MOVE_BPS = 3;           // 3 bps = 0.03% — captures real moves, filters tick noise
+const REFERENCE_LOOKBACK_MS = 1000; // measure move vs price 1s ago, not previous tick
+const SETTLE_MS = 3000;           // wait up to 3s for the follower to confirm
 const SCAN_BACK_MS = 5000;        // ignore Coinbase ticks older than this when computing lag
+
+let candidateCounter = 0;
+let resolvedCounter = 0;
 
 export class LeadLagTracker extends EventEmitter {
   private rings: Map<string, RingTick[]> = new Map();
@@ -89,17 +93,35 @@ export class LeadLagTracker extends EventEmitter {
   pushBinance(symbol: string, price: number, ts: number = Date.now()): void {
     if (!this.isRunning || !isFinite(price) || price <= 0) return;
     const ring = this.getRing('binance', symbol);
-    const last = ring[ring.length - 1];
     this.append(ring, { price, ts });
 
-    if (!last) return;
-    const moveBps = ((price - last.price) / last.price) * 10000;
+    // Find the reference price from ~REFERENCE_LOOKBACK_MS ago. Comparing to the
+    // immediately-previous tick fails because consecutive bookTicker updates
+    // often differ by single cents — well below any meaningful threshold.
+    const refTime = ts - REFERENCE_LOOKBACK_MS;
+    let ref: RingTick | null = null;
+    for (let i = ring.length - 2; i >= 0; i--) {
+      if (ring[i].ts <= refTime) { ref = ring[i]; break; }
+    }
+    if (!ref) return;
+
+    const moveBps = ((price - ref.price) / ref.price) * 10000;
     if (Math.abs(moveBps) < MIN_MOVE_BPS) return;
 
-    // Significant Binance move — register a pending lead candidate
+    // De-dup: don't fire a new candidate if we just registered one for this
+    // symbol+direction in the last 500ms (otherwise a single big move spawns
+    // dozens of pending candidates).
+    const recent = this.pendingLeads.find(p =>
+      p.symbol === symbol &&
+      p.direction === (moveBps > 0 ? 'up' : 'down') &&
+      ts - p.observedAt < 500
+    );
+    if (recent) return;
+
+    candidateCounter++;
     this.pendingLeads.push({
       symbol,
-      binanceFromPrice: last.price,
+      binanceFromPrice: ref.price,
       binanceToPrice: price,
       direction: moveBps > 0 ? 'up' : 'down',
       observedAt: ts,
@@ -139,6 +161,7 @@ export class LeadLagTracker extends EventEmitter {
       this.recordEvent(evt);
       this.emit('lead_lag_event', evt);
       this.pendingLeads.splice(i, 1);
+      resolvedCounter++;
     }
   }
 
@@ -171,6 +194,17 @@ export class LeadLagTracker extends EventEmitter {
     if (!bucket) { bucket = []; this.statsBySymbol.set(evt.symbol, bucket); }
     bucket.push(evt);
     if (bucket.length > 1000) bucket.shift();
+  }
+
+  /**
+   * Counters since process start, for diagnostic logging.
+   */
+  getCounters(): { candidates: number; resolved: number; pending: number } {
+    return {
+      candidates: candidateCounter,
+      resolved: resolvedCounter,
+      pending: this.pendingLeads.length,
+    };
   }
 
   /**

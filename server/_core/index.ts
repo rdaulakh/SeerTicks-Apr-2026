@@ -455,14 +455,14 @@ async function startServer() {
     }
     // Periodic stats log every 60s — visible signal of whether Binance is leading
     setInterval(() => {
+      const counters = tracker.getCounters();
       const stats = tracker.getStats();
       const symbols = Object.keys(stats);
       if (symbols.length === 0) {
-        // Heartbeat even with no events so we know the tracker is still alive.
-        console.log('[LeadLagTracker] 60s stats: no qualifying events yet (need >=5bps moves with cross-exchange confirmation)');
+        console.log(`[LeadLagTracker] 60s stats: candidates=${counters.candidates} resolved=${counters.resolved} pending=${counters.pending} — waiting for cross-exchange confirmation`);
         return;
       }
-      console.log('[LeadLagTracker] 60s stats:');
+      console.log(`[LeadLagTracker] 60s stats: candidates=${counters.candidates} resolved=${counters.resolved} pending=${counters.pending}`);
       for (const s of symbols) {
         const x = stats[s];
         console.log(`  ${s}: n=${x.count} medianLead=${x.medianLeadMs}ms p95=${x.p95LeadMs}ms binanceLeads=${(x.binanceLeadFraction*100).toFixed(0)}% avgMove=${x.avgMoveBps.toFixed(1)}bps`);
