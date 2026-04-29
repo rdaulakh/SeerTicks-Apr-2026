@@ -139,6 +139,11 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
     this.positionSizeRampUp = config.positionSizeRampUp ?? 0.10; // Start at 10% of intended size
 
     // Initialize exchange adapter
+    // Phase 51 — when BINANCE_USE_TESTNET=1, the BinanceAdapter routes signed
+    // REST calls to testnet.binance.vision. Market data feeds (PriceFabric)
+    // stay on PRODUCTION Binance — strategy decisions on real liquidity, fills
+    // simulated against testnet's order book. This is the right paper-trading
+    // architecture: real data, fake money.
     if (config.exchange === 'binance') {
       const { BinanceAdapter } = require('../exchanges/BinanceAdapter');
       this.exchange = new BinanceAdapter(config.apiKey, config.apiSecret);

@@ -24,12 +24,21 @@ export class BinanceAdapter extends ExchangeInterface {
   private wsReconnectTimeout: NodeJS.Timeout | null = null;
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
 
-  constructor(apiKey: string, apiSecret: string) {
+  constructor(apiKey: string, apiSecret: string, opts: { testnet?: boolean } = {}) {
     super(apiKey, apiSecret);
+    // Phase 51 — Testnet support. When BINANCE_USE_TESTNET=1 (or opts.testnet),
+    // route REST + WS to testnet.binance.vision so the engine trades against
+    // a real order book with fake balance. Same auth flow (HMAC), separate
+    // testnet API key from testnet.binance.vision.
+    const useTestnet = opts.testnet ?? process.env.BINANCE_USE_TESTNET === '1';
     this.client = new MainClient({
       api_key: this.apiKey,
       api_secret: this.apiSecret,
+      testnet: useTestnet,
     });
+    if (useTestnet) {
+      console.log('[BinanceAdapter] 🧪 TESTNET mode — https://testnet.binance.vision');
+    }
   }
 
   getExchangeName(): "binance" {
