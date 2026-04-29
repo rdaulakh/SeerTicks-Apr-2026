@@ -107,7 +107,12 @@ export class BinanceWebSocketManager extends EventEmitter {
     const { symbol, streams } = config;
     const streamNames = streams.map(s => `${symbol.toLowerCase()}@${s}`).join('/');
     const baseUrl = resolveBinanceWsBaseUrl();
-    const url = `${baseUrl}/stream?streams=${streamNames}`;
+    // Phase 50 — `?timeUnit=MICROSECOND` upgrades event timestamps from ms
+    // to μs across every channel. Free precision win for latency analysis
+    // and ML feature timestamps. Set BINANCE_TIME_UNIT=MILLISECOND to opt out.
+    const timeUnit = (process.env.BINANCE_TIME_UNIT || 'MICROSECOND').toUpperCase();
+    const tuParam = timeUnit === 'MILLISECOND' ? '' : `&timeUnit=${timeUnit}`;
+    const url = `${baseUrl}/stream?streams=${streamNames}${tuParam}`;
 
     console.log(`[WebSocket] Subscribing to ${symbol}: ${streams.join(', ')} via ${baseUrl}`);
 

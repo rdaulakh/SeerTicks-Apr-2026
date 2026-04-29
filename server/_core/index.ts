@@ -467,10 +467,16 @@ async function startServer() {
       for (const seerSymbol of tradingSymbols) {
         const binanceSymbol = binanceSymbolMap[seerSymbol];
         if (binanceSymbol) {
-          // Phase 49 — Tokyo migration. bookTicker is the lowest-latency channel
-          // (real-time, no fixed cadence, both sides of book). trade still feeds
-          // realized-fill events for OrderFlowAnalyst.
-          binanceWs.subscribe({ symbol: binanceSymbol, streams: ['bookTicker', 'trade'] });
+          // Phase 50 — Tokyo data fidelity. Five channels per symbol:
+          //   bookTicker  → real-time best bid/ask (primary tick driver)
+          //   trade       → realized fills (OrderFlowAnalyst raw input)
+          //   aggTrade    → aggregated taker prints (less noisy fill signal)
+          //   depth@100ms → L2 book diffs (OrderbookImbalanceAgent fuel)
+          //   kline_1s    → 1-second candles (sub-minute regime detection)
+          binanceWs.subscribe({
+            symbol: binanceSymbol,
+            streams: ['bookTicker', 'trade', 'aggTrade', 'depth@100ms', 'kline_1s'],
+          });
         }
       }
 
@@ -501,7 +507,28 @@ async function startServer() {
         });
       });
 
-      console.log(`[${new Date().toLocaleTimeString()}] ✅ Binance WebSocket started (ENABLE_BINANCE_WS=1, channels=bookTicker+trade): ${Object.values(binanceSymbolMap).join(', ')}`);
+      // aggTrade → aggregated taker fills (one event per taker order, regardless
+      // of how many maker orders it crossed). Cleaner than `trade` for taker-flow
+      // analysis. Forward as a tick at the trade price for additional consensus
+      // weight on actual print prices.
+      binanceWs.on('aggTrade', (agg: { symbol: string; price: number; quantity: number; timestamp: number; isBuyerMaker: boolean }) => {
+        const canonicalSymbol = reverseBinanceMap[agg.symbol?.toUpperCase()] || agg.symbol;
+        priceFabric.ingestTick({
+          symbol: canonicalSymbol,
+          price: agg.price,
+          volume: agg.quantity,
+          timestampMs: agg.timestamp,
+          receivedAtMs: Date.now(),
+          source: 'binance',
+        });
+      });
+
+      // depth@100ms and kline_1s emit on the WS manager too — handlers in the
+      // codebase consume them via .on('depth') and .on('kline'). We don't need
+      // to re-emit here; whoever wants them can subscribe to the manager events
+      // directly. Subscribing to the streams above is what unlocks them.
+
+      console.log(`[${new Date().toLocaleTimeString()}] ✅ Binance WebSocket started (ENABLE_BINANCE_WS=1, channels=bookTicker+trade+aggTrade+depth@100ms+kline_1s, μs timestamps): ${Object.values(binanceSymbolMap).join(', ')}`);
     } catch (binanceWsError: any) {
       console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Binance WebSocket failed to start:`, binanceWsError.message);
     }
