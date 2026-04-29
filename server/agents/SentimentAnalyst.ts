@@ -122,6 +122,39 @@ export class SentimentAnalyst extends AgentBase {
         socialSentiment.sentiment
       );
 
+      // Phase 47 fix — if Z-Score history is insufficient (returns
+      // confidence 0) OR if LLM/fearGreed feeds are both unavailable,
+      // route through the deterministic fallback so the agent still
+      // contributes a non-zero, evidence-based vote rather than silent
+      // 0-confidence neutrals. Live audit found 100% of signals at
+      // confidence=0 because both inputs were null at startup.
+      if (zScoreResult.confidence < 0.1) {
+        const marketData: MarketDataInput = {
+          currentPrice: context?.currentPrice || this.currentPrice || 0,
+          priceChange24h: context?.priceChange24h || 0,
+          volume24h: context?.volume24h || 0,
+          high24h: context?.high24h || 0,
+          low24h: context?.low24h || 0,
+          priceHistory: this.priceHistory,
+          fearGreedIndex: this.fearGreedCache?.value,
+        };
+        const fb = fallbackManager.getSentimentFallback(symbol, marketData);
+        return {
+          agentName: this.config.name,
+          symbol,
+          signal: fb.signal,
+          confidence: fb.confidence,
+          strength: fb.strength,
+          reasoning: `[ZScore-insufficient → deterministic] ${fb.reasoning}`,
+          evidence: { fallbackReason: fb.fallbackReason, isDeterministic: true },
+          timestamp: Date.now(),
+          processingTime: Date.now() - startTime,
+          dataFreshness: 0,
+          qualityScore: 0.6,
+          executionScore: 50,
+        };
+      }
+
       // Get LLM analysis for additional context
       const analysis = await this.analyzeSentiment(symbol, socialSentiment, fearGreed);
 

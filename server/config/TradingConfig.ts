@@ -316,7 +316,7 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
     defaultPayoffRatio: 1.5,
     maxPositionSizePercent: 0.10,         // 10% max per trade (Phase 15C)
     maxTotalExposurePercent: 0.60,        // 60% max total (tightened from 80%)
-    maxConcurrentPositions: 5,            // Compromise: was 10 vs 3
+    maxConcurrentPositions: 6,            // Phase 47: was 5; missed-opportunity audit found 126 approvals/hour blocked at the 1-per-symbol gate. 6 = 2 per symbol
     maxPositionsPerSymbol: 1,
   },
 

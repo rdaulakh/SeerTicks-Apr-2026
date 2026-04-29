@@ -23,9 +23,14 @@ function getAuthPool(): mysql.Pool {
 }
 
 const JWT_SECRET = ENV.jwtSecret;
+// Phase 47 — `secure: true` makes the cookie HTTPS-only. Local dev runs
+// HTTP at http://localhost:3001 → the browser silently dropped login
+// cookies, so the UI rendered as anonymous and showed no positions even
+// though the API + DB both had them. In dev we set secure=false so the
+// cookie sticks; in production we keep it true.
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: true,
+  secure: process.env.NODE_ENV === 'production',
   sameSite: 'lax' as const,
   path: '/',
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days

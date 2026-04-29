@@ -105,14 +105,20 @@ const DEFAULT_CONFIG: RiskManagerConfig = {
   // Position limits
   maxPositionSize: 0.20,           // 20% max per position
   maxTotalExposure: 0.80,          // 80% max total exposure
-  maxPositionsPerSymbol: 1,        // 1 position per symbol
-  maxTotalPositions: 10,           // 10 max positions
-  
+  // Phase 47 — was 1; live audit found 126 SIGNAL_APPROVED/hr blocked
+  // by the per-symbol gate. 2 lets a winning short and a counter-bullish
+  // setup coexist while still respecting symbol-concentration risk.
+  maxPositionsPerSymbol: 2,
+  maxTotalPositions: 10,
+
   // PRIORITY 1: Daily drawdown limit (-10%)
   maxDailyDrawdownPercent: 0.10,   // Halt trading at -10% daily loss
-  
-  // PRIORITY 1: Max concurrent positions (3)
-  maxConcurrentPositions: 3,       // Max 3 concurrent open positions
+
+  // Phase 47 — was 3, raised to 6 to match TradingConfig.maxConcurrentPositions.
+  // The 3-cap was the true bottleneck behind the "no new trades" appearance:
+  // 3 slots fill in the first 13 minutes after startup and stay full until
+  // an exit fires (which can take hours).
+  maxConcurrentPositions: 6,
 };
 
 // Predefined correlation groups for crypto

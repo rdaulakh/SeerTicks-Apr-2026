@@ -203,7 +203,7 @@ const REGIME_CONFIGS: Record<MarketRegime, RegimeConfig> = {
   },
 
   range_bound: {
-    tradeCooldownMs: 45_000,  // 45s — range trades need patience, avoid overtrading
+    tradeCooldownMs: 25_000,  // Phase 47: was 45s; live audit showed 309/hr blocks. Range_bound = lowest-risk regime, doesn't need 45s gap
     stopLossAtrMultiplier: 1.2,  // Phase 40 FIX: tightened from 1.5 — range trades need tight stops
     takeProfitRrRatio: 1.5,      // Lower R:R — limited profit potential per trade in ranges
     skipAgents: ['MLPredictionAgent', 'NewsSentinel'],  // ML trend predictions unreliable in ranges; news rarely moves ranges
@@ -241,7 +241,7 @@ const REGIME_CONFIGS: Record<MarketRegime, RegimeConfig> = {
   },
 
   high_volatility: {
-    tradeCooldownMs: 60_000,  // 60s — high vol = high noise, prevent rapid-fire trades
+    tradeCooldownMs: 35_000,  // Phase 47: was 60s; audit showed 271/hr blocks. 35s still throttles rapid-fire while halving missed opportunity
     stopLossAtrMultiplier: 2.0,  // Phase 40 FIX: tightened from 3.5 — was causing 4.5%+ SL distances, too wide
     takeProfitRrRatio: 2.0,      // Standard R:R — volatility cuts both ways
     skipAgents: ['PatternMatcher', 'MLPredictionAgent', 'ForexCorrelationAgent'],  // Patterns break in chaos; ML unreliable; forex correlation decouples

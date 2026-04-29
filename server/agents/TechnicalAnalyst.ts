@@ -659,9 +659,12 @@ export class TechnicalAnalyst extends AgentBase {
     let totalSignals = 0;
 
     // RSI analysis
+    // Phase 47 fix — thresholds were 25/75 which almost never fire on
+    // 15-min crypto bars (live audit found 100% neutral output). Backtest
+    // stub used 30/70 and matched the +20%-return champion. Aligning.
     totalSignals++;
-    if (indicators.rsi < 25) bullishSignals++; // Oversold (crypto-adjusted from 30)
-    else if (indicators.rsi > 75) bearishSignals++; // Overbought (crypto-adjusted from 70)
+    if (indicators.rsi < 30) bullishSignals++; // Oversold
+    else if (indicators.rsi > 70) bearishSignals++; // Overbought
 
     // MACD analysis
     totalSignals++;
@@ -723,17 +726,21 @@ export class TechnicalAnalyst extends AgentBase {
     const netSignal = (bullishSignals - bearishSignals) / totalSignals;
     let signal: "bullish" | "bearish" | "neutral";
 
-    // TREND CONFIRMATION: Require at least 2 bullish/bearish signals to generate directional signal
-    // Fixed: Raised threshold from 0.15 to 0.20 to reduce weak bullish signals
-    // Fixed: Added overextension check - if RSI > 65 and bullish, reduce to neutral
-    const MIN_CONFIRMING_SIGNALS = 2;
+    // TREND CONFIRMATION:
+    // Phase 47 fix — old `MIN_CONFIRMING_SIGNALS=2 + |netSignal|>0.20`
+    // gates required 2-of-7 indicators agreeing AND a 2-vote net spread.
+    // On normal RSI (35-65) range most indicators stay silent so a typical
+    // bar yields 1 bull + 1 bear → tied → neutral. Live audit found 100%
+    // neutral output. Backtest stub (which produced the +20% champion)
+    // required only ONE confirming signal at netSignal>0.10. Aligning.
+    const MIN_CONFIRMING_SIGNALS = 1;
 
-    if (netSignal > 0.20 && bullishSignals >= MIN_CONFIRMING_SIGNALS) {
-      signal = "bullish";  // Confirmed bullish (2+ indicators agree, strong net signal)
-    } else if (netSignal < -0.20 && bearishSignals >= MIN_CONFIRMING_SIGNALS) {
-      signal = "bearish";  // Confirmed bearish (2+ indicators agree, strong net signal)
+    if (netSignal > 0.10 && bullishSignals >= MIN_CONFIRMING_SIGNALS) {
+      signal = "bullish";
+    } else if (netSignal < -0.10 && bearishSignals >= MIN_CONFIRMING_SIGNALS) {
+      signal = "bearish";
     } else {
-      signal = "neutral";  // Not enough confirmation
+      signal = "neutral";
     }
 
     // Phase 17 — confidence must reflect CONVICTION among voting indicators,
