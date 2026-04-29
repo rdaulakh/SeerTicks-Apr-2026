@@ -44,7 +44,19 @@ interface TickerEvent {
 
 interface WebSocketConfig {
   symbol: string;
-  streams: ('trade' | 'ticker' | 'kline_1m' | 'kline_5m' | 'kline_1h' | 'kline_4h' | 'kline_1d' | 'depth' | 'depth@100ms')[];
+  streams: ('trade' | 'aggTrade' | 'bookTicker' | 'ticker' | 'kline_1s' | 'kline_1m' | 'kline_5m' | 'kline_1h' | 'kline_4h' | 'kline_1d' | 'depth' | 'depth@100ms')[];
+}
+
+export interface BookTickerEvent {
+  symbol: string;
+  bidPrice: number;
+  bidQty: number;
+  askPrice: number;
+  askQty: number;
+  midPrice: number;
+  spreadBps: number;
+  updateId: number;
+  receivedAtMs: number;
 }
 
 /**
@@ -227,6 +239,54 @@ export class BinanceWebSocketManager extends EventEmitter {
       }
       
       this.emit('trade', tradeEvent);
+    }
+
+    // Handle bookTicker stream — real-time best bid/ask, lowest-latency Binance channel
+    // Phase 49 — added when Tokyo migration unlocked Binance feeds. bookTicker
+    // is the single best price-update channel: real-time (no fixed cadence) and
+    // includes both sides of the book on every update so we can derive spread.
+    if (stream && stream.includes('@bookTicker')) {
+      const bid = parseFloat(data.b);
+      const ask = parseFloat(data.a);
+      const mid = (bid + ask) / 2;
+      const bookEvent: BookTickerEvent = {
+        symbol,
+        bidPrice: bid,
+        bidQty: parseFloat(data.B),
+        askPrice: ask,
+        askQty: parseFloat(data.A),
+        midPrice: mid,
+        spreadBps: mid > 0 ? ((ask - bid) / mid) * 10000 : 0,
+        updateId: data.u,
+        receivedAtMs: receiveTime,
+      };
+      // Same gap-tracking machinery as trade stream — bookTicker is our primary
+      // tick driver in Tokyo so we want the same health visibility.
+      const now = receiveTime;
+      const lastTick = this.lastTickTime.get(symbol) || 0;
+      const count = (this.tickCount.get(symbol) || 0) + 1;
+      this.tickCount.set(symbol, count);
+      this.lastTickTime.set(symbol, now);
+      if (lastTick > 0 && (now - lastTick) > this.TICK_GAP_THRESHOLD_MS) {
+        const gapDuration = ((now - lastTick) / 1000).toFixed(1);
+        const gaps = (this.gapCount.get(symbol) || 0) + 1;
+        this.gapCount.set(symbol, gaps);
+        console.warn(`[WebSocket] ⚠️ BOOKTICKER GAP RECOVERED: ${symbol} — ${gapDuration}s gap (gap #${gaps}), resumed @ mid $${bookEvent.midPrice}`);
+      }
+      this.emit('bookTicker', bookEvent);
+    }
+
+    // Handle aggTrade stream — aggregated taker fills (one event per taker order)
+    if (stream && stream.includes('@aggTrade')) {
+      this.emit('aggTrade', {
+        symbol,
+        price: parseFloat(data.p),
+        quantity: parseFloat(data.q),
+        firstTradeId: data.f,
+        lastTradeId: data.l,
+        timestamp: data.T,
+        isBuyerMaker: data.m,
+      });
     }
 
     // Handle ticker stream

@@ -467,7 +467,10 @@ async function startServer() {
       for (const seerSymbol of tradingSymbols) {
         const binanceSymbol = binanceSymbolMap[seerSymbol];
         if (binanceSymbol) {
-          binanceWs.subscribe({ symbol: binanceSymbol, streams: ['trade'] });
+          // Phase 49 — Tokyo migration. bookTicker is the lowest-latency channel
+          // (real-time, no fixed cadence, both sides of book). trade still feeds
+          // realized-fill events for OrderFlowAnalyst.
+          binanceWs.subscribe({ symbol: binanceSymbol, streams: ['bookTicker', 'trade'] });
         }
       }
 
@@ -483,7 +486,22 @@ async function startServer() {
         });
       });
 
-      console.log(`[${new Date().toLocaleTimeString()}] ✅ Binance WebSocket started (ENABLE_BINANCE_WS=1): ${Object.values(binanceSymbolMap).join(', ')}`);
+      // bookTicker → primary fast-path price feed. Mid-price ingested as a tick;
+      // PriceFabric's median-of-recent-ticks consensus naturally weights this
+      // alongside Coinbase ticks without us hardcoding a primary/secondary order.
+      binanceWs.on('bookTicker', (book: import('../exchanges/BinanceWebSocketManager').BookTickerEvent) => {
+        const canonicalSymbol = reverseBinanceMap[book.symbol?.toUpperCase()] || book.symbol;
+        priceFabric.ingestTick({
+          symbol: canonicalSymbol,
+          price: book.midPrice,
+          volume: 0, // bookTicker has no traded volume — it's a quote update
+          timestampMs: book.receivedAtMs,
+          receivedAtMs: book.receivedAtMs,
+          source: 'binance',
+        });
+      });
+
+      console.log(`[${new Date().toLocaleTimeString()}] ✅ Binance WebSocket started (ENABLE_BINANCE_WS=1, channels=bookTicker+trade): ${Object.values(binanceSymbolMap).join(', ')}`);
     } catch (binanceWsError: any) {
       console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Binance WebSocket failed to start:`, binanceWsError.message);
     }
