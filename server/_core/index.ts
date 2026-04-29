@@ -590,8 +590,14 @@ async function startServer() {
     try {
       const WebSocket = (await import('ws')).default;
       const futuresSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+      // Phase 52.3 — markPrice@1s closes the connection immediately and the
+      // base markPrice stream emits nothing in observed windows. Replace with
+      // bookTicker on futures (proven 13 msgs/sec on BTCUSDT) for perp top-of
+      // -book; pair with spot bookTicker to compute the premium. forceOrder
+      // stays — fires only on actual liquidations (rare in calm markets, that's
+      // the point: when it fires, it matters).
       const streams = futuresSymbols
-        .flatMap(s => [`${s.toLowerCase()}@forceOrder`, `${s.toLowerCase()}@markPrice@1s`])
+        .flatMap(s => [`${s.toLowerCase()}@forceOrder`, `${s.toLowerCase()}@bookTicker`])
         .join('/');
       // Note: futures stream rejects ?timeUnit=MICROSECOND (400 Bad Request).
       // Spot supports it, futures doesn't yet. Stay on millisecond for futures.
@@ -622,16 +628,21 @@ async function startServer() {
               notional: value, timestamp: o.T,
             });
             if ((global as any).__lastLiquidations.length > 500) (global as any).__lastLiquidations.shift();
-          } else if (stream.includes('@markPrice')) {
-            // Mark price + funding rate updates (1s cadence) — useful for funding-arb
-            // and for spot-vs-perp premium tracking. Stash latest per symbol.
-            (global as any).__binanceFuturesMark = (global as any).__binanceFuturesMark || {};
-            (global as any).__binanceFuturesMark[data.s] = {
-              markPrice: parseFloat(data.p),
-              indexPrice: parseFloat(data.i),
-              fundingRate: parseFloat(data.r),
-              nextFundingTime: data.T,
-              updatedAt: data.E,
+          } else if (stream.includes('@bookTicker')) {
+            // Perp top-of-book — best bid/ask on USDT-M perpetual. Pair with
+            // spot bookTicker to derive perp-vs-spot premium for funding-flow
+            // and lead/lag analysis (perps often lead spot by 1-3s).
+            const bid = parseFloat(data.b);
+            const ask = parseFloat(data.a);
+            (global as any).__binanceFuturesBook = (global as any).__binanceFuturesBook || {};
+            (global as any).__binanceFuturesBook[data.s] = {
+              bidPrice: bid,
+              askPrice: ask,
+              midPrice: (bid + ask) / 2,
+              bidQty: parseFloat(data.B),
+              askQty: parseFloat(data.A),
+              tradeTime: data.T,
+              eventTime: data.E,
             };
           }
         } catch {/* swallow malformed */}
@@ -644,10 +655,17 @@ async function startServer() {
       });
       // Periodic stats log
       setInterval(() => {
-        const marks = (global as any).__binanceFuturesMark || {};
+        const book = (global as any).__binanceFuturesBook || {};
         const liq = (global as any).__lastLiquidations || [];
         const recentLiq = liq.filter((l: any) => Date.now() - l.timestamp < 60_000).length;
-        console.log(`[FuturesWS] 60s: ${recentLiq} liquidations, marks: ${Object.keys(marks).length} symbols, totalLiq: ${liquidationCount}`);
+        const perpSpotDeltas: string[] = [];
+        for (const sym of Object.keys(book)) {
+          const perp = book[sym].midPrice;
+          // Try to grab spot best mid for the same symbol (BTCUSDT etc) from PriceFabric
+          const spotKey = sym; // futures uses BTCUSDT, our spot ingestion uses BTC-USD; just emit perp price for now
+          perpSpotDeltas.push(`${sym}=$${perp.toFixed(2)}`);
+        }
+        console.log(`[FuturesWS] 60s: ${recentLiq} liquidations | perp books: ${perpSpotDeltas.join(' ')} | totalLiq: ${liquidationCount}`);
       }, 60_000);
     } catch (futErr: any) {
       console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Binance Futures WS failed:`, futErr.message);
