@@ -457,7 +457,11 @@ async function startServer() {
     setInterval(() => {
       const stats = tracker.getStats();
       const symbols = Object.keys(stats);
-      if (symbols.length === 0) return;
+      if (symbols.length === 0) {
+        // Heartbeat even with no events so we know the tracker is still alive.
+        console.log('[LeadLagTracker] 60s stats: no qualifying events yet (need >=5bps moves with cross-exchange confirmation)');
+        return;
+      }
       console.log('[LeadLagTracker] 60s stats:');
       for (const s of symbols) {
         const x = stats[s];
@@ -589,7 +593,9 @@ async function startServer() {
       const streams = futuresSymbols
         .flatMap(s => [`${s.toLowerCase()}@forceOrder`, `${s.toLowerCase()}@markPrice@1s`])
         .join('/');
-      const futuresUrl = `wss://fstream.binance.com/stream?streams=${streams}&timeUnit=MICROSECOND`;
+      // Note: futures stream rejects ?timeUnit=MICROSECOND (400 Bad Request).
+      // Spot supports it, futures doesn't yet. Stay on millisecond for futures.
+      const futuresUrl = `wss://fstream.binance.com/stream?streams=${streams}`;
       const futuresWs = new WebSocket(futuresUrl);
       let liquidationCount = 0;
       futuresWs.on('open', () => {
