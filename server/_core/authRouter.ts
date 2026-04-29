@@ -16,6 +16,7 @@ import { getSharedPool } from './sharedPool';
 import { COOKIE_NAME } from '@shared/const';
 import { ENV } from './env';
 import { authLogger } from '../utils/logger';
+import { getSessionCookieOptions } from './cookies';
 
 // Use shared connection pool to prevent connection exhaustion
 function getAuthPool(): mysql.Pool {
@@ -23,18 +24,17 @@ function getAuthPool(): mysql.Pool {
 }
 
 const JWT_SECRET = ENV.jwtSecret;
-// Phase 47 — `secure: true` makes the cookie HTTPS-only. Local dev runs
-// HTTP at http://localhost:3001 → the browser silently dropped login
-// cookies, so the UI rendered as anonymous and showed no positions even
-// though the API + DB both had them. In dev we set secure=false so the
-// cookie sticks; in production we keep it true.
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
-  path: '/',
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-};
+// Phase 48 — cookie `secure` flag must adapt to the request protocol, not
+// NODE_ENV. Production deployment is currently reachable over plain HTTP at
+// the EC2 IP (DNS for seerticks.com is misrouted), so a hardcoded
+// `secure: true` made browsers silently drop the cookie and login bounced
+// back to the sign-in page. `getSessionCookieOptions(req)` checks
+// req.protocol / x-forwarded-proto with trust proxy enabled — flips on
+// when behind HTTPS, off otherwise.
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+function loginCookieOptions(req: Request) {
+  return { ...getSessionCookieOptions(req), maxAge: SEVEN_DAYS_MS };
+}
 
 export const authRouter = Router();
 
@@ -104,8 +104,8 @@ authRouter.post('/login', async (req: Request, res: Response) => {
     );
     
     // Set cookie
-    res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
-    
+    res.cookie(COOKIE_NAME, token, loginCookieOptions(req));
+
     const responseTime = Date.now() - startTime;
     authLogger.info('Login successful', { email, responseTime });
     
@@ -195,14 +195,13 @@ authRouter.get('/me', async (req: Request, res: Response) => {
  */
 authRouter.post('/logout', (req: Request, res: Response) => {
   try {
-    // Clear the cookie by setting it to empty with immediate expiration
+    // Clear the cookie by setting it to empty with immediate expiration.
+    // Use the same secure flag the cookie was set with — otherwise the
+    // clear request is ignored by the browser and the user appears logged in.
     res.cookie(COOKIE_NAME, '', {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax' as const,
-      path: '/',
-      maxAge: 0, // Expire immediately
-      expires: new Date(0), // Set to past date
+      ...getSessionCookieOptions(req),
+      maxAge: 0,
+      expires: new Date(0),
     });
     
     authLogger.info('User logged out');
@@ -271,8 +270,8 @@ authRouter.post('/register', async (req: Request, res: Response) => {
     );
     
     // Set cookie
-    res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
-    
+    res.cookie(COOKIE_NAME, token, loginCookieOptions(req));
+
     return res.json({
       success: true,
       user: {
