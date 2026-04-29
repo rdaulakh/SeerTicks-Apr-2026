@@ -424,14 +424,49 @@ async function startServer() {
     console.error(`[${new Date().toLocaleTimeString()}] ❌ PriceFabric failed to start:`, fabricError.message);
   }
 
-  // 2. Start Coinbase WebSocket (PRIMARY feed, FREE, no auth)
+  // 2. Start Coinbase WebSocket (PARALLEL feed alongside Binance, FREE, no auth)
   // Ticks now route through PriceFabric → priceFeedService (instead of direct)
+  let coinbasePublicWebSocketRef: any = null;
   try {
     const { coinbasePublicWebSocket } = await import('../services/CoinbasePublicWebSocket');
     await coinbasePublicWebSocket.start(tradingSymbols);
+    coinbasePublicWebSocketRef = coinbasePublicWebSocket;
     console.log(`[${new Date().toLocaleTimeString()}] ✅ Coinbase Public WebSocket started for: ${tradingSymbols.join(', ')}`);
   } catch (publicWsError: any) {
     console.error(`[${new Date().toLocaleTimeString()}] ❌ Coinbase Public WebSocket failed to start:`, publicWsError.message);
+  }
+
+  // 2b. Lead-Lag Tracker (Phase 52) — measure Binance ↔ Coinbase price-move timing
+  // Tokyo placement should make Binance lead Coinbase by 50-200ms typical, more
+  // during volatility events. This service quantifies the actual lead time so we
+  // can either confirm the edge for our infra or feed the delta into consensus.
+  let leadLagTrackerRef: any = null;
+  try {
+    const { getLeadLagTracker } = await import('../services/LeadLagTracker');
+    const tracker = getLeadLagTracker();
+    tracker.start();
+    leadLagTrackerRef = tracker;
+    if (coinbasePublicWebSocketRef) {
+      coinbasePublicWebSocketRef.on('ticker', (t: any) => {
+        const symbol = t.product_id; // already in canonical 'BTC-USD' form
+        const price = parseFloat(t.price);
+        if (isFinite(price) && price > 0) tracker.pushCoinbase(symbol, price);
+      });
+    }
+    // Periodic stats log every 60s — visible signal of whether Binance is leading
+    setInterval(() => {
+      const stats = tracker.getStats();
+      const symbols = Object.keys(stats);
+      if (symbols.length === 0) return;
+      console.log('[LeadLagTracker] 60s stats:');
+      for (const s of symbols) {
+        const x = stats[s];
+        console.log(`  ${s}: n=${x.count} medianLead=${x.medianLeadMs}ms p95=${x.p95LeadMs}ms binanceLeads=${(x.binanceLeadFraction*100).toFixed(0)}% avgMove=${x.avgMoveBps.toFixed(1)}bps`);
+      }
+    }, 60_000);
+    console.log(`[${new Date().toLocaleTimeString()}] 🔬 LeadLagTracker started — Binance ↔ Coinbase timing measurement`);
+  } catch (llErr: any) {
+    console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ LeadLagTracker failed to start:`, llErr.message);
   }
 
   // 3. Binance WebSocket — DISABLED (Phase 4)
@@ -505,6 +540,11 @@ async function startServer() {
           receivedAtMs: book.receivedAtMs,
           source: 'binance',
         });
+        // Feed Binance side of LeadLagTracker (Phase 52). bookTicker is the
+        // best stream for this purpose — it fires on every quote change.
+        if (leadLagTrackerRef) {
+          leadLagTrackerRef.pushBinance(canonicalSymbol, book.midPrice, book.receivedAtMs);
+        }
       });
 
       // aggTrade → aggregated taker fills (one event per taker order, regardless
@@ -534,6 +574,78 @@ async function startServer() {
     }
   } else {
     console.log(`[${new Date().toLocaleTimeString()}] ℹ️ Binance WebSocket skipped (US-East geo-blocked; set ENABLE_BINANCE_WS=1 to force)`);
+  }
+
+  // 3b. Binance Futures (USDT-M perps) WS — Phase 52. Liquidation cascades on
+  // perps lead spot price by 1-3 seconds (academic + empirical). Subscribing to
+  // forceOrder + markPrice gives us:
+  //   - forceOrder: real-time liquidation events (size + side + price)
+  //   - markPrice@1s: perp mark price + funding rate + premium index every 1s
+  // Tokyo placement makes fstream.binance.com directly reachable (no geo-block).
+  if (process.env.ENABLE_BINANCE_FUTURES_WS !== '0') {
+    try {
+      const WebSocket = (await import('ws')).default;
+      const futuresSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+      const streams = futuresSymbols
+        .flatMap(s => [`${s.toLowerCase()}@forceOrder`, `${s.toLowerCase()}@markPrice@1s`])
+        .join('/');
+      const futuresUrl = `wss://fstream.binance.com/stream?streams=${streams}&timeUnit=MICROSECOND`;
+      const futuresWs = new WebSocket(futuresUrl);
+      let liquidationCount = 0;
+      futuresWs.on('open', () => {
+        console.log(`[${new Date().toLocaleTimeString()}] 🚨 Binance Futures WS connected: forceOrder + markPrice for ${futuresSymbols.join(', ')}`);
+      });
+      futuresWs.on('message', (raw: any) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          const stream = msg.stream;
+          const data = msg.data;
+          if (!stream || !data) return;
+          if (stream.includes('@forceOrder')) {
+            // Liquidation event — emit + log (consumers can hook into a global emitter later)
+            const o = data.o;
+            if (!o) return;
+            liquidationCount++;
+            const sideText = o.S === 'BUY' ? 'SHORT-LIQ' : 'LONG-LIQ';
+            const value = parseFloat(o.q) * parseFloat(o.p);
+            console.log(`[FuturesWS] 💥 ${sideText} ${o.s} qty=${o.q} @ $${o.p} (notional $${value.toFixed(0)})`);
+            // Tag-attach a simple in-memory global so liquidation agents can consume.
+            (global as any).__lastLiquidations = (global as any).__lastLiquidations || [];
+            (global as any).__lastLiquidations.push({
+              symbol: o.s, side: sideText, price: parseFloat(o.p), quantity: parseFloat(o.q),
+              notional: value, timestamp: o.T,
+            });
+            if ((global as any).__lastLiquidations.length > 500) (global as any).__lastLiquidations.shift();
+          } else if (stream.includes('@markPrice')) {
+            // Mark price + funding rate updates (1s cadence) — useful for funding-arb
+            // and for spot-vs-perp premium tracking. Stash latest per symbol.
+            (global as any).__binanceFuturesMark = (global as any).__binanceFuturesMark || {};
+            (global as any).__binanceFuturesMark[data.s] = {
+              markPrice: parseFloat(data.p),
+              indexPrice: parseFloat(data.i),
+              fundingRate: parseFloat(data.r),
+              nextFundingTime: data.T,
+              updatedAt: data.E,
+            };
+          }
+        } catch {/* swallow malformed */}
+      });
+      futuresWs.on('error', (err: any) => {
+        console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Futures WS error:`, err.message);
+      });
+      futuresWs.on('close', (code: number) => {
+        console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Futures WS closed (code ${code}) — reconnect on next start cycle`);
+      });
+      // Periodic stats log
+      setInterval(() => {
+        const marks = (global as any).__binanceFuturesMark || {};
+        const liq = (global as any).__lastLiquidations || [];
+        const recentLiq = liq.filter((l: any) => Date.now() - l.timestamp < 60_000).length;
+        console.log(`[FuturesWS] 60s: ${recentLiq} liquidations, marks: ${Object.keys(marks).length} symbols, totalLiq: ${liquidationCount}`);
+      }, 60_000);
+    } catch (futErr: any) {
+      console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Binance Futures WS failed:`, futErr.message);
+    }
   }
 
   // 4. Start CoinGecko price verifier (cross-validates WebSocket prices every 30s)
