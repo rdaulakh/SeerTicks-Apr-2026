@@ -24,9 +24,16 @@ export const RATE_LIMITS = {
   },
   // Authentication endpoints: 5 requests/minute per IP
   auth: {
+    // Phase 53 — bumped from 5/min to 30/min. Cognito OAuth flow can hit
+    // 3-5 endpoints per login (callback, refresh, /me) and a normal SPA
+    // mount triggers /me twice + a refresh on top of any retry. 5/min was
+    // tripping legitimate users on page reload. Brute-force protection
+    // is Cognito's job (it locks accounts after wrong-password streak),
+    // not ours. Also: response is now JSON so the client doesn't choke on
+    // 'Unexpected token T' when parsing rate-limit text as JSON.
     windowMs: 60 * 1000, // 1 minute
-    max: 5,
-    message: 'Too many authentication attempts, please try again later.',
+    max: 30,
+    message: { success: false, error: 'Too many authentication attempts, please try again later.' },
   },
   // Admin endpoints: 100 requests/minute per admin
   admin: {
