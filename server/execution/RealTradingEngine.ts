@@ -240,6 +240,17 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
 
         // Load open positions from database
         await this.loadOpenPositionsFromDatabase(db);
+
+        // Phase B-2.2 — On testnet, the DB-stored balance can be stale (e.g. a
+        // 0-balance row from a failed earlier init when methods were misnamed).
+        // Always re-sync from exchange in testnet mode so the wallet reflects
+        // the actual testnet account state. Live mode trusts the DB so we
+        // don't pay rate-limit cost on every restart in production.
+        if (process.env.BINANCE_USE_TESTNET === '1') {
+          executionLogger.info('Re-syncing wallet balance from testnet (override stale DB)', {});
+          await this.syncWalletBalance();
+          await this.persistWalletToDatabase();
+        }
       } else {
         // First time: sync balance from exchange, then persist to DB
         await this.syncWalletBalance();
