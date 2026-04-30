@@ -386,8 +386,18 @@ export class BinanceAdapter extends ExchangeInterface {
   }
 
   protected normalizeSymbol(symbol: string): string {
-    // Convert "BTC/USDT" to "BTCUSDT"
-    return symbol.replace("/", "");
+    // Phase B-2.3 — Seer's canonical format is "BTC-USD" (dash + USD).
+    // Binance Spot only quotes against USDT, USDC, BUSD, FDUSD, BTC, ETH.
+    // Map: "BTC-USD" → "BTCUSDT", "ETH-USD" → "ETHUSDT", "SOL-USD" → "SOLUSDT".
+    // Also accept legacy "BTC/USDT" form (strip slash).
+    const upper = symbol.toUpperCase();
+    if (upper.includes("-")) {
+      const [base, quote] = upper.split("-");
+      // Bridge USD → USDT (Binance Spot doesn't have native USD pairs)
+      const binanceQuote = quote === "USD" ? "USDT" : quote;
+      return `${base}${binanceQuote}`;
+    }
+    return upper.replace("/", "");
   }
 
   protected denormalizeSymbol(symbol: string): string {
