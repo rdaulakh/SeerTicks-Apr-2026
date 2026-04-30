@@ -24,6 +24,15 @@ export class BinanceAdapter extends ExchangeInterface {
   private wsReconnectTimeout: NodeJS.Timeout | null = null;
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
 
+  // Phase B-2.4 — symbol-specific LOT_SIZE / PRICE_FILTER cache. Binance Spot
+  // rejects orders whose `quantity` doesn't match the symbol's `stepSize`
+  // (-1111 "Parameter 'quantity' has too much precision."). We fetch
+  // exchangeInfo once and cache stepSize / minQty / tickSize / minNotional
+  // per symbol so every order can be rounded compliantly.
+  private symbolFilters: Map<string, { stepSize: number; minQty: number; tickSize: number; minNotional: number }> = new Map();
+  private filtersLoadedAt = 0;
+  private readonly FILTERS_TTL_MS = 60 * 60 * 1000; // 1 hour
+
   constructor(apiKey: string, apiSecret: string, opts: { testnet?: boolean } = {}) {
     super(apiKey, apiSecret);
     // Phase 51 — Testnet support. When BINANCE_USE_TESTNET=1 (or opts.testnet),
@@ -39,6 +48,58 @@ export class BinanceAdapter extends ExchangeInterface {
     if (useTestnet) {
       console.log('[BinanceAdapter] 🧪 TESTNET mode — https://testnet.binance.vision');
     }
+  }
+
+  /**
+   * Load LOT_SIZE / PRICE_FILTER / MIN_NOTIONAL filters for all symbols.
+   * Cached for FILTERS_TTL_MS so we don't pay the weight cost on every order.
+   */
+  private async ensureSymbolFilters(): Promise<void> {
+    if (this.symbolFilters.size > 0 && Date.now() - this.filtersLoadedAt < this.FILTERS_TTL_MS) return;
+    try {
+      const info = await this.client.getExchangeInfo();
+      for (const sym of info.symbols || []) {
+        const stepFilter = sym.filters?.find((f: any) => f.filterType === 'LOT_SIZE');
+        const priceFilter = sym.filters?.find((f: any) => f.filterType === 'PRICE_FILTER');
+        const notionalFilter = sym.filters?.find((f: any) => f.filterType === 'NOTIONAL' || f.filterType === 'MIN_NOTIONAL');
+        if (stepFilter && priceFilter) {
+          this.symbolFilters.set(sym.symbol, {
+            stepSize: parseFloat(stepFilter.stepSize),
+            minQty: parseFloat(stepFilter.minQty),
+            tickSize: parseFloat(priceFilter.tickSize),
+            minNotional: notionalFilter ? parseFloat(notionalFilter.minNotional || notionalFilter.notional || '0') : 0,
+          });
+        }
+      }
+      this.filtersLoadedAt = Date.now();
+      console.log(`[BinanceAdapter] Loaded LOT_SIZE/PRICE_FILTER for ${this.symbolFilters.size} symbols`);
+    } catch (e: any) {
+      console.warn('[BinanceAdapter] Failed to load symbol filters:', e?.message);
+    }
+  }
+
+  /**
+   * Round a quantity DOWN to the symbol's stepSize. Floor (not round) so we
+   * never request more than the user can afford. Returns a string with the
+   * appropriate fixed-decimal precision (Binance rejects scientific notation).
+   */
+  private quantizeQuantity(symbol: string, qty: number): string {
+    const f = this.symbolFilters.get(symbol);
+    if (!f || !f.stepSize) return qty.toString();
+    const step = f.stepSize;
+    const floored = Math.floor(qty / step) * step;
+    // Compute decimals from step (e.g. 0.00001 → 5, 0.01 → 2)
+    const decimals = Math.max(0, -Math.floor(Math.log10(step)));
+    return floored.toFixed(decimals);
+  }
+
+  private quantizePrice(symbol: string, price: number): string {
+    const f = this.symbolFilters.get(symbol);
+    if (!f || !f.tickSize) return price.toString();
+    const tick = f.tickSize;
+    const floored = Math.floor(price / tick) * tick;
+    const decimals = Math.max(0, -Math.floor(Math.log10(tick)));
+    return floored.toFixed(decimals);
   }
 
   getExchangeName(): "binance" {
@@ -177,14 +238,17 @@ export class BinanceAdapter extends ExchangeInterface {
 
   async placeLimitOrder(params: OrderParams): Promise<OrderResult> {
     const normalizedSymbol = this.normalizeSymbol(params.symbol);
+    await this.ensureSymbolFilters();
+    const qtyStr = this.quantizeQuantity(normalizedSymbol, params.quantity);
+    const priceStr = params.price !== undefined ? this.quantizePrice(normalizedSymbol, params.price) : undefined;
 
     try {
       const response = await this.client.submitNewOrder({
         symbol: normalizedSymbol,
         side: params.side.toUpperCase(),
         type: "LIMIT",
-        quantity: params.quantity,
-        price: params.price,
+        quantity: qtyStr as any,
+        price: priceStr as any,
         timeInForce: params.timeInForce || "GTC",
       });
 
@@ -204,13 +268,15 @@ export class BinanceAdapter extends ExchangeInterface {
 
   async placeMarketOrder(params: OrderParams): Promise<OrderResult> {
     const normalizedSymbol = this.normalizeSymbol(params.symbol);
+    await this.ensureSymbolFilters();
+    const qtyStr = this.quantizeQuantity(normalizedSymbol, params.quantity);
 
     try {
       const response = await this.client.submitNewOrder({
         symbol: normalizedSymbol,
         side: params.side.toUpperCase(),
         type: "MARKET",
-        quantity: params.quantity,
+        quantity: qtyStr as any,
       });
 
       return {
