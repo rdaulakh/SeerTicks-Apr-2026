@@ -179,7 +179,7 @@ export class BinanceAdapter extends ExchangeInterface {
     const normalizedSymbol = this.normalizeSymbol(params.symbol);
 
     try {
-      const response = await this.client.order({
+      const response = await this.client.submitNewOrder({
         symbol: normalizedSymbol,
         side: params.side.toUpperCase(),
         type: "LIMIT",
@@ -206,7 +206,7 @@ export class BinanceAdapter extends ExchangeInterface {
     const normalizedSymbol = this.normalizeSymbol(params.symbol);
 
     try {
-      const response = await this.client.order({
+      const response = await this.client.submitNewOrder({
         symbol: normalizedSymbol,
         side: params.side.toUpperCase(),
         type: "MARKET",
@@ -231,7 +231,7 @@ export class BinanceAdapter extends ExchangeInterface {
     const normalizedSymbol = this.normalizeSymbol(symbol);
 
     try {
-      await this.client.cancel({
+      await this.client.cancelOrder({
         symbol: normalizedSymbol,
         orderId: parseInt(orderId),
       });
@@ -274,7 +274,7 @@ export class BinanceAdapter extends ExchangeInterface {
 
   async getAccountBalance(asset?: string): Promise<Balance[]> {
     try {
-      const response = await this.client.account();
+      const response = await this.client.getAccountInformation();
       
       const balances: Balance[] = response.balances
         .filter((b: any) => {
