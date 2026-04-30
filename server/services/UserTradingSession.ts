@@ -126,25 +126,57 @@ export class UserTradingSession extends EventEmitter {
       this.weightManager = getAgentWeightManager(this.userId);
       await this.weightManager.loadFromDatabase();
 
-      // 2. Initialize PaperTradingEngine (user's wallet)
-      const { PaperTradingEngine } = await import('../execution/PaperTradingEngine');
-      // Phase 44 alignment — paper-trade against Binance perp economics
-      // (0.10% taker / 0.02% maker, ~0.25% drag), matching the AS champion
-      // backtest. Coinbase's 0.50% taker → 1.30% drag is incompatible with
-      // the strategy's small-edge geometry, which the audit + a manual
-      // close-attempt confirmed (ProfitLockGuard correctly refused to book
-      // a +0.20% gross win that would have netted -1.10% under Coinbase).
-      // Override via PAPER_EXCHANGE=coinbase if you need to test that path.
-      const paperExchange = (process.env.PAPER_EXCHANGE as 'binance' | 'coinbase') || 'binance';
-      this.tradingEngine = new PaperTradingEngine({
-        userId: this.userId,
-        initialBalance: 10000,
-        exchange: paperExchange,
-        enableSlippage: true,
-        enableCommission: true,
-        enableMarketImpact: true,
-        enableLatency: true,
-      });
+      // 2. Initialize trading engine.
+      //
+      // Phase B-2 — when USE_TESTNET_ENGINE=1 we route through RealTradingEngine
+      // pointed at Binance Spot Testnet (testnet.binance.vision). Same testnet
+      // keys via BINANCE_API_KEY/BINANCE_SECRET_KEY, with BINANCE_USE_TESTNET=1
+      // telling BinanceAdapter to use testnet base URL. Converts paper trading
+      // from "in-memory simulator" to "real order book mechanics with fake
+      // money" — actual fills, real spread, real partial fills, exchange-side
+      // rejections. Both engines emit the same events (position_opened,
+      // position_closed, wallet_updated, etc.) per ITradingEngine contract.
+      //
+      // Default falls back to in-memory PaperTradingEngine for users without
+      // testnet keys configured.
+      const useTestnetEngine = process.env.USE_TESTNET_ENGINE === '1'
+        && !!process.env.BINANCE_API_KEY
+        && !!process.env.BINANCE_SECRET_KEY;
+
+      if (useTestnetEngine && this.tradingMode === 'paper') {
+        const { RealTradingEngine } = await import('../execution/RealTradingEngine');
+        this.tradingEngine = new RealTradingEngine({
+          userId: this.userId,
+          exchange: 'binance',
+          apiKey: process.env.BINANCE_API_KEY!,
+          apiSecret: process.env.BINANCE_SECRET_KEY!,
+          dryRun: false, // place REAL orders on testnet
+          maxDailyLossPercent: 0.05,
+          maxSingleTradePercent: 0.02,
+          maxOpenPositions: 6,
+          positionSizeRampUp: 1.0,
+        });
+        console.log(`[UserTradingSession] 🧪 Using RealTradingEngine on Binance TESTNET (paper-mode)`);
+      } else {
+        const { PaperTradingEngine } = await import('../execution/PaperTradingEngine');
+        // Phase 44 alignment — paper-trade against Binance perp economics
+        // (0.10% taker / 0.02% maker, ~0.25% drag), matching the AS champion
+        // backtest. Coinbase's 0.50% taker → 1.30% drag is incompatible with
+        // the strategy's small-edge geometry, which the audit + a manual
+        // close-attempt confirmed (ProfitLockGuard correctly refused to book
+        // a +0.20% gross win that would have netted -1.10% under Coinbase).
+        // Override via PAPER_EXCHANGE=coinbase if you need to test that path.
+        const paperExchange = (process.env.PAPER_EXCHANGE as 'binance' | 'coinbase') || 'binance';
+        this.tradingEngine = new PaperTradingEngine({
+          userId: this.userId,
+          initialBalance: 10000,
+          exchange: paperExchange,
+          enableSlippage: true,
+          enableCommission: true,
+          enableMarketImpact: true,
+          enableLatency: true,
+        });
+      }
 
       // 3. Initialize PositionManager
       const { PositionManager } = await import('../PositionManager');
