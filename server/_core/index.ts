@@ -613,8 +613,15 @@ async function startServer() {
       // -book; pair with spot bookTicker to compute the premium. forceOrder
       // stays — fires only on actual liquidations (rare in calm markets, that's
       // the point: when it fires, it matters).
+      // Phase 53.5 — also subscribe to @aggTrade on futures so we can compute
+      // perp taker-flow imbalance (CVD). Aggressive taker fills lead price by
+      // 500ms–2s on the same venue when they cluster directionally.
       const streams = futuresSymbols
-        .flatMap(s => [`${s.toLowerCase()}@forceOrder`, `${s.toLowerCase()}@bookTicker`])
+        .flatMap(s => [
+          `${s.toLowerCase()}@forceOrder`,
+          `${s.toLowerCase()}@bookTicker`,
+          `${s.toLowerCase()}@aggTrade`,
+        ])
         .join('/');
       // Note: futures stream rejects ?timeUnit=MICROSECOND (400 Bad Request).
       // Spot supports it, futures doesn't yet. Stay on millisecond for futures.
@@ -661,6 +668,21 @@ async function startServer() {
               tradeTime: data.T,
               eventTime: data.E,
             };
+          } else if (stream.includes('@aggTrade')) {
+            // Phase 53.5 — perp aggressive trades. data.m === true means the
+            // BUYER is the maker, i.e. the taker SOLD into the bid (sell flow).
+            // data.m === false means the taker BOUGHT (buy flow).
+            const price = parseFloat(data.p);
+            const qty = parseFloat(data.q);
+            if (!isFinite(price) || !isFinite(qty) || qty <= 0) return;
+            const notional = price * qty;
+            const side: 'buy' | 'sell' = data.m === true ? 'sell' : 'buy';
+            (global as any).__binancePerpTakerFlow = (global as any).__binancePerpTakerFlow || {};
+            const ring = (global as any).__binancePerpTakerFlow[data.s] || [];
+            ring.push({ side, price, qty, notional, timestamp: data.T });
+            // Keep last 500 fills per symbol (~30-60s on liquid majors).
+            if (ring.length > 500) ring.splice(0, ring.length - 500);
+            (global as any).__binancePerpTakerFlow[data.s] = ring;
           }
         } catch {/* swallow malformed */}
       });

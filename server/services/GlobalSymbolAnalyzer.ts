@@ -45,6 +45,7 @@ import { ForexCorrelationAgent } from '../agents/ForexCorrelationAgent';
 import { OrderbookImbalanceAgent } from '../agents/OrderbookImbalanceAgent';
 import { LeadLagAgent } from '../agents/LeadLagAgent';
 import { PerpSpotPremiumAgent } from '../agents/PerpSpotPremiumAgent';
+import { PerpTakerFlowAgent } from '../agents/PerpTakerFlowAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -284,6 +285,11 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // of leading-flow information vs cash market.
     const perpSpotPremium = new PerpSpotPremiumAgent();
 
+    // Phase 53.5 — PerpTakerFlowAgent: cumulative volume delta on perps. Big
+    // one-sided taker bursts (aggressive market orders) lead price by 0.5-2s
+    // even on the same venue. Reads __binancePerpTakerFlow from the boot WS.
+    const perpTakerFlow = new PerpTakerFlowAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -322,6 +328,9 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // Phase 53.4: PerpSpotPremiumAgent — perp-vs-spot premium reading.
     // Pure in-memory reads of __binanceFuturesBook + __binanceSpotBook.
     this.agentManager.registerAgent(perpSpotPremium);
+
+    // Phase 53.5: PerpTakerFlowAgent — CVD on perp aggTrade stream.
+    this.agentManager.registerAgent(perpTakerFlow);
 
     // ML Prediction Agent (Phase 3)
     try {
