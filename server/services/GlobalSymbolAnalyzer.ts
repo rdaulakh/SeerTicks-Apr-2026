@@ -43,6 +43,7 @@ import { VolumeProfileAnalyzer } from '../agents/VolumeProfileAnalyzer';
 import { MLPredictionAgent } from '../agents/MLPredictionAgent';
 import { ForexCorrelationAgent } from '../agents/ForexCorrelationAgent';
 import { OrderbookImbalanceAgent } from '../agents/OrderbookImbalanceAgent';
+import { LeadLagAgent } from '../agents/LeadLagAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -271,6 +272,11 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // identified by the 2026-04-25 audit (65% consensus on losing trades).
     const orderbookImbalance = new OrderbookImbalanceAgent();
 
+    // Phase 53.3 — LeadLagAgent: turns the LeadLagTracker measurements into
+    // a consensus signal. SOL median lead 167ms (88% Binance leads) is real
+    // exploitable information that was previously just observation.
+    const leadLag = new LeadLagAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -301,6 +307,10 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // Phase 28: Register the orderbook imbalance agent. It consumes L2 events
     // forwarded from CoinbasePublicWebSocket via the orderbook handler below.
     this.agentManager.registerAgent(orderbookImbalance);
+
+    // Phase 53.3: LeadLagAgent — instant cross-exchange lead-lag signal.
+    // Subscribes to LeadLagTracker events on init, no external API calls.
+    this.agentManager.registerAgent(leadLag);
 
     // ML Prediction Agent (Phase 3)
     try {
