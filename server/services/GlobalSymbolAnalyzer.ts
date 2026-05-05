@@ -46,6 +46,7 @@ import { OrderbookImbalanceAgent } from '../agents/OrderbookImbalanceAgent';
 import { LeadLagAgent } from '../agents/LeadLagAgent';
 import { PerpSpotPremiumAgent } from '../agents/PerpSpotPremiumAgent';
 import { PerpTakerFlowAgent } from '../agents/PerpTakerFlowAgent';
+import { SpotTakerFlowAgent } from '../agents/SpotTakerFlowAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -290,6 +291,11 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // even on the same venue. Reads __binancePerpTakerFlow from the boot WS.
     const perpTakerFlow = new PerpTakerFlowAgent();
 
+    // Phase 53.7 — SpotTakerFlowAgent: spot CVD. Pairs with PerpTakerFlow in
+    // consensus — agreement = real demand/supply, divergence = perp speculation
+    // that's likely to fade. Reads __binanceSpotTakerFlow from the boot WS.
+    const spotTakerFlow = new SpotTakerFlowAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -331,6 +337,9 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
     // Phase 53.5: PerpTakerFlowAgent — CVD on perp aggTrade stream.
     this.agentManager.registerAgent(perpTakerFlow);
+
+    // Phase 53.7: SpotTakerFlowAgent — CVD on spot aggTrade. Pairs with perp.
+    this.agentManager.registerAgent(spotTakerFlow);
 
     // ML Prediction Agent (Phase 3)
     try {

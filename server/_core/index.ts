@@ -582,6 +582,25 @@ async function startServer() {
           receivedAtMs: Date.now(),
           source: 'binance',
         });
+        // Phase 53.7 — symmetric to perp: stash spot taker fills in a ring
+        // global so SpotTakerFlowAgent can compute spot CVD and pair it with
+        // PerpTakerFlowAgent for divergence detection (perp-only buying = noise,
+        // perp+spot agreement = real demand).
+        const rawBinSym = agg.symbol?.toUpperCase();
+        if (rawBinSym && isFinite(agg.price) && isFinite(agg.quantity) && agg.quantity > 0) {
+          (global as any).__binanceSpotTakerFlow = (global as any).__binanceSpotTakerFlow || {};
+          const ring = (global as any).__binanceSpotTakerFlow[rawBinSym] || [];
+          ring.push({
+            // isBuyerMaker === true means the buyer was the maker (taker SOLD).
+            side: agg.isBuyerMaker ? 'sell' : 'buy',
+            price: agg.price,
+            qty: agg.quantity,
+            notional: agg.price * agg.quantity,
+            timestamp: agg.timestamp,
+          });
+          if (ring.length > 500) ring.splice(0, ring.length - 500);
+          (global as any).__binanceSpotTakerFlow[rawBinSym] = ring;
+        }
       });
 
       // depth@100ms and kline_1s emit on the WS manager too — handlers in the
