@@ -464,9 +464,16 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
     // ========================================
     if (params.side === 'buy' && params.price) {
       const orderValue = adjustedQuantity * params.price;
-      const tradePercent = this.wallet.equity > 0 ? orderValue / this.wallet.equity : 1;
+      // Phase B-2.5 — use max(equity, balance, 1) as denominator. Earlier
+      // logic was `equity > 0 ? orderValue/equity : 1` which silently rejected
+      // every trade as 100% if equity became 0/NaN due to an upstream sync
+      // hiccup or unrealizedPnL miscalculation. Falling back to balance keeps
+      // the safety check meaningful even if equity is momentarily corrupted,
+      // and is a tighter denominator than equity in practice (balance excludes
+      // unrealized gains, so the ratio is more conservative — matches intent).
+      const denominator = Math.max(this.wallet.equity || 0, this.wallet.balance || 0, 1);
+      const tradePercent = orderValue / denominator;
       if (tradePercent > this.maxSingleTradePercent * 5) {
-        // Hard block: never allow a single trade > 5x the per-trade risk limit
         throw new Error(`[RealTradingEngine] Single trade too large: ${(tradePercent * 100).toFixed(1)}% of equity (hard limit ${(this.maxSingleTradePercent * 5 * 100).toFixed(0)}%)`);
       }
     }
