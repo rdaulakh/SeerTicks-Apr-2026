@@ -94,7 +94,12 @@ export function __saveAgentPerformanceToFile(
 export const AGENT_CATEGORIES = {
   FAST: ['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst'],
   SLOW: ['SentimentAnalyst', 'NewsSentinel', 'MacroAnalyst', 'OnChainAnalyst'],
-  PHASE2: ['WhaleTracker', 'FundingRateAnalyst', 'LiquidationHeatmap', 'OnChainFlowAnalyst', 'VolumeProfileAnalyzer', 'ForexCorrelationAgent'],
+  PHASE2: ['WhaleTracker', 'FundingRateAnalyst', 'LiquidationHeatmap', 'OnChainFlowAnalyst', 'VolumeProfileAnalyzer', 'ForexCorrelationAgent', 'OpenInterestDeltaAgent'],
+  // Phase 53.10 — LEAD_INFO is a new category for Binance-microstructure /
+  // cross-exchange-lead agents. Tokyo placement makes Binance the price-
+  // discovery venue; these agents convert that into trade-decision signal
+  // (LeadLag, perp/spot premium, perp/spot CVD, perp depth imbalance).
+  LEAD_INFO: ['LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent', 'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent'],
 } as const;
 
 // All agent names
@@ -102,6 +107,7 @@ export const ALL_AGENTS = [
   ...AGENT_CATEGORIES.FAST,
   ...AGENT_CATEGORIES.SLOW,
   ...AGENT_CATEGORIES.PHASE2,
+  ...AGENT_CATEGORIES.LEAD_INFO,
 ] as const;
 
 export type AgentName = typeof ALL_AGENTS[number];
@@ -113,13 +119,13 @@ export const DEFAULT_AGENT_WEIGHTS: Record<AgentName, number> = {
   TechnicalAnalyst: 40,
   PatternMatcher: 35,
   OrderFlowAnalyst: 25,
-  
+
   // Slow agents (weights should sum to 100 within category)
   SentimentAnalyst: 33.33,
   NewsSentinel: 33.33,
   MacroAnalyst: 33.34,
   OnChainAnalyst: 0, // Optional, disabled by default
-  
+
   // Phase 2 agents (weights should sum to 100 within category)
   WhaleTracker: 14,
   FundingRateAnalyst: 14,
@@ -127,6 +133,20 @@ export const DEFAULT_AGENT_WEIGHTS: Record<AgentName, number> = {
   OnChainFlowAnalyst: 14,
   VolumeProfileAnalyzer: 18,
   ForexCorrelationAgent: 12,
+  OpenInterestDeltaAgent: 14,
+
+  // Phase 53.10 LEAD_INFO category (sum = 100)
+  // Distribution rationale: LeadLag and PerpTakerFlow are the highest-quality
+  // pure-information signals (cross-exchange timing + same-venue CVD).
+  // PerpSpotPremium gets meaningful weight because the perp/spot premium is
+  // a continuous reading rather than event-triggered. Spot CVD and depth
+  // imbalance are slightly lower (noisier on busy spot tape, depth signal
+  // is short-horizon).
+  LeadLagAgent: 25,
+  PerpSpotPremiumAgent: 20,
+  PerpTakerFlowAgent: 25,
+  SpotTakerFlowAgent: 15,
+  PerpDepthImbalanceAgent: 15,
 };
 
 // Phase 15B FIX: Rebalanced category multipliers.
@@ -138,6 +158,10 @@ export const DEFAULT_CATEGORY_MULTIPLIERS = {
   FAST: 0.70,   // Reduced from 1.0 — technical noise should not dominate
   SLOW: 0.50,   // Increased from 0.20 — macro/sentiment signals are higher quality
   PHASE2: 0.60, // Increased from 0.50 — whale/funding/liquidation are valuable
+  // Phase 53.10 — LEAD_INFO sits between FAST and PHASE2. Real-time like
+  // FAST agents but specialized; high signal quality (Tokyo placement +
+  // Binance microstructure) but each individual reading is short-horizon.
+  LEAD_INFO: 0.65,
 };
 
 export interface AgentWeightConfig {
