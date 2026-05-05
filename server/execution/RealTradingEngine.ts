@@ -1077,18 +1077,27 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
     }
 
     try {
-      // Get balances from exchange (non-zero balances represent open positions)
+      // Phase 53.1 — only reconcile against assets corresponding to the
+      // symbols we actually trade. Testnet wallets are pre-funded with
+      // hundreds of test coins (NIGHT, CFG, KAT, XAUT, etc.) — flagging
+      // every one as "unknown" floods the log with 451 warnings/min.
+      // Build the tradable-asset set from current positions + a known list.
+      const tradedAssets = new Set<string>(['BTC', 'ETH', 'SOL']);
+      for (const pos of this.positions.values()) {
+        const asset = pos.symbol.replace(/-USD.*/, '').replace(/\/USD.*/, '');
+        tradedAssets.add(asset);
+      }
+
       const balances = await this.exchange.getAccountBalance();
       const exchangePositions = new Map<string, number>();
       for (const b of balances) {
-        if (b.asset !== 'USDT' && b.asset !== 'USD' && b.asset !== 'USDC' && b.total > 0) {
-          exchangePositions.set(b.asset, b.total);
-        }
+        if (!tradedAssets.has(b.asset)) continue;
+        if (b.total > 0) exchangePositions.set(b.asset, b.total);
       }
 
       // Check local positions against exchange
       for (const [key, pos] of this.positions) {
-        const asset = pos.symbol.replace(/-USD.*/, '').replace('/USD.*/', '');
+        const asset = pos.symbol.replace(/-USD.*/, '').replace(/\/USD.*/, '');
         const exchangeQty = exchangePositions.get(asset);
         if (exchangeQty && Math.abs(exchangeQty - pos.quantity) / pos.quantity < 0.01) {
           result.matched++;
@@ -1099,10 +1108,13 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
         }
       }
 
-      // Remaining exchange positions are unknown
+      // Remaining exchange positions are unknown — but only for traded assets.
+      // On testnet, the BASE asset balance (e.g. 1 BTC pre-funded) will also
+      // appear here when we have no open BTC position. That's expected and
+      // logged at debug, not warn.
       for (const [asset, qty] of exchangePositions) {
         result.unknown.push({ symbol: asset, quantity: qty });
-        executionLogger.warn('UNKNOWN position detected', { asset, quantity: qty, detail: 'on exchange but not local' });
+        executionLogger.debug('Untracked exchange balance', { asset, quantity: qty });
       }
 
       if (result.orphaned.length > 0 || result.unknown.length > 0) {
