@@ -47,6 +47,7 @@ import { LeadLagAgent } from '../agents/LeadLagAgent';
 import { PerpSpotPremiumAgent } from '../agents/PerpSpotPremiumAgent';
 import { PerpTakerFlowAgent } from '../agents/PerpTakerFlowAgent';
 import { SpotTakerFlowAgent } from '../agents/SpotTakerFlowAgent';
+import { PerpDepthImbalanceAgent } from '../agents/PerpDepthImbalanceAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -296,6 +297,11 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // that's likely to fade. Reads __binanceSpotTakerFlow from the boot WS.
     const spotTakerFlow = new SpotTakerFlowAgent();
 
+    // Phase 53.8 — PerpDepthImbalanceAgent: top-5 order book imbalance on
+    // Binance USDT-M perps. Resting bid/ask quantity over the top 5 levels
+    // is a much more stable signal than top-of-book alone.
+    const perpDepthImbalance = new PerpDepthImbalanceAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -340,6 +346,9 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
     // Phase 53.7: SpotTakerFlowAgent — CVD on spot aggTrade. Pairs with perp.
     this.agentManager.registerAgent(spotTakerFlow);
+
+    // Phase 53.8: PerpDepthImbalanceAgent — top-5 order book imbalance on perps.
+    this.agentManager.registerAgent(perpDepthImbalance);
 
     // ML Prediction Agent (Phase 3)
     try {

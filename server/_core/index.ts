@@ -635,11 +635,15 @@ async function startServer() {
       // Phase 53.5 — also subscribe to @aggTrade on futures so we can compute
       // perp taker-flow imbalance (CVD). Aggressive taker fills lead price by
       // 500ms–2s on the same venue when they cluster directionally.
+      // Phase 53.8 — also @depth5@100ms for top-5 order book imbalance.
+      // bookTicker is only top-of-book; depth5 reveals wall structure (sum of
+      // top-5 bids vs top-5 asks). Persistent imbalance often leads price.
       const streams = futuresSymbols
         .flatMap(s => [
           `${s.toLowerCase()}@forceOrder`,
           `${s.toLowerCase()}@bookTicker`,
           `${s.toLowerCase()}@aggTrade`,
+          `${s.toLowerCase()}@depth5@100ms`,
         ])
         .join('/');
       // Note: futures stream rejects ?timeUnit=MICROSECOND (400 Bad Request).
@@ -702,6 +706,33 @@ async function startServer() {
             // Keep last 500 fills per symbol (~30-60s on liquid majors).
             if (ring.length > 500) ring.splice(0, ring.length - 500);
             (global as any).__binancePerpTakerFlow[data.s] = ring;
+          } else if (stream.includes('@depth5')) {
+            // Phase 53.8 — perp top-5 order book. Stream pushes top-5 bids
+            // and asks every 100ms. Stash latest snapshot per symbol so the
+            // PerpDepthImbalanceAgent can compute (Σbid_qty - Σask_qty) /
+            // (Σbid_qty + Σask_qty) over the depth.
+            // Payload shape (futures partial depth): { e, E, T, s, U, u, pu,
+            //   b: [[price,qty], ...], a: [[price,qty], ...] }
+            const sym = data.s as string | undefined;
+            const bids = data.b as Array<[string, string]> | undefined;
+            const asks = data.a as Array<[string, string]> | undefined;
+            if (!sym || !Array.isArray(bids) || !Array.isArray(asks)) return;
+            const bidLevels = bids.slice(0, 5).map(([p, q]) => ({
+              price: parseFloat(p),
+              qty: parseFloat(q),
+            })).filter(l => isFinite(l.price) && isFinite(l.qty));
+            const askLevels = asks.slice(0, 5).map(([p, q]) => ({
+              price: parseFloat(p),
+              qty: parseFloat(q),
+            })).filter(l => isFinite(l.price) && isFinite(l.qty));
+            (global as any).__binancePerpDepth5 = (global as any).__binancePerpDepth5 || {};
+            (global as any).__binancePerpDepth5[sym] = {
+              bids: bidLevels,
+              asks: askLevels,
+              eventTime: data.E,
+              tradeTime: data.T,
+              receivedAt: Date.now(),
+            };
           }
         } catch {/* swallow malformed */}
       });
