@@ -549,6 +549,23 @@ async function startServer() {
         if (leadLagTrackerRef) {
           leadLagTrackerRef.pushBinance(canonicalSymbol, book.midPrice, book.receivedAtMs);
         }
+        // Phase 53.4 — stash spot top-of-book on a global, symmetric to the
+        // futures stash (__binanceFuturesBook). PerpSpotPremiumAgent reads
+        // both to derive the perp-vs-spot premium and detect when perp leads.
+        // Key by Binance native symbol (BTCUSDT etc.) so it pairs trivially.
+        const rawBinSym = book.symbol?.toUpperCase();
+        if (rawBinSym) {
+          (global as any).__binanceSpotBook = (global as any).__binanceSpotBook || {};
+          (global as any).__binanceSpotBook[rawBinSym] = {
+            bidPrice: book.bidPrice,
+            askPrice: book.askPrice,
+            midPrice: book.midPrice,
+            bidQty: book.bidQty,
+            askQty: book.askQty,
+            tradeTime: book.receivedAtMs,
+            eventTime: book.receivedAtMs,
+          };
+        }
       });
 
       // aggTrade → aggregated taker fills (one event per taker order, regardless

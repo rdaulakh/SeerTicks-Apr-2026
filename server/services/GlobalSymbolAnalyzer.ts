@@ -44,6 +44,7 @@ import { MLPredictionAgent } from '../agents/MLPredictionAgent';
 import { ForexCorrelationAgent } from '../agents/ForexCorrelationAgent';
 import { OrderbookImbalanceAgent } from '../agents/OrderbookImbalanceAgent';
 import { LeadLagAgent } from '../agents/LeadLagAgent';
+import { PerpSpotPremiumAgent } from '../agents/PerpSpotPremiumAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -277,6 +278,12 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // exploitable information that was previously just observation.
     const leadLag = new LeadLagAgent();
 
+    // Phase 53.4 — PerpSpotPremiumAgent: reads perp + spot bookTicker globals
+    // populated by the boot wiring and signals when perp leads spot via a
+    // statistically-elevated premium delta. Perp leverage compresses 1-3s
+    // of leading-flow information vs cash market.
+    const perpSpotPremium = new PerpSpotPremiumAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -311,6 +318,10 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // Phase 53.3: LeadLagAgent — instant cross-exchange lead-lag signal.
     // Subscribes to LeadLagTracker events on init, no external API calls.
     this.agentManager.registerAgent(leadLag);
+
+    // Phase 53.4: PerpSpotPremiumAgent — perp-vs-spot premium reading.
+    // Pure in-memory reads of __binanceFuturesBook + __binanceSpotBook.
+    this.agentManager.registerAgent(perpSpotPremium);
 
     // ML Prediction Agent (Phase 3)
     try {
