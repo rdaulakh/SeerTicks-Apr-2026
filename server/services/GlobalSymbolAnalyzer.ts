@@ -536,7 +536,14 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
           // OrderFlowAnalyst, OrderbookImbalanceAgent). Phase 28 added the
           // imbalance agent here so its L2 signal flows into consensus alongside
           // the other tick-driven agents.
-          const fastAgentNames = ['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent'];
+          // Phase 53.10 — append LEAD_INFO agents (LeadLag, perp/spot premium,
+          // perp/spot CVD, perp depth imbalance). All zero-latency in-memory
+          // reads from the boot WS globals — safe to run on the fast loop.
+          const fastAgentNames = [
+            'TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent',
+            'LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent',
+            'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent',
+          ];
           const signals: GlobalSignal[] = [];
 
           // Phase 33: Selective agent activation — skip agents irrelevant to current regime
@@ -655,6 +662,11 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
       'SentimentAnalyst', 'NewsSentinel', 'MacroAnalyst', 'OnChainAnalyst',
       'WhaleTracker', 'FundingRateAnalyst', 'LiquidationHeatmap',
       'OnChainFlowAnalyst', 'VolumeProfileAnalyzer', 'MLPredictionAgent',
+      // Phase 53.10 — OpenInterestDeltaAgent polls Binance fapi/v1/openInterest
+      // every 60s on its own internal interval, but generateSignal() reads from
+      // its in-memory history. Including it in the slow loop ensures it's
+      // refreshed once per slow cycle and contributes to consensus.
+      'OpenInterestDeltaAgent',
     ];
 
     // Inject live price into SentimentAnalyst
@@ -774,7 +786,11 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
   }
 
   private getFastAgentSignals(): GlobalSignal[] {
-    const fastAgentNames = new Set(['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent']);
+    const fastAgentNames = new Set([
+      'TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent',
+      'LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent',
+      'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent',
+    ]);
     return this.latestSignals.filter(s => fastAgentNames.has(s.agentName));
   }
 }
