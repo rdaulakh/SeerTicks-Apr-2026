@@ -100,6 +100,17 @@ export class LiquidationHeatmap extends AgentBase {
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
     const startTime = Date.now();
 
+    // Phase 53.2 — FAST PATH: real-time Binance perp liquidation cascades.
+    // The Phase 52 futures WS subscription stashes liquidation events on
+    // global.__lastLiquidations. When a meaningful cascade (>$500K notional
+    // in the last 60s) hits this symbol's perp, generate a strong directional
+    // signal in the cascade direction (LONG-liqs are sell pressure → short
+    // continuation; SHORT-liqs are buy pressure → long continuation). This
+    // pre-empts the slow REST aggregation by ~5-30s — exactly when the
+    // signal matters most.
+    const fastPath = this.tryLiquidationCascadeSignal(symbol, startTime);
+    if (fastPath) return fastPath;
+
     try {
       // FIXED: Use multi-exchange service instead of Binance-only
       // This fetches from Bybit, OKX, and Binance in parallel
@@ -249,6 +260,92 @@ export class LiquidationHeatmap extends AgentBase {
       .replace(/\//g, "")
       .replace(/-/g, "")
       .toUpperCase();
+  }
+
+  /**
+   * Phase 53.2 — Real-time liquidation cascade fast-path.
+   *
+   * Reads from the Phase 52 Binance Futures WS feed (stashed on
+   * global.__lastLiquidations). Returns a directional signal only if a
+   * meaningful cascade has just hit this symbol; otherwise null and the
+   * normal slow-path continues.
+   *
+   * Direction logic: LONG liquidations are forced sells → bearish for
+   * the next 30-90 seconds (continuation). SHORT liquidations are forced
+   * buys → bullish. This is well-documented short-horizon momentum.
+   * Confidence scales with cascade notional size (bigger = more conviction).
+   */
+  private tryLiquidationCascadeSignal(symbol: string, startTime: number): AgentSignal | null {
+    const liqs = (global as any).__lastLiquidations as Array<{
+      symbol: string;
+      side: string;       // 'LONG-LIQ' or 'SHORT-LIQ'
+      price: number;
+      quantity: number;
+      notional: number;
+      timestamp: number;
+    }> | undefined;
+
+    if (!liqs || liqs.length === 0) return null;
+
+    // Match: BTC-USD → BTCUSDT futures symbol
+    const futSym = this.normalizeFuturesSymbol(symbol).endsWith('USDT')
+      ? this.normalizeFuturesSymbol(symbol)
+      : this.normalizeFuturesSymbol(symbol).replace(/USD$/, 'USDT');
+
+    const cutoffMs = Date.now() - 60_000; // last 60s
+    const recent = liqs.filter(l => l.symbol === futSym && l.timestamp >= cutoffMs);
+    if (recent.length === 0) return null;
+
+    // Sum cascade direction
+    let longLiqNotional = 0;
+    let shortLiqNotional = 0;
+    for (const l of recent) {
+      if (l.side === 'LONG-LIQ') longLiqNotional += l.notional;
+      else shortLiqNotional += l.notional;
+    }
+    const totalNotional = longLiqNotional + shortLiqNotional;
+
+    // Need at least $500K total cascade notional to trigger fast-path
+    if (totalNotional < 500_000) return null;
+
+    // Direction: bigger side wins; ratio determines conviction
+    const isBearish = longLiqNotional > shortLiqNotional;
+    const dominantSide = isBearish ? longLiqNotional : shortLiqNotional;
+    const dominanceRatio = dominantSide / totalNotional; // 0.5–1.0
+
+    // Confidence scales with size + dominance.
+    // $500K, 50% dominance → 0.55. $5M, 90% dominance → 0.85. Cap at 0.90.
+    const sizeFactor = Math.min(totalNotional / 5_000_000, 1); // saturates at $5M
+    const confidence = Math.min(0.50 + sizeFactor * 0.30 + (dominanceRatio - 0.5) * 0.30, 0.90);
+
+    const signal = isBearish ? 'bearish' : 'bullish';
+    const reasoning = `Liquidation cascade fast-path: $${(totalNotional / 1000).toFixed(0)}K notional in last 60s, ${(dominanceRatio * 100).toFixed(0)}% ${isBearish ? 'long-liqs (sell pressure)' : 'short-liqs (buy pressure)'} on ${futSym} perp → ${signal} continuation`;
+
+    console.log(`[LiquidationHeatmap] 💥 cascade fast-path fired for ${symbol}: ${reasoning}`);
+
+    return {
+      agentName: this.config.name,
+      symbol,
+      timestamp: Date.now(),
+      signal,
+      confidence,
+      strength: dominanceRatio,
+      reasoning,
+      evidence: {
+        cascadeNotionalUSD: totalNotional,
+        longLiqNotional,
+        shortLiqNotional,
+        dominanceRatio,
+        eventCount: recent.length,
+        futuresSymbol: futSym,
+        source: 'binance-perp-forceOrder-ws',
+        fastPath: true,
+      },
+      qualityScore: 0.80, // real-time WS data is high quality
+      processingTime: Date.now() - startTime,
+      dataFreshness: Date.now() - Math.max(...recent.map(l => l.timestamp)), // ms since most recent liq
+      executionScore: Math.round(50 + sizeFactor * 40), // bigger cascade = better execution timing
+    };
   }
 
   /**
