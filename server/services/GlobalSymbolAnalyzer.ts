@@ -48,6 +48,7 @@ import { PerpSpotPremiumAgent } from '../agents/PerpSpotPremiumAgent';
 import { PerpTakerFlowAgent } from '../agents/PerpTakerFlowAgent';
 import { SpotTakerFlowAgent } from '../agents/SpotTakerFlowAgent';
 import { PerpDepthImbalanceAgent } from '../agents/PerpDepthImbalanceAgent';
+import { OpenInterestDeltaAgent } from '../agents/OpenInterestDeltaAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -302,6 +303,11 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // is a much more stable signal than top-of-book alone.
     const perpDepthImbalance = new PerpDepthImbalanceAgent();
 
+    // Phase 53.9 — OpenInterestDeltaAgent: slow-path REST poll of perp OI.
+    // ΔOI × ΔPrice quadrant reveals positioning (fresh longs/shorts, squeeze,
+    // capitulation). 60s cadence, polls only the symbol this analyzer owns.
+    const openInterestDelta = new OpenInterestDeltaAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -349,6 +355,9 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
     // Phase 53.8: PerpDepthImbalanceAgent — top-5 order book imbalance on perps.
     this.agentManager.registerAgent(perpDepthImbalance);
+
+    // Phase 53.9: OpenInterestDeltaAgent — perp OI quadrant signal (slow path).
+    this.agentManager.registerAgent(openInterestDelta);
 
     // ML Prediction Agent (Phase 3)
     try {
