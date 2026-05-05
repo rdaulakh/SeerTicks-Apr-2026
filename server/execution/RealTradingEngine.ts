@@ -120,6 +120,13 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
   private maxOpenPositions: number;
   private positionSizeRampUp: number;
 
+  // Phase 53 — periodic reconcile interval. Without this, the DB and the
+  // exchange diverge silently when an exit closes the testnet/live position
+  // but the engine fails to update DB (we hit this exact bug — DB held
+  // ghost positions for 5 days while testnet had already settled them).
+  private reconcileInterval: NodeJS.Timeout | null = null;
+  private readonly RECONCILE_INTERVAL_MS = 60_000;
+
   // ITradingEngine
   readonly tradingMode: TradingMode;
 
@@ -264,6 +271,20 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
       // Fallback: sync from exchange
       await this.syncWalletBalance();
       this.isReady = true;
+    }
+
+    // Phase 53 — start periodic reconciliation so DB↔exchange drift is
+    // detected within 60s instead of being silent until someone notices.
+    // The reconcile method already exists; it just was never wired up.
+    if (!this.reconcileInterval) {
+      this.reconcileInterval = setInterval(async () => {
+        try {
+          await this.reconcilePositions();
+        } catch (e: any) {
+          executionLogger.error('Reconcile loop tick failed', { error: e?.message });
+        }
+      }, this.RECONCILE_INTERVAL_MS);
+      executionLogger.info('Reconciliation loop started', { intervalMs: this.RECONCILE_INTERVAL_MS });
     }
   }
 
