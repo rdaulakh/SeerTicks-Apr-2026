@@ -15,6 +15,7 @@ import { priceFeedRouter } from "./routers/priceFeedRouter";
 // import { rateLimitManagementRouter } from "./routers/rateLimitManagementRouter";
 import { monitoringRouter } from "./routers/monitoringRouter";
 import { healthRouter } from "./routers/healthRouter";
+import { leadInfoRouter } from "./routers/leadInfoRouter";
 import { alertRouter } from "./routers/alertRouter";
 import { reconciliationRouter } from "./routers/reconciliation";
 import { riskRouter } from "./routers/riskRouter";
@@ -59,6 +60,7 @@ export const appRouter = router({
   // rateLimit: rateLimitManagementRouter,
   monitoring: monitoringRouter,
   health: healthRouter,
+  leadInfo: leadInfoRouter,
   alert: alertRouter,
   reconciliation: reconciliationRouter,
   risk: riskRouter,
