@@ -60,6 +60,8 @@ import { FundingRateFlipAgent } from '../agents/FundingRateFlipAgent';
 import { StopHuntAgent } from '../agents/StopHuntAgent';
 import { MultiTFConvergenceAgent } from '../agents/MultiTFConvergenceAgent';
 import { TradeBurstAgent } from '../agents/TradeBurstAgent';
+import { VWAPDivergenceAgent } from '../agents/VWAPDivergenceAgent';
+import { PriceImpactAgent } from '../agents/PriceImpactAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -372,6 +374,15 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // gives direction.
     const tradeBurst = new TradeBurstAgent();
 
+    // Phase 53.23 — VWAPDivergenceAgent: 5-min rolling VWAP from perp aggTrade.
+    // Price ≥ VWAP+1.5σ → bearish mean reversion. Price ≤ VWAP-1.5σ → bullish.
+    const vwapDivergence = new VWAPDivergenceAgent();
+
+    // Phase 53.24 — PriceImpactAgent: bps moved per $1M of taker flow on perp.
+    // High realized impact (>2× baseline) signals thin actual liquidity → next
+    // push amplified. Direction from short-window side imbalance.
+    const priceImpact = new PriceImpactAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -455,6 +466,12 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
     // Phase 53.22: TradeBurstAgent — fill-frequency surge with side bias.
     this.agentManager.registerAgent(tradeBurst);
+
+    // Phase 53.23: VWAPDivergenceAgent — mean reversion via VWAP±σ.
+    this.agentManager.registerAgent(vwapDivergence);
+
+    // Phase 53.24: PriceImpactAgent — realized bps/$1M ratio anomaly.
+    this.agentManager.registerAgent(priceImpact);
 
     // ML Prediction Agent (Phase 3)
     try {
@@ -643,6 +660,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
             'CrossExchangeSpreadAgent', 'CVDDivergenceAgent',
             'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent',
             'VelocityAgent', 'StopHuntAgent', 'MultiTFConvergenceAgent', 'TradeBurstAgent',
+            'VWAPDivergenceAgent', 'PriceImpactAgent',
           ];
           const signals: GlobalSignal[] = [];
 
@@ -896,6 +914,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
       'CrossExchangeSpreadAgent', 'CVDDivergenceAgent',
       'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent',
       'VelocityAgent', 'StopHuntAgent', 'MultiTFConvergenceAgent', 'TradeBurstAgent',
+      'VWAPDivergenceAgent', 'PriceImpactAgent',
     ]);
     return this.latestSignals.filter(s => fastAgentNames.has(s.agentName));
   }

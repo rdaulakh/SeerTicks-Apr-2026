@@ -99,7 +99,7 @@ export const AGENT_CATEGORIES = {
   // cross-exchange-lead agents. Tokyo placement makes Binance the price-
   // discovery venue; these agents convert that into trade-decision signal
   // (LeadLag, perp/spot premium, perp/spot CVD, perp depth imbalance).
-  LEAD_INFO: ['LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent', 'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent', 'CrossExchangeSpreadAgent', 'CVDDivergenceAgent', 'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent', 'VelocityAgent', 'StopHuntAgent', 'MultiTFConvergenceAgent', 'TradeBurstAgent'],
+  LEAD_INFO: ['LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent', 'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent', 'CrossExchangeSpreadAgent', 'CVDDivergenceAgent', 'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent', 'VelocityAgent', 'StopHuntAgent', 'MultiTFConvergenceAgent', 'TradeBurstAgent', 'VWAPDivergenceAgent', 'PriceImpactAgent'],
 } as const;
 
 // All agent names
@@ -144,21 +144,23 @@ export const DEFAULT_AGENT_WEIGHTS: Record<AgentName, number> = {
   // imbalance are slightly lower (noisier on busy spot tape, depth signal
   // is short-horizon). WhaleWall is binary (wall present or not) so it gets
   // less weight despite high specificity.
-  LeadLagAgent: 11,
-  PerpSpotPremiumAgent: 8,
-  PerpTakerFlowAgent: 10,
-  SpotTakerFlowAgent: 6,
-  PerpDepthImbalanceAgent: 6,
-  WhaleWallAgent: 5,
-  CrossExchangeSpreadAgent: 7,
-  CVDDivergenceAgent: 7,
-  TradeSizeOutlierAgent: 6,
-  SpreadCompressionAgent: 4,
-  LiquidityVacuumAgent: 4,
-  VelocityAgent: 9,
-  StopHuntAgent: 8,
+  LeadLagAgent: 10,
+  PerpSpotPremiumAgent: 7,
+  PerpTakerFlowAgent: 9,
+  SpotTakerFlowAgent: 5,
+  PerpDepthImbalanceAgent: 5,
+  WhaleWallAgent: 4,
+  CrossExchangeSpreadAgent: 6,
+  CVDDivergenceAgent: 6,
+  TradeSizeOutlierAgent: 5,
+  SpreadCompressionAgent: 3,
+  LiquidityVacuumAgent: 3,
+  VelocityAgent: 8,
+  StopHuntAgent: 7,
   MultiTFConvergenceAgent: 5,
   TradeBurstAgent: 4,
+  VWAPDivergenceAgent: 6,
+  PriceImpactAgent: 7,
 };
 
 // Phase 15B FIX: Rebalanced category multipliers.
