@@ -310,66 +310,130 @@ export class UserTradingSession extends EventEmitter {
           return priceData?.price || 0;
         },
         executeExit: async (positionId: string, quantity: number, reason: string) => {
-          if (!this.tradingEngine) return;
+          // Phase 54.2 — visibility + engine-desync fallback.
+          //
+          // Pre-Phase-54.2: this callback bailed silently if `this.tradingEngine` was
+          // null, AND if the engine threw "Position not found" the Phase 46 retry
+          // budget would burn out without ever marking the DB row closed. Result:
+          // IEM logs "FULL EXIT" (and removes from its monitoring map), engine
+          // never closes the row, paperPositions.status stays 'open' forever.
+          // Found 2026-05-06 with 3 positions hung at 25-26h, no error logs.
+          //
+          // Now: log loudly on missing engine. For the specific "engine doesn't
+          // know about this position" case (which is an internal-state-desync,
+          // NOT a real-exchange-failure), fall back to a direct DB UPDATE since
+          // the IEM has the position state and there's no exchange-side position
+          // to leak with paper trades. For real engine errors (network, exchange
+          // API), keep the Phase 46 retry+escalate behavior.
+          let symbol = 'BTC-USD';
+          if (this.tradingEngine) {
+            try {
+              const positions = this.tradingEngine.getPositions();
+              const found = positions.find((p: any) => p.id === positionId);
+              if (found?.symbol) symbol = found.symbol;
+            } catch { /* engine.getPositions edge-case — keep default */ }
+          }
+
+          // Always look up real symbol from DB so price+fallback don't depend on engine state
+          let dbSymbol: string | null = null;
+          let dbExchange: string | null = null;
+          let dbCurrentPrice: number = 0;
+          let dbUnrealizedPnL: number = 0;
+          let dbPositionRowId: number | null = null;
           try {
-            // Phase 19: Look up position to get its actual symbol (was hardcoded 'BTC-USD')
-            const positions = this.tradingEngine.getPositions();
-            const position = positions.find((p: any) => p.id === positionId);
-            const symbol = position?.symbol || 'BTC-USD';
-            const priceData = priceFeedService.getLatestPrice(symbol);
-            const price = priceData?.price || 0;
-            if (price > 0) {
-              let closedViaEngine = false;
-              let engineErrMsg: string | undefined;
-              try {
-                await this.tradingEngine.closePositionById(positionId, price, `exit:${reason}`);
-                closedViaEngine = true;
-              } catch (engineErr) {
-                engineErrMsg = (engineErr as Error)?.message;
-                console.warn(`[UserTradingSession] PaperTradingEngine close failed for ${positionId}:`, engineErrMsg);
+            const { getDb } = await import('../db');
+            const db = await getDb();
+            if (db) {
+              const { paperPositions } = await import('../../drizzle/schema');
+              const { eq, and } = await import('drizzle-orm');
+              const numericId = Number(positionId);
+              const rows = isFinite(numericId)
+                ? await db.select().from(paperPositions).where(and(eq(paperPositions.id, numericId), eq(paperPositions.status, 'open'))).limit(1)
+                : [];
+              if (rows.length > 0) {
+                dbSymbol = rows[0].symbol;
+                dbExchange = rows[0].exchange || 'binance';
+                dbCurrentPrice = parseFloat(rows[0].currentPrice || rows[0].entryPrice || '0');
+                dbUnrealizedPnL = parseFloat(rows[0].unrealizedPnL || '0');
+                dbPositionRowId = rows[0].id;
+                if (dbSymbol) symbol = dbSymbol;
               }
-
-              // Phase 46 FIX: Phantom-close prevention.
-              // Previously: on engine error we blindly wrote status='closed' in the DB even
-              // though the real exchange/engine position may still be open — producing a
-              // phantom-close where PnL is booked but the position keeps running.
-              // Now: log the error, emit exit_failed, schedule a retry (up to MAX_EXIT_RETRIES),
-              // and DO NOT mark the position as closed in the DB. Beyond the retry budget we
-              // escalate via an emergency alert so humans can intervene.
-              if (!closedViaEngine) {
-                const attempts = (this.exitRetryCount.get(positionId) || 0) + 1;
-                this.exitRetryCount.set(positionId, attempts);
-                console.error(`[UserTradingSession] ⚠️ Exit attempt ${attempts}/${this.MAX_EXIT_RETRIES} failed for ${positionId}; DB will NOT be marked closed.`);
-                this.emit('exit_failed', {
-                  positionId,
-                  reason,
-                  attempts,
-                  maxAttempts: this.MAX_EXIT_RETRIES,
-                  error: engineErrMsg,
-                  symbol,
-                });
-
-                if (attempts < this.MAX_EXIT_RETRIES) {
-                  setTimeout(() => this.retryExit(positionId, quantity, reason), 2000);
-                } else {
-                  console.error(`[UserTradingSession] 🚨 EMERGENCY: exit for ${positionId} exhausted ${this.MAX_EXIT_RETRIES} retries — escalating.`);
-                  this.emit('exit_emergency_alert', {
-                    positionId,
-                    reason,
-                    attempts,
-                    symbol,
-                    userId: this.userId,
-                  });
-                }
-                return; // Critical: do NOT emit exit_executed or mark closed
-              }
-
-              // Successful engine close — clear any prior retry state and emit success
-              this.exitRetryCount.delete(positionId);
-              this.emit('exit_executed', { positionId, reason, price, symbol });
             }
-          } catch (err) {
-            console.error(`[UserTradingSession] Exit execution failed for user ${this.userId}:`, (err as Error)?.message);
+          } catch (dbLookupErr) {
+            console.warn(`[UserTradingSession] DB lookup for ${positionId} failed:`, (dbLookupErr as Error)?.message);
+          }
+
+          const priceData = priceFeedService.getLatestPrice(symbol);
+          const price = priceData?.price || dbCurrentPrice || 0;
+
+          if (!this.tradingEngine) {
+            console.warn(`[UserTradingSession] executeExit(${positionId}, ${reason}): tradingEngine is null — falling back to direct DB close`);
+            await this.directDbClosePosition(positionId, dbPositionRowId, price, dbUnrealizedPnL, `engine_null:${reason}`, symbol);
+            return;
+          }
+
+          if (price <= 0) {
+            console.warn(`[UserTradingSession] executeExit(${positionId}, ${reason}): no usable price (feed=${priceData?.price ?? 'n/a'} db=${dbCurrentPrice}) — emitting exit_failed`);
+            this.emit('exit_failed', { positionId, reason, attempts: 0, maxAttempts: this.MAX_EXIT_RETRIES, error: 'no_price', symbol });
+            return;
+          }
+
+          let closedViaEngine = false;
+          let engineErrMsg: string | undefined;
+          try {
+            await this.tradingEngine.closePositionById(positionId, price, `exit:${reason}`);
+            closedViaEngine = true;
+          } catch (engineErr) {
+            engineErrMsg = (engineErr as Error)?.message;
+            console.warn(`[UserTradingSession] tradingEngine.closePositionById failed for ${positionId}:`, engineErrMsg);
+          }
+
+          if (closedViaEngine) {
+            this.exitRetryCount.delete(positionId);
+            this.emit('exit_executed', { positionId, reason, price, symbol });
+            return;
+          }
+
+          // Engine refused to close. Distinguish two failure modes:
+          //   A) "Position not found" → engine's in-memory map doesn't have it.
+          //      This is internal state desync (e.g. positions persisted before a
+          //      restart that never re-loaded into the engine, or Phase 31 dedup
+          //      reaped a duplicate, or the engine was re-instantiated mid-flight).
+          //      No real exchange-side close to leak — direct-DB close is correct.
+          //   B) Anything else → real exchange/network failure. Stick with Phase 46
+          //      retry+escalate so we don't booking-close while the exchange
+          //      position is still live.
+          const isStateDesync = !!engineErrMsg && /not found/i.test(engineErrMsg);
+          if (isStateDesync) {
+            console.warn(`[UserTradingSession] Engine state desync for ${positionId} (${engineErrMsg}) — falling back to direct DB close`);
+            await this.directDbClosePosition(positionId, dbPositionRowId, price, dbUnrealizedPnL, `engine_desync:${reason}`, symbol);
+            this.exitRetryCount.delete(positionId);
+            return;
+          }
+
+          // Real engine failure → Phase 46 retry+escalate.
+          const attempts = (this.exitRetryCount.get(positionId) || 0) + 1;
+          this.exitRetryCount.set(positionId, attempts);
+          console.error(`[UserTradingSession] ⚠️ Exit attempt ${attempts}/${this.MAX_EXIT_RETRIES} failed for ${positionId}; DB will NOT be marked closed.`);
+          this.emit('exit_failed', {
+            positionId,
+            reason,
+            attempts,
+            maxAttempts: this.MAX_EXIT_RETRIES,
+            error: engineErrMsg,
+            symbol,
+          });
+          if (attempts < this.MAX_EXIT_RETRIES) {
+            setTimeout(() => this.retryExit(positionId, quantity, reason), 2000);
+          } else {
+            console.error(`[UserTradingSession] 🚨 EMERGENCY: exit for ${positionId} exhausted ${this.MAX_EXIT_RETRIES} retries — escalating.`);
+            this.emit('exit_emergency_alert', {
+              positionId,
+              reason,
+              attempts,
+              symbol,
+              userId: this.userId,
+            });
           }
         },
         getMarketRegime: async (symbol: string) => {
@@ -1405,6 +1469,64 @@ export class UserTradingSession extends EventEmitter {
       }
     } catch (err) {
       console.error(`[UserTradingSession] retryExit threw:`, (err as Error)?.message);
+    }
+  }
+
+  /**
+   * Phase 54.2 — Direct paperPositions DB close, used as fallback when the
+   * trading engine has lost track of a position (engine state desync) or
+   * `this.tradingEngine` is null. Updates status='closed', stamps exitTime,
+   * exitPrice, exitReason, and realizedPnl. Does NOT route through the
+   * engine — only safe for paper trades where the row IS the source of
+   * truth (no exchange-side position to leak).
+   */
+  private async directDbClosePosition(
+    positionId: string,
+    knownDbRowId: number | null,
+    exitPrice: number,
+    realizedPnL: number,
+    exitReason: string,
+    symbol: string,
+  ): Promise<void> {
+    try {
+      const { getDb } = await import('../db');
+      const db = await getDb();
+      if (!db) {
+        console.error(`[UserTradingSession] directDbClosePosition: DB unavailable, can't close ${positionId}`);
+        this.emit('exit_failed', { positionId, reason: exitReason, error: 'db_unavailable', symbol, attempts: 0, maxAttempts: this.MAX_EXIT_RETRIES });
+        return;
+      }
+      const { paperPositions } = await import('../../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const numericId = knownDbRowId ?? Number(positionId);
+      if (!isFinite(numericId)) {
+        console.error(`[UserTradingSession] directDbClosePosition: non-numeric positionId ${positionId}, skipping`);
+        return;
+      }
+      const result = await db.update(paperPositions)
+        .set({
+          status: 'closed',
+          exitPrice: exitPrice.toString(),
+          exitTime: new Date(),
+          exitReason: exitReason.slice(0, 64),
+          realizedPnl: realizedPnL.toFixed(8),
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(paperPositions.id, numericId),
+          eq(paperPositions.status, 'open'),
+        ));
+      const affected = (result as any)?.[0]?.affectedRows ?? (result as any)?.affectedRows ?? 0;
+      if (affected > 0) {
+        console.log(`[UserTradingSession] ✅ Direct DB close: ${symbol} id=${numericId} @ $${exitPrice} pnl=$${realizedPnL.toFixed(2)} reason=${exitReason}`);
+        this.emit('exit_executed', { positionId, reason: exitReason, price: exitPrice, symbol, viaDirect: true });
+      } else {
+        // Already closed by some other path — that's a no-op success, not a failure.
+        console.log(`[UserTradingSession] Direct DB close: id=${numericId} already not open (race or prior close) — no-op`);
+      }
+    } catch (err) {
+      console.error(`[UserTradingSession] directDbClosePosition threw:`, (err as Error)?.message);
+      this.emit('exit_failed', { positionId, reason: exitReason, error: (err as Error)?.message, symbol, attempts: 0, maxAttempts: this.MAX_EXIT_RETRIES });
     }
   }
 
