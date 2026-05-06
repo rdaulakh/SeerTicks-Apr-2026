@@ -57,6 +57,9 @@ import { SpreadCompressionAgent } from '../agents/SpreadCompressionAgent';
 import { LiquidityVacuumAgent } from '../agents/LiquidityVacuumAgent';
 import { VelocityAgent } from '../agents/VelocityAgent';
 import { FundingRateFlipAgent } from '../agents/FundingRateFlipAgent';
+import { StopHuntAgent } from '../agents/StopHuntAgent';
+import { MultiTFConvergenceAgent } from '../agents/MultiTFConvergenceAgent';
+import { TradeBurstAgent } from '../agents/TradeBurstAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -356,6 +359,19 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // − → + flip = bearish (short crowding peaked).
     const fundingRateFlip = new FundingRateFlipAgent();
 
+    // Phase 53.20 — StopHuntAgent: spike-and-reverse pattern at round-number
+    // levels (BTC $1K, ETH $50, SOL $5). Sweep stops, reverse → fade signal.
+    const stopHunt = new StopHuntAgent();
+
+    // Phase 53.21 — MultiTFConvergenceAgent: agreement across 1s/5s/15s/60s
+    // windows with shape detection (accelerating vs decelerating).
+    const multiTFConvergence = new MultiTFConvergenceAgent();
+
+    // Phase 53.22 — TradeBurstAgent: surges in fill frequency (3x baseline)
+    // capture algo activity / iceberg orders. Side imbalance during burst
+    // gives direction.
+    const tradeBurst = new TradeBurstAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -430,6 +446,15 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
     // Phase 53.19: FundingRateFlipAgent — discrete funding flip events (slow path).
     this.agentManager.registerAgent(fundingRateFlip);
+
+    // Phase 53.20: StopHuntAgent — sweep-and-reverse at round-number levels.
+    this.agentManager.registerAgent(stopHunt);
+
+    // Phase 53.21: MultiTFConvergenceAgent — 4-window agreement + shape.
+    this.agentManager.registerAgent(multiTFConvergence);
+
+    // Phase 53.22: TradeBurstAgent — fill-frequency surge with side bias.
+    this.agentManager.registerAgent(tradeBurst);
 
     // ML Prediction Agent (Phase 3)
     try {
@@ -617,7 +642,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
             'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent',
             'CrossExchangeSpreadAgent', 'CVDDivergenceAgent',
             'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent',
-            'VelocityAgent',
+            'VelocityAgent', 'StopHuntAgent', 'MultiTFConvergenceAgent', 'TradeBurstAgent',
           ];
           const signals: GlobalSignal[] = [];
 
@@ -870,7 +895,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
       'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent',
       'CrossExchangeSpreadAgent', 'CVDDivergenceAgent',
       'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent',
-      'VelocityAgent',
+      'VelocityAgent', 'StopHuntAgent', 'MultiTFConvergenceAgent', 'TradeBurstAgent',
     ]);
     return this.latestSignals.filter(s => fastAgentNames.has(s.agentName));
   }
