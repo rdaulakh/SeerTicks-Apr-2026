@@ -376,6 +376,27 @@ export function shouldAllowClose(
     };
   }
 
+  // 5b. Phase 54.1 — Absolute hard time cap. If a position has been held this
+  //     many hours regardless of P&L state, close it. This is the final
+  //     backstop for the case where a trade sits perfectly flat (gross ≈ 0%)
+  //     and no other escape hatch can fire (thesisInvalidation/stuckPosition
+  //     both require meaningful loss; net_profit_ok needs the trade above the
+  //     cost-drag floor; catastrophic_grossPnl needs a meaningful loss). A
+  //     trade open 8h+ with 0% PnL is dead — release the slot.
+  if (
+    config.absoluteMaxHoldHours !== undefined &&
+    config.absoluteMaxHoldHours > 0 &&
+    position.holdMinutes !== undefined &&
+    position.holdMinutes / 60 >= config.absoluteMaxHoldHours
+  ) {
+    return {
+      allow: true,
+      reason: `absolute_max_hold:${(position.holdMinutes / 60).toFixed(1)}h>=${config.absoluteMaxHoldHours}h (final_backstop)`,
+      netPnlPercent,
+      grossPnlPercent,
+    };
+  }
+
   // 6. Blocked — keep holding until net-positive or catastrophic.
   const blockReason =
     `profit_lock_block: gross=${grossPnlPercent.toFixed(3)}% net=${netPnlPercent.toFixed(3)}% ` +

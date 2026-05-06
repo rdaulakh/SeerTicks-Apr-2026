@@ -194,6 +194,22 @@ export interface TradingConfiguration {
       minLossToTriggerPct: number;     // default -0.20%
       maxLossToTriggerPct: number;     // default -1.00%
     };
+    // Phase 54.1 — Absolute hard time cap.
+    //
+    // Found 2026-05-06: 3 positions hung for 25-26 hours with gross PnL hovering
+    // at exactly 0.000%. None of the existing escape hatches fired:
+    //   - thesisInvalidationExit needs gross loss ≤ -0.20%
+    //   - stuckPositionExit needs gross loss ≤ -0.20%
+    //   - catastrophic_grossPnl needs gross loss ≤ -1.00%
+    //   - net_profit_ok needs gross > +0.25% (cost drag)
+    // A trade flat at 0% gross can never qualify for any of those, so it hangs
+    // forever, eating capital and slot count.
+    //
+    // The absoluteMaxHoldHours cap closes the trade no matter what after this
+    // many hours. It's the final backstop — runs AFTER all other escape paths
+    // so genuinely-recoverable trades still get their chance, but a trade open
+    // for 8h+ with 0% PnL is structurally dead and must be released.
+    absoluteMaxHoldHours?: number;
   };
 
   // ── Entry-Gate Hardening (audit restoration) ──
@@ -471,6 +487,12 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
       minLossToTriggerPct: -0.20,      // Don't fire on noise
       maxLossToTriggerPct: -1.00,      // Above this, catastrophic owns it
     },
+    // Phase 54.1 — Absolute hard time cap. Closes any position that's been
+    // held this many hours regardless of P&L state. Configured maxHoldTime is
+    // 25 MINUTES; 8 HOURS is 19× that, so anything past it is structurally
+    // dead. Found 3 positions stuck 25h+ at flat 0% PnL because no other
+    // escape hatch could fire on a perfectly-flat trade.
+    absoluteMaxHoldHours: 8,
     // Phase 7 — tightened to match exits.hardStopLossPercent (-1.2%).
     //   Prior value (-2.5%) created a broken hand-off: the ProfitLockGuard
     //   blocked the -1.2% hard-SL hit because gross PnL > catastrophic floor,
