@@ -50,6 +50,7 @@ import { SpotTakerFlowAgent } from '../agents/SpotTakerFlowAgent';
 import { PerpDepthImbalanceAgent } from '../agents/PerpDepthImbalanceAgent';
 import { OpenInterestDeltaAgent } from '../agents/OpenInterestDeltaAgent';
 import { WhaleWallAgent } from '../agents/WhaleWallAgent';
+import { CrossExchangeSpreadAgent } from '../agents/CrossExchangeSpreadAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -314,6 +315,11 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // ask wall = institutional resistance (bearish bias).
     const whaleWall = new WhaleWallAgent();
 
+    // Phase 53.12 — CrossExchangeSpreadAgent: measures the static gap between
+    // Binance and Coinbase mid prices. Spreads >2bps deviation from baseline
+    // → arb desks pull lagging exchange to parity within seconds.
+    const crossExchangeSpread = new CrossExchangeSpreadAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -367,6 +373,9 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
     // Phase 53.11: WhaleWallAgent — single-quote outlier detection on perp depth5.
     this.agentManager.registerAgent(whaleWall);
+
+    // Phase 53.12: CrossExchangeSpreadAgent — binance vs coinbase mid spread reversion.
+    this.agentManager.registerAgent(crossExchangeSpread);
 
     // ML Prediction Agent (Phase 3)
     try {
@@ -552,6 +561,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
             'TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent',
             'LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent',
             'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent',
+            'CrossExchangeSpreadAgent',
           ];
           const signals: GlobalSignal[] = [];
 
@@ -799,6 +809,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
       'TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent',
       'LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent',
       'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent',
+      'CrossExchangeSpreadAgent',
     ]);
     return this.latestSignals.filter(s => fastAgentNames.has(s.agentName));
   }

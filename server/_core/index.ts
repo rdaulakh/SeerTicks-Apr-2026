@@ -451,6 +451,25 @@ async function startServer() {
         const symbol = t.product_id; // already in canonical 'BTC-USD' form
         const price = parseFloat(t.price);
         if (isFinite(price) && price > 0) tracker.pushCoinbase(symbol, price);
+        // Phase 53.12 — stash Coinbase top-of-book in a global, symmetric to
+        // __binanceSpotBook (which is keyed by Binance native sym). Keyed by
+        // canonical SEER symbol "BTC-USD" so the cross-exchange spread agent
+        // can pair it directly with the binance side after a cheap symbol map.
+        const bid = parseFloat(t.best_bid);
+        const ask = parseFloat(t.best_ask);
+        const mid = isFinite(bid) && isFinite(ask) && bid > 0 && ask > 0
+          ? (bid + ask) / 2
+          : (isFinite(price) && price > 0 ? price : NaN);
+        if (isFinite(mid)) {
+          (global as any).__coinbaseTopOfBook = (global as any).__coinbaseTopOfBook || {};
+          (global as any).__coinbaseTopOfBook[symbol] = {
+            bidPrice: isFinite(bid) ? bid : mid,
+            askPrice: isFinite(ask) ? ask : mid,
+            midPrice: mid,
+            tradePrice: isFinite(price) ? price : mid,
+            receivedAt: Date.now(),
+          };
+        }
       });
     }
     // Periodic stats log every 60s — visible signal of whether Binance is leading
