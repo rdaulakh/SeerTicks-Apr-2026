@@ -284,9 +284,137 @@ authRouter.post('/register', async (req: Request, res: Response) => {
     
   } catch (error: any) {
     authLogger.error('Register error', { error: error?.message });
-    return res.status(500).json({ 
-      success: false, 
-      error: 'Registration failed. Please try again.' 
+    return res.status(500).json({
+      success: false,
+      error: 'Registration failed. Please try again.'
     });
+  }
+});
+
+/**
+ * POST /api/auth/forgot-password — Phase 54
+ *
+ * Body: { email }
+ *
+ * Always returns 200 with `{ success: true }` so the form can't be used
+ * for account enumeration. If the user exists, generates a 32-byte random
+ * token, stores its SHA-256 hash with a 60-min expiry, and sends the
+ * plaintext token to the user via email as part of the reset URL.
+ */
+authRouter.post('/forgot-password', async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body || {};
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ success: false, error: 'Email required' });
+    }
+
+    const pool = getAuthPool();
+    const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+      'SELECT id, email, name FROM users WHERE email = ? LIMIT 1',
+      [email],
+    );
+
+    // Generic success regardless of whether the email exists — anti-enumeration.
+    if (rows.length === 0) {
+      authLogger.info('forgot-password: unknown email', { email });
+      return res.json({ success: true });
+    }
+
+    const user = rows[0];
+    const crypto = await import('crypto');
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const expiresInMinutes = 60;
+    const expiresAt = new Date(Date.now() + expiresInMinutes * 60 * 1000);
+
+    await pool.execute(
+      'INSERT INTO passwordResetTokens (userId, tokenHash, expiresAt, createdAt) VALUES (?, ?, ?, NOW())',
+      [user.id, tokenHash, expiresAt],
+    );
+
+    const appOrigin = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    const resetUrl = `${appOrigin}/reset-password?token=${encodeURIComponent(token)}`;
+
+    // Send asynchronously — don't block the HTTP response on Brevo latency,
+    // and don't leak email-system failures to the unauthenticated caller.
+    void (async () => {
+      try {
+        const { sendPasswordResetEmail } = await import('../services/emailService');
+        const result = await sendPasswordResetEmail(
+          { email: user.email, name: user.name },
+          resetUrl,
+          expiresInMinutes,
+        );
+        if (!result.success) {
+          authLogger.error('forgot-password: email send failed', { email: user.email, error: result.error });
+        } else {
+          authLogger.info('forgot-password: reset email sent', { email: user.email });
+        }
+      } catch (e: any) {
+        authLogger.error('forgot-password: email exception', { email: user.email, error: e?.message });
+      }
+    })();
+
+    return res.json({ success: true });
+  } catch (error: any) {
+    authLogger.error('forgot-password error', { error: error?.message });
+    // Even on internal errors, return success to avoid revealing infra state.
+    return res.json({ success: true });
+  }
+});
+
+/**
+ * POST /api/auth/reset-password — Phase 54
+ *
+ * Body: { token, newPassword }
+ *
+ * Hashes the supplied token, looks up the row, verifies it's unused and
+ * unexpired, then bcrypt-hashes the new password, sets it on the user,
+ * marks the token used, and forces loginMethod='email' so federated
+ * accounts can also log in via email/password after a reset.
+ */
+authRouter.post('/reset-password', async (req: Request, res: Response) => {
+  try {
+    const { token, newPassword } = req.body || {};
+    if (!token || typeof token !== 'string' || token.length < 32) {
+      return res.status(400).json({ success: false, error: 'Invalid reset link' });
+    }
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 8 characters' });
+    }
+
+    const crypto = await import('crypto');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    const pool = getAuthPool();
+    const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+      'SELECT id, userId FROM passwordResetTokens WHERE tokenHash = ? AND usedAt IS NULL AND expiresAt > NOW() LIMIT 1',
+      [tokenHash],
+    );
+    if (rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Reset link is invalid or has expired. Request a new one.',
+      });
+    }
+
+    const tokenId = rows[0].id;
+    const userId = rows[0].userId;
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    await pool.execute(
+      'UPDATE users SET passwordHash = ?, loginMethod = ? WHERE id = ?',
+      [passwordHash, 'email', userId],
+    );
+    await pool.execute(
+      'UPDATE passwordResetTokens SET usedAt = NOW() WHERE id = ?',
+      [tokenId],
+    );
+
+    authLogger.info('reset-password: success', { userId });
+    return res.json({ success: true });
+  } catch (error: any) {
+    authLogger.error('reset-password error', { error: error?.message });
+    return res.status(500).json({ success: false, error: 'Reset failed. Please try again.' });
   }
 });

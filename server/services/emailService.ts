@@ -232,6 +232,103 @@ Have questions? Visit https://seerticks.com
 }
 
 /**
+ * Send password-reset email — Phase 54.
+ *
+ * `resetUrl` should be the fully-formed link the user clicks (including
+ * the one-time token). The plaintext token only ever lives in this email
+ * and never in the database — only the SHA-256 hash is stored.
+ */
+export async function sendPasswordResetEmail(
+  recipient: { email: string; name?: string | null },
+  resetUrl: string,
+  expiresInMinutes: number,
+): Promise<{ success: boolean; error?: string }> {
+  const greetingName = recipient.name || 'there';
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reset your SEER password</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #0a0a0f; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #0a0a0f;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width: 600px;">
+          <tr>
+            <td align="center" style="padding-bottom: 30px;">
+              <span style="color: white; font-size: 28px; font-weight: bold; letter-spacing: -0.5px;">SEER</span>
+              <br />
+              <span style="color: #71717a; font-size: 11px; letter-spacing: 2px;">AI TRADING</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(6, 182, 212, 0.1)); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 16px; padding: 40px;">
+              <h1 style="color: white; font-size: 24px; font-weight: 700; margin: 0 0 20px 0;">Reset your password</h1>
+              <p style="color: #a1a1aa; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">Hi ${greetingName},</p>
+              <p style="color: #a1a1aa; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
+                We received a request to reset the password for your SEER account.
+                Click the button below to choose a new password. This link expires in
+                <strong style="color: white;">${expiresInMinutes} minutes</strong>
+                and can only be used once.
+              </p>
+              <div style="text-align: center; margin: 32px 0;">
+                <a href="${resetUrl}" style="background: linear-gradient(135deg, #8b5cf6, #06b6d4); color: white; font-weight: 600; font-size: 16px; padding: 14px 32px; border-radius: 8px; text-decoration: none; display: inline-block;">Reset password</a>
+              </div>
+              <p style="color: #71717a; font-size: 13px; line-height: 1.6; margin: 24px 0 0 0;">
+                If the button doesn't work, paste this link into your browser:
+              </p>
+              <p style="color: #8b5cf6; font-size: 13px; word-break: break-all; margin: 8px 0 0 0;">
+                ${resetUrl}
+              </p>
+              <p style="color: #a1a1aa; font-size: 14px; line-height: 1.6; margin: 32px 0 0 0; padding-top: 24px; border-top: 1px solid rgba(139, 92, 246, 0.2);">
+                Didn't request this? You can safely ignore this email — your password won't change unless you click the link above and choose a new one.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding-top: 30px; text-align: center;">
+              <p style="color: #52525b; font-size: 12px; margin: 0;">
+                © 2026 SEER AI Trading. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+
+  const textContent = `
+Reset your SEER password
+
+Hi ${greetingName},
+
+We received a request to reset the password for your SEER account.
+Open the link below to choose a new password. This link expires in
+${expiresInMinutes} minutes and can only be used once.
+
+${resetUrl}
+
+Didn't request this? You can safely ignore this email — your password
+won't change unless you open the link above and choose a new one.
+
+© 2026 SEER AI Trading
+  `.trim();
+
+  return sendEmail({
+    to: [{ email: recipient.email, name: recipient.name || undefined }],
+    subject: 'Reset your SEER password',
+    htmlContent,
+    textContent,
+  });
+}
+
+/**
  * Validate Brevo API key by making a lightweight API call
  */
 export async function validateBrevoApiKey(): Promise<{ valid: boolean; error?: string }> {

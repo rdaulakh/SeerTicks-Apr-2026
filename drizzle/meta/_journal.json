@@ -141,6 +141,13 @@
       "when": 1772615068229,
       "tag": "0019_fuzzy_excalibur",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1778087680468,
+      "tag": "0020_typical_nightshade",
+      "breakpoints": true
     }
   ]
 }

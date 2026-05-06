@@ -232,6 +232,7 @@ export const appRouter = router({
         success: true,
       } as const;
     }),
+
   }),
 
   // Exchange and API key management

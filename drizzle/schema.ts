@@ -29,6 +29,25 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 /**
+ * Password reset tokens — Phase 54.
+ * Stores SHA-256 hash of the token (never plaintext) so a DB compromise
+ * doesn't expose usable reset links. Tokens are single-use and time-limited.
+ */
+export const passwordResetTokens = mysqlTable("passwordResetTokens", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  /** SHA-256 hex of the random token. The plaintext only exists in the email. */
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  /** Timestamp when the token was consumed; null until used. Once set, token can't be reused. */
+  usedAt: timestamp("usedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  tokenHashIdx: uniqueIndex("idx_passwordResetTokens_tokenHash").on(t.tokenHash),
+  userIdIdx: index("idx_passwordResetTokens_userId").on(t.userId),
+}));
+
+/**
  * OTP verification table
  * Stores one-time passwords for email verification
  */
