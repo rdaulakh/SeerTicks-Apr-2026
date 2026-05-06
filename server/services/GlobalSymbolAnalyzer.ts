@@ -51,6 +51,7 @@ import { PerpDepthImbalanceAgent } from '../agents/PerpDepthImbalanceAgent';
 import { OpenInterestDeltaAgent } from '../agents/OpenInterestDeltaAgent';
 import { WhaleWallAgent } from '../agents/WhaleWallAgent';
 import { CrossExchangeSpreadAgent } from '../agents/CrossExchangeSpreadAgent';
+import { CVDDivergenceAgent } from '../agents/CVDDivergenceAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -320,6 +321,12 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // → arb desks pull lagging exchange to parity within seconds.
     const crossExchangeSpread = new CrossExchangeSpreadAgent();
 
+    // Phase 53.13 — CVDDivergenceAgent: explicit perp-vs-spot taker flow
+    // divergence. When perp says strongly bullish but spot says weak/bearish,
+    // it's leveraged speculation — fade. Inverse: leveraged shorts against
+    // real demand → squeeze setup. Requires both Phase 53.5+53.7 rings.
+    const cvdDivergence = new CVDDivergenceAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -376,6 +383,9 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
     // Phase 53.12: CrossExchangeSpreadAgent — binance vs coinbase mid spread reversion.
     this.agentManager.registerAgent(crossExchangeSpread);
+
+    // Phase 53.13: CVDDivergenceAgent — explicit perp/spot CVD divergence (fade-the-perp).
+    this.agentManager.registerAgent(cvdDivergence);
 
     // ML Prediction Agent (Phase 3)
     try {
@@ -561,7 +571,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
             'TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent',
             'LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent',
             'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent',
-            'CrossExchangeSpreadAgent',
+            'CrossExchangeSpreadAgent', 'CVDDivergenceAgent',
           ];
           const signals: GlobalSignal[] = [];
 
@@ -809,7 +819,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
       'TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent',
       'LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent',
       'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent',
-      'CrossExchangeSpreadAgent',
+      'CrossExchangeSpreadAgent', 'CVDDivergenceAgent',
     ]);
     return this.latestSignals.filter(s => fastAgentNames.has(s.agentName));
   }
