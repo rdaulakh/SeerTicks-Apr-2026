@@ -99,7 +99,7 @@ export const AGENT_CATEGORIES = {
   // cross-exchange-lead agents. Tokyo placement makes Binance the price-
   // discovery venue; these agents convert that into trade-decision signal
   // (LeadLag, perp/spot premium, perp/spot CVD, perp depth imbalance).
-  LEAD_INFO: ['LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent', 'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent'],
+  LEAD_INFO: ['LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent', 'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent'],
 } as const;
 
 // All agent names
@@ -135,18 +135,20 @@ export const DEFAULT_AGENT_WEIGHTS: Record<AgentName, number> = {
   ForexCorrelationAgent: 12,
   OpenInterestDeltaAgent: 14,
 
-  // Phase 53.10 LEAD_INFO category (sum = 100)
+  // Phase 53.10/53.11 LEAD_INFO category (sum = 100)
   // Distribution rationale: LeadLag and PerpTakerFlow are the highest-quality
   // pure-information signals (cross-exchange timing + same-venue CVD).
   // PerpSpotPremium gets meaningful weight because the perp/spot premium is
   // a continuous reading rather than event-triggered. Spot CVD and depth
   // imbalance are slightly lower (noisier on busy spot tape, depth signal
-  // is short-horizon).
-  LeadLagAgent: 25,
-  PerpSpotPremiumAgent: 20,
-  PerpTakerFlowAgent: 25,
-  SpotTakerFlowAgent: 15,
-  PerpDepthImbalanceAgent: 15,
+  // is short-horizon). WhaleWall is binary (wall present or not) so it gets
+  // less weight despite high specificity.
+  LeadLagAgent: 22,
+  PerpSpotPremiumAgent: 18,
+  PerpTakerFlowAgent: 22,
+  SpotTakerFlowAgent: 13,
+  PerpDepthImbalanceAgent: 13,
+  WhaleWallAgent: 12,
 };
 
 // Phase 15B FIX: Rebalanced category multipliers.

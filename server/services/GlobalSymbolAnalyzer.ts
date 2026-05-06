@@ -49,6 +49,7 @@ import { PerpTakerFlowAgent } from '../agents/PerpTakerFlowAgent';
 import { SpotTakerFlowAgent } from '../agents/SpotTakerFlowAgent';
 import { PerpDepthImbalanceAgent } from '../agents/PerpDepthImbalanceAgent';
 import { OpenInterestDeltaAgent } from '../agents/OpenInterestDeltaAgent';
+import { WhaleWallAgent } from '../agents/WhaleWallAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -308,6 +309,11 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // capitulation). 60s cadence, polls only the symbol this analyzer owns.
     const openInterestDelta = new OpenInterestDeltaAgent();
 
+    // Phase 53.11 — WhaleWallAgent: detects single-quote outliers in the
+    // perp top-5 book. Bid wall = institutional support (bullish bias);
+    // ask wall = institutional resistance (bearish bias).
+    const whaleWall = new WhaleWallAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -358,6 +364,9 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
     // Phase 53.9: OpenInterestDeltaAgent — perp OI quadrant signal (slow path).
     this.agentManager.registerAgent(openInterestDelta);
+
+    // Phase 53.11: WhaleWallAgent — single-quote outlier detection on perp depth5.
+    this.agentManager.registerAgent(whaleWall);
 
     // ML Prediction Agent (Phase 3)
     try {
@@ -542,7 +551,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
           const fastAgentNames = [
             'TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent',
             'LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent',
-            'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent',
+            'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent',
           ];
           const signals: GlobalSignal[] = [];
 
@@ -789,7 +798,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     const fastAgentNames = new Set([
       'TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent',
       'LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent',
-      'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent',
+      'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent',
     ]);
     return this.latestSignals.filter(s => fastAgentNames.has(s.agentName));
   }
