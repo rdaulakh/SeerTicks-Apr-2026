@@ -24,7 +24,11 @@ import { executionLogger } from '../utils/logger';
 
 export interface RealTradingConfig {
   userId: number;
-  exchange: 'binance' | 'coinbase';
+  // Phase 55 — `binance-futures` routes execution through BinanceFuturesAdapter
+  // (USDT-M perpetuals) where shorts are native. Plain `binance` stays on
+  // spot for legacy/long-only paths. Default for testnet should be
+  // binance-futures since spot rejects naked shorts.
+  exchange: 'binance' | 'binance-futures' | 'coinbase';
   apiKey: string;
   apiSecret: string;
   dryRun: boolean; // Log orders without executing
@@ -33,6 +37,8 @@ export interface RealTradingConfig {
   maxSingleTradePercent?: number; // e.g. 0.02 = 2% max single trade loss
   maxOpenPositions?: number; // e.g. 3
   positionSizeRampUp?: number; // 0-1, fraction of intended size (gradual ramp-up)
+  /** Phase 55 — leverage for futures only. 1× = no margin amplification. */
+  defaultLeverage?: number;
 }
 
 export interface RealPosition {
@@ -149,9 +155,20 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
     // Phase 51 — when BINANCE_USE_TESTNET=1, the BinanceAdapter routes signed
     // REST calls to testnet.binance.vision. Market data feeds (PriceFabric)
     // stay on PRODUCTION Binance — strategy decisions on real liquidity, fills
-    // simulated against testnet's order book. This is the right paper-trading
-    // architecture: real data, fake money.
-    if (config.exchange === 'binance') {
+    // simulated against testnet's order book.
+    //
+    // Phase 55 — `binance-futures` routes through BinanceFuturesAdapter
+    // (USDT-M perps testnet at testnet.binancefuture.com when
+    // BINANCE_FUTURES_USE_TESTNET=1). This is the correct execution venue
+    // for any platform that emits both bullish and bearish signals because
+    // spot rejects naked shorts. Default leverage = 1× so the risk profile
+    // matches spot — we just gain access to native shorting.
+    if (config.exchange === 'binance-futures') {
+      const { BinanceFuturesAdapter } = require('../exchanges/BinanceFuturesAdapter');
+      this.exchange = new BinanceFuturesAdapter(config.apiKey, config.apiSecret, {
+        defaultLeverage: config.defaultLeverage ?? 1,
+      });
+    } else if (config.exchange === 'binance') {
       const { BinanceAdapter } = require('../exchanges/BinanceAdapter');
       this.exchange = new BinanceAdapter(config.apiKey, config.apiSecret);
     } else if (config.exchange === 'coinbase') {
@@ -1088,33 +1105,50 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
         tradedAssets.add(asset);
       }
 
-      const balances = await this.exchange.getAccountBalance();
-      const exchangePositions = new Map<string, number>();
-      for (const b of balances) {
-        if (!tradedAssets.has(b.asset)) continue;
-        if (b.total > 0) exchangePositions.set(b.asset, b.total);
+      // Phase 55 — futures adapter has explicit positions (positionRisk endpoint),
+      // distinct from wallet balance. Use it directly; spot/coinbase still infer
+      // positions from non-zero asset balances.
+      const exchangePositions = new Map<string, { qty: number; side: 'long' | 'short' }>();
+      const isFutures = this.config.exchange === 'binance-futures';
+      if (isFutures && typeof (this.exchange as any).getAllOpenPositions === 'function') {
+        const futPositions = await (this.exchange as any).getAllOpenPositions();
+        for (const fp of futPositions) {
+          const asset = fp.symbol.replace(/USDT$/, '').replace(/USD$/, '');
+          if (!tradedAssets.has(asset)) continue;
+          exchangePositions.set(asset, { qty: fp.quantity, side: fp.side });
+        }
+      } else {
+        const balances = await this.exchange.getAccountBalance();
+        for (const b of balances) {
+          if (!tradedAssets.has(b.asset)) continue;
+          if (b.total > 0) exchangePositions.set(b.asset, { qty: b.total, side: 'long' });
+        }
       }
 
       // Check local positions against exchange
       for (const [key, pos] of this.positions) {
         const asset = pos.symbol.replace(/-USD.*/, '').replace(/\/USD.*/, '');
-        const exchangeQty = exchangePositions.get(asset);
-        if (exchangeQty && Math.abs(exchangeQty - pos.quantity) / pos.quantity < 0.01) {
+        const ex = exchangePositions.get(asset);
+        if (ex && Math.abs(ex.qty - pos.quantity) / pos.quantity < 0.01 && (isFutures ? ex.side === pos.side : true)) {
           result.matched++;
           exchangePositions.delete(asset);
-        } else if (!exchangeQty) {
+        } else if (!ex) {
           result.orphaned.push(key);
           executionLogger.warn('ORPHANED position detected', { key, detail: 'local but not on exchange' });
         }
       }
 
       // Remaining exchange positions are unknown — but only for traded assets.
-      // On testnet, the BASE asset balance (e.g. 1 BTC pre-funded) will also
+      // On spot testnet, the BASE asset balance (e.g. 1 BTC pre-funded) will
       // appear here when we have no open BTC position. That's expected and
-      // logged at debug, not warn.
-      for (const [asset, qty] of exchangePositions) {
-        result.unknown.push({ symbol: asset, quantity: qty });
-        executionLogger.debug('Untracked exchange balance', { asset, quantity: qty });
+      // logged at debug, not warn. On futures it would be a real orphan.
+      for (const [asset, info] of exchangePositions) {
+        result.unknown.push({ symbol: asset, quantity: info.qty });
+        if (isFutures) {
+          executionLogger.warn('Untracked exchange position (futures)', { asset, quantity: info.qty, side: info.side });
+        } else {
+          executionLogger.debug('Untracked exchange balance', { asset, quantity: info.qty });
+        }
       }
 
       if (result.orphaned.length > 0 || result.unknown.length > 0) {

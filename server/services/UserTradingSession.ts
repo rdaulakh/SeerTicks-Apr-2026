@@ -139,11 +139,50 @@ export class UserTradingSession extends EventEmitter {
       //
       // Default falls back to in-memory PaperTradingEngine for users without
       // testnet keys configured.
-      const useTestnetEngine = process.env.USE_TESTNET_ENGINE === '1'
+      // Phase 55 — futures-first execution.
+      //
+      // SEER's consensus engine emits both bullish and bearish signals.
+      // Spot can't natively short — bearish entries on spot become a
+      // synthetic "sell from inventory" that doesn't track as a real
+      // position and never persists. The right execution venue for a
+      // bidirectional strategy is USDT-M perpetual futures, which
+      // support both sides natively, have lower fees (~0.05% taker vs
+      // spot 0.10%), and are the standard market for crypto algo
+      // trading.
+      //
+      // Selection priority for testnet:
+      //   1. BINANCE_FUTURES_API_KEY/SECRET set + BINANCE_FUTURES_USE_TESTNET=1
+      //      → BinanceFuturesAdapter against testnet.binancefuture.com
+      //   2. BINANCE_API_KEY/SECRET + USE_TESTNET_ENGINE=1
+      //      → BinanceAdapter against testnet.binance.vision (spot, legacy)
+      //   3. Neither set → in-memory PaperTradingEngine
+      //
+      // Live mode (this.tradingMode === 'live') routes through the
+      // appropriate live adapter when configured.
+      const futuresKey = process.env.BINANCE_FUTURES_API_KEY;
+      const futuresSecret = process.env.BINANCE_FUTURES_SECRET_KEY;
+      const useFuturesEngine = !!futuresKey && !!futuresSecret;
+      const useSpotTestnetEngine = process.env.USE_TESTNET_ENGINE === '1'
         && !!process.env.BINANCE_API_KEY
         && !!process.env.BINANCE_SECRET_KEY;
 
-      if (useTestnetEngine && this.tradingMode === 'paper') {
+      if (useFuturesEngine && this.tradingMode === 'paper') {
+        const { RealTradingEngine } = await import('../execution/RealTradingEngine');
+        this.tradingEngine = new RealTradingEngine({
+          userId: this.userId,
+          exchange: 'binance-futures',
+          apiKey: futuresKey!,
+          apiSecret: futuresSecret!,
+          dryRun: false,
+          maxDailyLossPercent: 0.05,
+          maxSingleTradePercent: 0.02,
+          maxOpenPositions: 6,
+          positionSizeRampUp: 1.0,
+          defaultLeverage: parseInt(process.env.BINANCE_FUTURES_LEVERAGE || '1', 10),
+        });
+        const venue = process.env.BINANCE_FUTURES_USE_TESTNET === '1' ? 'TESTNET' : 'LIVE';
+        console.log(`[UserTradingSession] 🧪 Using RealTradingEngine on Binance USDM Futures ${venue} (paper-mode, native shorts)`);
+      } else if (useSpotTestnetEngine && this.tradingMode === 'paper') {
         const { RealTradingEngine } = await import('../execution/RealTradingEngine');
         this.tradingEngine = new RealTradingEngine({
           userId: this.userId,
@@ -156,7 +195,7 @@ export class UserTradingSession extends EventEmitter {
           maxOpenPositions: 6,
           positionSizeRampUp: 1.0,
         });
-        console.log(`[UserTradingSession] 🧪 Using RealTradingEngine on Binance TESTNET (paper-mode)`);
+        console.warn(`[UserTradingSession] ⚠️ Using BinanceAdapter SPOT testnet — bearish signals will fail. Configure BINANCE_FUTURES_API_KEY/SECRET to upgrade to USDM Futures.`);
       } else {
         const { PaperTradingEngine } = await import('../execution/PaperTradingEngine');
         // Phase 44 alignment — paper-trade against Binance perp economics
