@@ -52,6 +52,9 @@ import { OpenInterestDeltaAgent } from '../agents/OpenInterestDeltaAgent';
 import { WhaleWallAgent } from '../agents/WhaleWallAgent';
 import { CrossExchangeSpreadAgent } from '../agents/CrossExchangeSpreadAgent';
 import { CVDDivergenceAgent } from '../agents/CVDDivergenceAgent';
+import { TradeSizeOutlierAgent } from '../agents/TradeSizeOutlierAgent';
+import { SpreadCompressionAgent } from '../agents/SpreadCompressionAgent';
+import { LiquidityVacuumAgent } from '../agents/LiquidityVacuumAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -327,6 +330,21 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // real demand → squeeze setup. Requires both Phase 53.5+53.7 rings.
     const cvdDivergence = new CVDDivergenceAgent();
 
+    // Phase 53.15 — TradeSizeOutlierAgent: detects single fills with notional
+    // ≥5x median (whale fills). Discrete commitment events from institutions
+    // working orders — different from sustained CVD pressure.
+    const tradeSizeOutlier = new TradeSizeOutlierAgent();
+
+    // Phase 53.16 — SpreadCompressionAgent: top-of-book spread tightening
+    // signals MM confidence + pending move. Direction picked from depth5
+    // imbalance (compression alone is direction-neutral).
+    const spreadCompression = new SpreadCompressionAgent();
+
+    // Phase 53.17 — LiquidityVacuumAgent: thin one-sided depth amplifies
+    // moves through the level. Asks thin → upward vacuum (bullish);
+    // bids thin → downward vacuum (bearish). Two-sided thin → neutral.
+    const liquidityVacuum = new LiquidityVacuumAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -386,6 +404,15 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
     // Phase 53.13: CVDDivergenceAgent — explicit perp/spot CVD divergence (fade-the-perp).
     this.agentManager.registerAgent(cvdDivergence);
+
+    // Phase 53.15: TradeSizeOutlierAgent — whale-fill outlier detection.
+    this.agentManager.registerAgent(tradeSizeOutlier);
+
+    // Phase 53.16: SpreadCompressionAgent — perp spread tightening + direction.
+    this.agentManager.registerAgent(spreadCompression);
+
+    // Phase 53.17: LiquidityVacuumAgent — one-sided depth thinning.
+    this.agentManager.registerAgent(liquidityVacuum);
 
     // ML Prediction Agent (Phase 3)
     try {
@@ -572,6 +599,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
             'LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent',
             'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent',
             'CrossExchangeSpreadAgent', 'CVDDivergenceAgent',
+            'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent',
           ];
           const signals: GlobalSignal[] = [];
 
@@ -820,6 +848,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
       'LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent',
       'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent',
       'CrossExchangeSpreadAgent', 'CVDDivergenceAgent',
+      'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent',
     ]);
     return this.latestSignals.filter(s => fastAgentNames.has(s.agentName));
   }
