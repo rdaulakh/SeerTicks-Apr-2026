@@ -62,6 +62,7 @@ import { MultiTFConvergenceAgent } from '../agents/MultiTFConvergenceAgent';
 import { TradeBurstAgent } from '../agents/TradeBurstAgent';
 import { VWAPDivergenceAgent } from '../agents/VWAPDivergenceAgent';
 import { PriceImpactAgent } from '../agents/PriceImpactAgent';
+import { CorrelationBreakAgent } from '../agents/CorrelationBreakAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -383,6 +384,11 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // push amplified. Direction from short-window side imbalance.
     const priceImpact = new PriceImpactAgent();
 
+    // Phase 53.25 — CorrelationBreakAgent: BTC/ETH/SOL move-ratio divergence.
+    // BTC moves but ETH/SOL lags → catch-up trade on the laggard. Only emits
+    // for ETH-USD and SOL-USD; BTC-USD always neutral (it's the leader).
+    const correlationBreak = new CorrelationBreakAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -472,6 +478,9 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
     // Phase 53.24: PriceImpactAgent — realized bps/$1M ratio anomaly.
     this.agentManager.registerAgent(priceImpact);
+
+    // Phase 53.25: CorrelationBreakAgent — BTC/ETH/SOL catch-up signal.
+    this.agentManager.registerAgent(correlationBreak);
 
     // ML Prediction Agent (Phase 3)
     try {
@@ -660,7 +669,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
             'CrossExchangeSpreadAgent', 'CVDDivergenceAgent',
             'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent',
             'VelocityAgent', 'StopHuntAgent', 'MultiTFConvergenceAgent', 'TradeBurstAgent',
-            'VWAPDivergenceAgent', 'PriceImpactAgent',
+            'VWAPDivergenceAgent', 'PriceImpactAgent', 'CorrelationBreakAgent',
           ];
           const signals: GlobalSignal[] = [];
 
@@ -914,7 +923,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
       'CrossExchangeSpreadAgent', 'CVDDivergenceAgent',
       'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent',
       'VelocityAgent', 'StopHuntAgent', 'MultiTFConvergenceAgent', 'TradeBurstAgent',
-      'VWAPDivergenceAgent', 'PriceImpactAgent',
+      'VWAPDivergenceAgent', 'PriceImpactAgent', 'CorrelationBreakAgent',
     ]);
     return this.latestSignals.filter(s => fastAgentNames.has(s.agentName));
   }
