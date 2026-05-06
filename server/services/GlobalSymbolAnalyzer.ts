@@ -55,6 +55,8 @@ import { CVDDivergenceAgent } from '../agents/CVDDivergenceAgent';
 import { TradeSizeOutlierAgent } from '../agents/TradeSizeOutlierAgent';
 import { SpreadCompressionAgent } from '../agents/SpreadCompressionAgent';
 import { LiquidityVacuumAgent } from '../agents/LiquidityVacuumAgent';
+import { VelocityAgent } from '../agents/VelocityAgent';
+import { FundingRateFlipAgent } from '../agents/FundingRateFlipAgent';
 import { getMLIntegrationService } from './MLIntegrationService';
 import { webSocketFallbackManager } from './WebSocketFallbackManager';
 import { getMarketRegimeAI, MarketContext } from './MarketRegimeAI';
@@ -345,6 +347,15 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     // bids thin → downward vacuum (bearish). Two-sided thin → neutral.
     const liquidityVacuum = new LiquidityVacuumAgent();
 
+    // Phase 53.18 — VelocityAgent: 2nd-derivative price acceleration on perp.
+    // Short-window rate (3s) ≥2× long-window rate (15s) same sign → breakout.
+    const velocity = new VelocityAgent();
+
+    // Phase 53.19 — FundingRateFlipAgent: detects funding sign-change events
+    // (slow path, 60s polling). + → − flip = bullish (long crowding peaked).
+    // − → + flip = bearish (short crowding peaked).
+    const fundingRateFlip = new FundingRateFlipAgent();
+
     // Connect MacroAnalyst to NewsSentinel for Fed veto detection
     macro.setNewsSentinel(news);
 
@@ -413,6 +424,12 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
     // Phase 53.17: LiquidityVacuumAgent — one-sided depth thinning.
     this.agentManager.registerAgent(liquidityVacuum);
+
+    // Phase 53.18: VelocityAgent — multi-timeframe price acceleration.
+    this.agentManager.registerAgent(velocity);
+
+    // Phase 53.19: FundingRateFlipAgent — discrete funding flip events (slow path).
+    this.agentManager.registerAgent(fundingRateFlip);
 
     // ML Prediction Agent (Phase 3)
     try {
@@ -600,6 +617,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
             'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent',
             'CrossExchangeSpreadAgent', 'CVDDivergenceAgent',
             'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent',
+            'VelocityAgent',
           ];
           const signals: GlobalSignal[] = [];
 
@@ -724,6 +742,9 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
       // its in-memory history. Including it in the slow loop ensures it's
       // refreshed once per slow cycle and contributes to consensus.
       'OpenInterestDeltaAgent',
+      // Phase 53.19 — FundingRateFlipAgent: discrete funding sign-change events.
+      // Polls premiumIndex on its own 60s interval; analyze() reads history.
+      'FundingRateFlipAgent',
     ];
 
     // Inject live price into SentimentAnalyst
@@ -849,6 +870,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
       'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent',
       'CrossExchangeSpreadAgent', 'CVDDivergenceAgent',
       'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent',
+      'VelocityAgent',
     ]);
     return this.latestSignals.filter(s => fastAgentNames.has(s.agentName));
   }

@@ -94,12 +94,12 @@ export function __saveAgentPerformanceToFile(
 export const AGENT_CATEGORIES = {
   FAST: ['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst'],
   SLOW: ['SentimentAnalyst', 'NewsSentinel', 'MacroAnalyst', 'OnChainAnalyst'],
-  PHASE2: ['WhaleTracker', 'FundingRateAnalyst', 'LiquidationHeatmap', 'OnChainFlowAnalyst', 'VolumeProfileAnalyzer', 'ForexCorrelationAgent', 'OpenInterestDeltaAgent'],
+  PHASE2: ['WhaleTracker', 'FundingRateAnalyst', 'LiquidationHeatmap', 'OnChainFlowAnalyst', 'VolumeProfileAnalyzer', 'ForexCorrelationAgent', 'OpenInterestDeltaAgent', 'FundingRateFlipAgent'],
   // Phase 53.10 — LEAD_INFO is a new category for Binance-microstructure /
   // cross-exchange-lead agents. Tokyo placement makes Binance the price-
   // discovery venue; these agents convert that into trade-decision signal
   // (LeadLag, perp/spot premium, perp/spot CVD, perp depth imbalance).
-  LEAD_INFO: ['LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent', 'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent', 'CrossExchangeSpreadAgent', 'CVDDivergenceAgent', 'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent'],
+  LEAD_INFO: ['LeadLagAgent', 'PerpSpotPremiumAgent', 'PerpTakerFlowAgent', 'SpotTakerFlowAgent', 'PerpDepthImbalanceAgent', 'WhaleWallAgent', 'CrossExchangeSpreadAgent', 'CVDDivergenceAgent', 'TradeSizeOutlierAgent', 'SpreadCompressionAgent', 'LiquidityVacuumAgent', 'VelocityAgent'],
 } as const;
 
 // All agent names
@@ -127,13 +127,14 @@ export const DEFAULT_AGENT_WEIGHTS: Record<AgentName, number> = {
   OnChainAnalyst: 0, // Optional, disabled by default
 
   // Phase 2 agents (weights should sum to 100 within category)
-  WhaleTracker: 14,
-  FundingRateAnalyst: 14,
-  LiquidationHeatmap: 14,
-  OnChainFlowAnalyst: 14,
-  VolumeProfileAnalyzer: 18,
-  ForexCorrelationAgent: 12,
-  OpenInterestDeltaAgent: 14,
+  WhaleTracker: 12,
+  FundingRateAnalyst: 12,
+  LiquidationHeatmap: 12,
+  OnChainFlowAnalyst: 12,
+  VolumeProfileAnalyzer: 16,
+  ForexCorrelationAgent: 10,
+  OpenInterestDeltaAgent: 12,
+  FundingRateFlipAgent: 14,
 
   // Phase 53.10/53.11 LEAD_INFO category (sum = 100)
   // Distribution rationale: LeadLag and PerpTakerFlow are the highest-quality
@@ -143,17 +144,18 @@ export const DEFAULT_AGENT_WEIGHTS: Record<AgentName, number> = {
   // imbalance are slightly lower (noisier on busy spot tape, depth signal
   // is short-horizon). WhaleWall is binary (wall present or not) so it gets
   // less weight despite high specificity.
-  LeadLagAgent: 14,
-  PerpSpotPremiumAgent: 11,
-  PerpTakerFlowAgent: 13,
-  SpotTakerFlowAgent: 8,
-  PerpDepthImbalanceAgent: 8,
-  WhaleWallAgent: 7,
-  CrossExchangeSpreadAgent: 9,
-  CVDDivergenceAgent: 10,
-  TradeSizeOutlierAgent: 8,
-  SpreadCompressionAgent: 6,
-  LiquidityVacuumAgent: 6,
+  LeadLagAgent: 13,
+  PerpSpotPremiumAgent: 10,
+  PerpTakerFlowAgent: 12,
+  SpotTakerFlowAgent: 7,
+  PerpDepthImbalanceAgent: 7,
+  WhaleWallAgent: 6,
+  CrossExchangeSpreadAgent: 8,
+  CVDDivergenceAgent: 9,
+  TradeSizeOutlierAgent: 7,
+  SpreadCompressionAgent: 5,
+  LiquidityVacuumAgent: 5,
+  VelocityAgent: 11,
 };
 
 // Phase 15B FIX: Rebalanced category multipliers.
