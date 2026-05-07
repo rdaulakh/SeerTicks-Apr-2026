@@ -364,7 +364,21 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
           strategy: dbPos.strategy || 'unknown',
         };
 
-        this.positions.set(position.id, position);
+        // Phase 55.3 — Map MUST be keyed by `${symbol}_${exchange}` to match
+        // openPosition/closePosition. Pre-Phase-55.3 hydration keyed by
+        // position.id, which silently broke every restart-time exit:
+        //   1. closePositionById finds the position via .find(p => p.id === ...)
+        //   2. placeOrder market-sells on exchange (real fill on testnet/live)
+        //   3. closePosition does positions.get(`${symbol}_${exchange}`) → undefined
+        //   4. logs "No position found for symbol", returns silently
+        //   5. wallet not credited, DB row not marked closed, no position_closed emit
+        //   6. closePositionById did not throw → UserTradingSession thinks exit
+        //      succeeded; IEM removes monitoring; DB row stays 'open' forever
+        // Found 2026-05-07 via positions 36/37 hung at 14h with logs showing
+        // "FULL EXIT: 36" then "REAL ORDER FILLED" then "No position found for
+        // symbol", same for 37 — exchange sold inventory we never realized.
+        const positionKey = `${position.symbol}_${position.exchange}`;
+        this.positions.set(positionKey, position);
         calculatedMargin += position.entryPrice * position.quantity;
         calculatedUnrealizedPnL += position.unrealizedPnL;
       }
@@ -486,7 +500,8 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
             commission: 0,
             strategy: 'hydrated_from_exchange',
           };
-          this.positions.set(newPos.id, newPos);
+          // Phase 55.3 — same key fix as loadOpenPositionsFromDatabase.
+          this.positions.set(`${newPos.symbol}_${newPos.exchange}`, newPos);
           inserted++;
           executionLogger.warn('Hydrated unknown exchange position into DB', {
             symbol: symbolForDb, side: ex.side, qty: ex.quantity, entryPrice: ex.entryPrice, dbId: newDbId,
