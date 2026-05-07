@@ -148,6 +148,13 @@
       "when": 1778087680468,
       "tag": "0020_typical_nightshade",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1778151062520,
+      "tag": "0021_lazy_hercules",
+      "breakpoints": true
     }
   ]
 }

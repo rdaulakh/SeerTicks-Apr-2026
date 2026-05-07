@@ -1,5 +1,33 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
+
+// Phase 57 — exchange enum widened to include Binance USDM Futures so users
+// can save per-account futures credentials via Settings instead of relying on
+// process-level env vars (single-tenant). Keep the values identical to the
+// `exchangeName` mysqlEnum in drizzle/schema.ts.
+const EXCHANGE_NAME_VALUES = ["binance", "binance-futures", "coinbase"] as const;
+type ExchangeName = typeof EXCHANGE_NAME_VALUES[number];
+
+// Single source of truth for "given this exchangeName + creds, build the
+// adapter we'd use to probe it." Used by addExchange, refreshExchangeConnection,
+// and testConnection so the three procedures can never disagree about which
+// endpoint a given exchange-name hits.
+async function buildProbeAdapter(
+  exchangeName: ExchangeName,
+  apiKey: string,
+  apiSecret: string,
+): Promise<{ testConnection: () => Promise<boolean> }> {
+  if (exchangeName === "binance") {
+    const { BinanceAdapter } = await import("../exchanges/BinanceAdapter");
+    return new BinanceAdapter(apiKey, apiSecret);
+  }
+  if (exchangeName === "binance-futures") {
+    const { BinanceFuturesAdapter } = await import("../exchanges/BinanceFuturesAdapter");
+    return new BinanceFuturesAdapter(apiKey, apiSecret);
+  }
+  const { CoinbaseAdapter } = await import("../exchanges/CoinbaseAdapter");
+  return new CoinbaseAdapter(apiKey, apiSecret);
+}
 import {
   getAgentWeights,
   upsertAgentWeights,
@@ -283,7 +311,7 @@ export const settingsRouter = router({
   addExchange: protectedProcedure
     .input(
       z.object({
-        exchangeName: z.enum(["binance", "coinbase"]),
+        exchangeName: z.enum(EXCHANGE_NAME_VALUES),
         apiKey: z.string(),
         apiSecret: z.string(),
       })
@@ -302,19 +330,14 @@ export const settingsRouter = router({
       // and no code path ever updated those fields. Result: every newly-added
       // exchange showed "Disconnected" + "Active" in the Settings UI even when
       // the wizard's testConnection had passed.
+      // Phase 57 — adapter selection moved to buildProbeAdapter so binance-futures
+      // hits testnet.binancefuture.com (USDM perps), not testnet.binance.vision.
       const trimmedKey = input.apiKey.trim();
       const trimmedSecret = input.apiSecret.trim();
       let probeOk = false;
       let probeMessage = '';
       try {
-        let adapter: any;
-        if (input.exchangeName === 'binance') {
-          const { BinanceAdapter } = await import('../exchanges/BinanceAdapter');
-          adapter = new BinanceAdapter(trimmedKey, trimmedSecret);
-        } else {
-          const { CoinbaseAdapter } = await import('../exchanges/CoinbaseAdapter');
-          adapter = new CoinbaseAdapter(trimmedKey, trimmedSecret);
-        }
+        const adapter = await buildProbeAdapter(input.exchangeName, trimmedKey, trimmedSecret);
         probeOk = await adapter.testConnection();
         if (!probeOk) probeMessage = 'Exchange rejected the API credentials.';
       } catch (probeErr: any) {
@@ -386,14 +409,10 @@ export const settingsRouter = router({
       try {
         const apiKey = decrypt(k.encryptedApiKey, k.apiKeyIv);
         const apiSecret = decrypt(k.encryptedApiSecret, k.apiSecretIv);
-        let adapter: any;
-        if (ex.exchangeName === 'binance') {
-          const { BinanceAdapter } = await import('../exchanges/BinanceAdapter');
-          adapter = new BinanceAdapter(apiKey, apiSecret);
-        } else {
-          const { CoinbaseAdapter } = await import('../exchanges/CoinbaseAdapter');
-          adapter = new CoinbaseAdapter(apiKey, apiSecret);
-        }
+        // Phase 57 — same adapter routing as addExchange. The DB enum was
+        // widened to include 'binance-futures' so this safely resolves to
+        // BinanceFuturesAdapter for futures rows.
+        const adapter = await buildProbeAdapter(ex.exchangeName as ExchangeName, apiKey, apiSecret);
         probeOk = await adapter.testConnection();
         if (!probeOk) probeMessage = 'Exchange rejected the stored API credentials.';
       } catch (probeErr: any) {
@@ -439,22 +458,17 @@ export const settingsRouter = router({
   testConnection: protectedProcedure
     .input(
       z.object({
-        exchangeName: z.enum(["binance", "coinbase"]),
+        exchangeName: z.enum(EXCHANGE_NAME_VALUES),
         apiKey: z.string(),
         apiSecret: z.string(),
       })
     )
     .mutation(async ({ input }) => {
       try {
-        // Dynamically import the appropriate adapter
-        let adapter;
-        if (input.exchangeName === "binance") {
-          const { BinanceAdapter } = await import("../exchanges/BinanceAdapter");
-          adapter = new BinanceAdapter(input.apiKey, input.apiSecret);
-        } else {
-          const { CoinbaseAdapter } = await import("../exchanges/CoinbaseAdapter");
-          adapter = new CoinbaseAdapter(input.apiKey, input.apiSecret);
-        }
+        // Phase 57 — uses the shared buildProbeAdapter so the wizard's
+        // pre-save probe targets the same endpoint as addExchange's persisted
+        // probe (no spot vs futures mismatch).
+        const adapter = await buildProbeAdapter(input.exchangeName, input.apiKey, input.apiSecret);
 
         // Test the connection
         const isValid = await adapter.testConnection();

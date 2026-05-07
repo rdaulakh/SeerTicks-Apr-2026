@@ -35,11 +35,21 @@ export function AdvancedSettingsPanel() {
   );
 }
 
+// Phase 57 — exchange options surfaced in the Add Exchange wizard. Keep the
+// labels distinct (Binance Spot vs USDM Futures) since they hit different
+// testnets and require different API keys.
+type ExchangeName = "binance" | "binance-futures" | "coinbase";
+const EXCHANGE_OPTIONS: { value: ExchangeName; label: string; hint: string }[] = [
+  { value: "binance-futures", label: "Binance USDM Futures", hint: "Native long & short. Recommended." },
+  { value: "binance", label: "Binance Spot", hint: "Long-only. Bearish signals can't execute as real shorts." },
+  { value: "coinbase", label: "Coinbase", hint: "Spot only." },
+];
+
 // ===== Exchanges Panel =====
 function ExchangesPanel() {
   const [showAddForm, setShowAddForm] = useState(false);
-  const [newExchange, setNewExchange] = useState({
-    exchangeName: "binance" as "binance" | "coinbase",
+  const [newExchange, setNewExchange] = useState<{ exchangeName: ExchangeName; apiKey: string; apiSecret: string }>({
+    exchangeName: "binance-futures",
     apiKey: "",
     apiSecret: "",
   });
@@ -52,7 +62,7 @@ function ExchangesPanel() {
       if (result?.success) {
         toast.success(result.message ? `Exchange added: ${result.message}` : 'Exchange added and connected');
         setShowAddForm(false);
-        setNewExchange({ exchangeName: "binance", apiKey: "", apiSecret: "" });
+        setNewExchange({ exchangeName: "binance-futures", apiKey: "", apiSecret: "" });
       } else {
         toast.error(result?.message || 'Saved, but connection failed — check API key permissions');
       }
@@ -227,12 +237,30 @@ function ExchangesPanel() {
               <select
                 id="exchangeName"
                 value={newExchange.exchangeName}
-                onChange={(e) => setNewExchange({ ...newExchange, exchangeName: e.target.value as any })}
+                onChange={(e) => setNewExchange({ ...newExchange, exchangeName: e.target.value as ExchangeName })}
                 className="w-full mt-1 bg-background border border-input rounded-md px-3 py-2"
               >
-                <option value="binance">Binance</option>
-                <option value="coinbase">Coinbase</option>
+                {EXCHANGE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
               </select>
+              <p className="text-xs text-muted-foreground mt-1">
+                {EXCHANGE_OPTIONS.find((o) => o.value === newExchange.exchangeName)?.hint}
+              </p>
+              {newExchange.exchangeName === "binance-futures" && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  Generate keys at{" "}
+                  <a
+                    href="https://testnet.binancefuture.com/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    testnet.binancefuture.com
+                  </a>
+                  {" "}(not testnet.binance.vision — those are spot keys and will be rejected). Use System-generated (HMAC), enable Futures permission.
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="apiKey">API Key</Label>
@@ -265,7 +293,7 @@ function ExchangesPanel() {
                 variant="outline"
                 onClick={() => {
                   setShowAddForm(false);
-                  setNewExchange({ exchangeName: "binance", apiKey: "", apiSecret: "" });
+                  setNewExchange({ exchangeName: "binance-futures", apiKey: "", apiSecret: "" });
                 }}
                 className="flex-1"
               >

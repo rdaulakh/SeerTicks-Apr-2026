@@ -142,7 +142,10 @@ export type InsertHealthMetric = typeof healthMetrics.$inferInsert;
 export const exchanges = mysqlTable("exchanges", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
-  exchangeName: mysqlEnum("exchangeName", ["binance", "coinbase"]).notNull(),
+  // Phase 57 — binance-futures added so users can store USDM Perpetual
+  // Futures testnet/live credentials per-account via Settings → Exchanges
+  // (replaces the env-var-only path which couldn't scale past one user).
+  exchangeName: mysqlEnum("exchangeName", ["binance", "binance-futures", "coinbase"]).notNull(),
   isActive: boolean("isActive").default(true).notNull(),
   connectionStatus: mysqlEnum("connectionStatus", ["connected", "disconnected", "error"]).default("disconnected").notNull(),
   lastConnected: timestamp("lastConnected"),

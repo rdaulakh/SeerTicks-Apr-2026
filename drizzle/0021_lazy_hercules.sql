@@ -1,0 +1,1 @@
+ALTER TABLE `exchanges` MODIFY COLUMN `exchangeName` enum('binance','binance-futures','coinbase') NOT NULL;

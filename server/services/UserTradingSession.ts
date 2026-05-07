@@ -159,8 +159,53 @@ export class UserTradingSession extends EventEmitter {
       //
       // Live mode (this.tradingMode === 'live') routes through the
       // appropriate live adapter when configured.
-      const futuresKey = process.env.BINANCE_FUTURES_API_KEY;
-      const futuresSecret = process.env.BINANCE_FUTURES_SECRET_KEY;
+      // Phase 57 — per-user futures keys come from the `apiKeys` table joined
+      // with `exchanges` (exchangeName='binance-futures'), so users add their
+      // credentials via Settings → Exchanges. Process-level env vars stay as
+      // a fallback for the current single-tenant Tokyo deployment, but the
+      // multi-user path is now the default and DB takes precedence.
+      let futuresKey: string | undefined;
+      let futuresSecret: string | undefined;
+      let futuresKeySource: 'db' | 'env' | null = null;
+      try {
+        const { getDb: getDbFK } = await import('../db');
+        const dbFK = await getDbFK();
+        if (dbFK) {
+          const { eq: eqFK, and: andFK } = await import('drizzle-orm');
+          const { exchanges: exFK, apiKeys: keysFK } = await import('../../drizzle/schema');
+          const { decrypt: decryptFK } = await import('../crypto');
+          const exRow = await dbFK
+            .select()
+            .from(exFK)
+            .where(andFK(eqFK(exFK.userId, this.userId), eqFK(exFK.exchangeName, 'binance-futures')))
+            .limit(1);
+          if (exRow.length > 0) {
+            const keyRow = await dbFK
+              .select()
+              .from(keysFK)
+              .where(andFK(eqFK(keysFK.userId, this.userId), eqFK(keysFK.exchangeId, exRow[0].id)))
+              .limit(1);
+            if (keyRow.length > 0) {
+              try {
+                futuresKey = decryptFK(keyRow[0].encryptedApiKey, keyRow[0].apiKeyIv);
+                futuresSecret = decryptFK(keyRow[0].encryptedApiSecret, keyRow[0].apiSecretIv);
+                futuresKeySource = 'db';
+              } catch (decryptErr) {
+                console.warn(`[UserTradingSession] Failed to decrypt stored binance-futures keys for user ${this.userId}:`, (decryptErr as Error)?.message);
+              }
+            }
+          }
+        }
+      } catch (lookupErr) {
+        console.warn(`[UserTradingSession] DB lookup for binance-futures keys failed:`, (lookupErr as Error)?.message);
+      }
+      if (!futuresKey || !futuresSecret) {
+        if (process.env.BINANCE_FUTURES_API_KEY && process.env.BINANCE_FUTURES_SECRET_KEY) {
+          futuresKey = process.env.BINANCE_FUTURES_API_KEY;
+          futuresSecret = process.env.BINANCE_FUTURES_SECRET_KEY;
+          futuresKeySource = 'env';
+        }
+      }
       const useFuturesEngine = !!futuresKey && !!futuresSecret;
       const useSpotTestnetEngine = process.env.USE_TESTNET_ENGINE === '1'
         && !!process.env.BINANCE_API_KEY
@@ -181,7 +226,7 @@ export class UserTradingSession extends EventEmitter {
           defaultLeverage: parseInt(process.env.BINANCE_FUTURES_LEVERAGE || '1', 10),
         });
         const venue = process.env.BINANCE_FUTURES_USE_TESTNET === '1' ? 'TESTNET' : 'LIVE';
-        console.log(`[UserTradingSession] 🧪 Using RealTradingEngine on Binance USDM Futures ${venue} (paper-mode, native shorts)`);
+        console.log(`[UserTradingSession] 🧪 Using RealTradingEngine on Binance USDM Futures ${venue} (paper-mode, native shorts, keys=${futuresKeySource})`);
       } else if (useSpotTestnetEngine && this.tradingMode === 'paper') {
         const { RealTradingEngine } = await import('../execution/RealTradingEngine');
         this.tradingEngine = new RealTradingEngine({
