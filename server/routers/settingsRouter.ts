@@ -28,6 +28,29 @@ async function buildProbeAdapter(
   const { CoinbaseAdapter } = await import("../exchanges/CoinbaseAdapter");
   return new CoinbaseAdapter(apiKey, apiSecret);
 }
+
+// Phase 57.1 — Binance returns -2015 for THREE distinct failures with the
+// same opaque message. Translate to actionable remediation so users don't
+// have to grep the docs.
+function explainProbeError(exchangeName: ExchangeName, raw: string): string {
+  const msg = raw || '';
+  if (/-2015|Invalid API-key, IP, or permissions/i.test(msg)) {
+    if (exchangeName === 'binance-futures') {
+      return 'Binance rejected (-2015). Check at testnet.binancefuture.com → API Management: ' +
+        '(1) the key and secret were copied without typos, ' +
+        '(2) "Enable Futures" permission is checked, ' +
+        '(3) if the key has an IP whitelist, add the platform IP 52.193.69.129 (or set "Unrestricted" for testing).';
+    }
+    return 'Exchange rejected the credentials (-2015). Check API key, IP whitelist, and trade/futures permissions.';
+  }
+  if (/-2014|API-key format invalid/i.test(msg)) {
+    return 'API key format invalid (-2014). Make sure you copied the System-generated (HMAC) key, not Self-generated (Ed25519/RSA).';
+  }
+  if (/timeout/i.test(msg)) {
+    return 'Timed out reaching the exchange. Check connectivity and try again.';
+  }
+  return msg || 'Connection failed.';
+}
 import {
   getAgentWeights,
   upsertAgentWeights,
@@ -342,7 +365,7 @@ export const settingsRouter = router({
         if (!probeOk) probeMessage = 'Exchange rejected the API credentials.';
       } catch (probeErr: any) {
         probeOk = false;
-        probeMessage = probeErr?.message || 'Connection probe threw an error.';
+        probeMessage = explainProbeError(input.exchangeName, probeErr?.message || '');
       }
 
       const now = new Date();
@@ -417,7 +440,7 @@ export const settingsRouter = router({
         if (!probeOk) probeMessage = 'Exchange rejected the stored API credentials.';
       } catch (probeErr: any) {
         probeOk = false;
-        probeMessage = probeErr?.message || 'Connection probe threw an error.';
+        probeMessage = explainProbeError(ex.exchangeName as ExchangeName, probeErr?.message || '');
       }
 
       const now = new Date();

@@ -213,15 +213,17 @@ export class BinanceFuturesAdapter extends ExchangeInterface {
   }
 
   async testConnection(): Promise<boolean> {
-    try {
-      const t = await Promise.race([
-        this.client.getAccountInformation(),
-        new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 10_000)),
-      ]);
-      return !!t;
-    } catch {
-      return false;
-    }
+    // Phase 57.1 — let the real Binance error surface so addExchange /
+    // refreshExchangeConnection can show the user what actually failed
+    // (e.g. -2015 "Invalid API-key, IP, or permissions" → which of the
+    // three is wrong) instead of a generic "rejected" message. The caller
+    // is already wrapped in try/catch so a thrown error is correctly
+    // converted into probeMessage in the response.
+    const t = await Promise.race([
+      this.client.getAccountInformation(),
+      new Promise((_, r) => setTimeout(() => r(new Error('timeout after 10s contacting testnet.binancefuture.com')), 10_000)),
+    ]);
+    return !!t;
   }
 
   // WebSocket streaming is handled by the global futures WS in _core/index.ts
