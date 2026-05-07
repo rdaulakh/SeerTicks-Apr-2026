@@ -291,26 +291,52 @@ export const settingsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
-      
+
       // Validate API keys
       if (!input.apiKey || !input.apiSecret) {
         throw new Error("API key and secret are required");
       }
-      
-      // Create exchange record
+
+      // Phase 56 — actually probe the exchange BEFORE persisting. Pre-Phase-56
+      // addExchange always wrote `connectionStatus='disconnected'` and `apiKeys.isValid=false`,
+      // and no code path ever updated those fields. Result: every newly-added
+      // exchange showed "Disconnected" + "Active" in the Settings UI even when
+      // the wizard's testConnection had passed.
+      const trimmedKey = input.apiKey.trim();
+      const trimmedSecret = input.apiSecret.trim();
+      let probeOk = false;
+      let probeMessage = '';
+      try {
+        let adapter: any;
+        if (input.exchangeName === 'binance') {
+          const { BinanceAdapter } = await import('../exchanges/BinanceAdapter');
+          adapter = new BinanceAdapter(trimmedKey, trimmedSecret);
+        } else {
+          const { CoinbaseAdapter } = await import('../exchanges/CoinbaseAdapter');
+          adapter = new CoinbaseAdapter(trimmedKey, trimmedSecret);
+        }
+        probeOk = await adapter.testConnection();
+        if (!probeOk) probeMessage = 'Exchange rejected the API credentials.';
+      } catch (probeErr: any) {
+        probeOk = false;
+        probeMessage = probeErr?.message || 'Connection probe threw an error.';
+      }
+
+      const now = new Date();
+
       const result = await db.insert(exchanges).values({
         userId: ctx.user.id,
         exchangeName: input.exchangeName,
         isActive: true,
-        connectionStatus: "disconnected",
-      });
-      
+        connectionStatus: probeOk ? 'connected' : 'error',
+        lastConnected: probeOk ? now : null,
+      } as any);
+
       const exchangeId = Number(result[0].insertId);
-      
-      // Encrypt and store API keys
-      const { encrypted: encryptedKey, iv: keyIv } = encrypt(input.apiKey.trim());
-      const { encrypted: encryptedSecret, iv: secretIv } = encrypt(input.apiSecret.trim());
-      
+
+      const { encrypted: encryptedKey, iv: keyIv } = encrypt(trimmedKey);
+      const { encrypted: encryptedSecret, iv: secretIv } = encrypt(trimmedSecret);
+
       await db.insert(apiKeys).values({
         userId: ctx.user.id,
         exchangeId,
@@ -318,10 +344,77 @@ export const settingsRouter = router({
         encryptedApiSecret: encryptedSecret,
         apiKeyIv: keyIv,
         apiSecretIv: secretIv,
-        isValid: false,
-      });
-      
-      return { success: true, exchangeId };
+        isValid: probeOk,
+        lastTested: now,
+      } as any);
+
+      if (!probeOk) {
+        // Persist a row so the user can refresh/retry without losing the
+        // wizard state, but surface the error to the toast so they know.
+        return { success: false, exchangeId, message: probeMessage || 'Connection failed' };
+      }
+      return { success: true, exchangeId, message: 'Connected' };
+    }),
+
+  // Phase 56 — re-probe a stored exchange's keys and update connectionStatus.
+  // Powers the UI's "Refresh" button and lets a row recover from a transient
+  // network error without re-entering the API keys.
+  refreshExchangeConnection: protectedProcedure
+    .input(z.object({ exchangeId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error('Database not available');
+
+      const exRows = await db
+        .select()
+        .from(exchanges)
+        .where(and(eq(exchanges.id, input.exchangeId), eq(exchanges.userId, ctx.user.id)))
+        .limit(1);
+      if (exRows.length === 0) throw new Error('Exchange not found');
+      const ex = exRows[0];
+
+      const keyRows = await db
+        .select()
+        .from(apiKeys)
+        .where(and(eq(apiKeys.exchangeId, input.exchangeId), eq(apiKeys.userId, ctx.user.id)))
+        .limit(1);
+      if (keyRows.length === 0) throw new Error('No API keys stored for this exchange');
+      const k = keyRows[0];
+
+      let probeOk = false;
+      let probeMessage = '';
+      try {
+        const apiKey = decrypt(k.encryptedApiKey, k.apiKeyIv);
+        const apiSecret = decrypt(k.encryptedApiSecret, k.apiSecretIv);
+        let adapter: any;
+        if (ex.exchangeName === 'binance') {
+          const { BinanceAdapter } = await import('../exchanges/BinanceAdapter');
+          adapter = new BinanceAdapter(apiKey, apiSecret);
+        } else {
+          const { CoinbaseAdapter } = await import('../exchanges/CoinbaseAdapter');
+          adapter = new CoinbaseAdapter(apiKey, apiSecret);
+        }
+        probeOk = await adapter.testConnection();
+        if (!probeOk) probeMessage = 'Exchange rejected the stored API credentials.';
+      } catch (probeErr: any) {
+        probeOk = false;
+        probeMessage = probeErr?.message || 'Connection probe threw an error.';
+      }
+
+      const now = new Date();
+      await db
+        .update(exchanges)
+        .set({
+          connectionStatus: probeOk ? 'connected' : 'error',
+          lastConnected: probeOk ? now : ex.lastConnected,
+        } as any)
+        .where(eq(exchanges.id, input.exchangeId));
+      await db
+        .update(apiKeys)
+        .set({ isValid: probeOk, lastTested: now } as any)
+        .where(eq(apiKeys.id, k.id));
+
+      return { success: probeOk, message: probeOk ? 'Connected' : probeMessage };
     }),
 
   deleteExchange: protectedProcedure

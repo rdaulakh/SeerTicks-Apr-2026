@@ -46,11 +46,17 @@ function ExchangesPanel() {
 
   const { data: exchanges, refetch } = trpc.settings.getExchanges.useQuery();
   const addExchange = trpc.settings.addExchange.useMutation({
-    onSuccess: () => {
-      toast.success("Exchange added successfully");
+    onSuccess: (result) => {
+      // Phase 56 — addExchange now probes credentials before persisting.
+      // Surface the probe result so the user sees what actually happened.
+      if (result?.success) {
+        toast.success(result.message ? `Exchange added: ${result.message}` : 'Exchange added and connected');
+        setShowAddForm(false);
+        setNewExchange({ exchangeName: "binance", apiKey: "", apiSecret: "" });
+      } else {
+        toast.error(result?.message || 'Saved, but connection failed — check API key permissions');
+      }
       refetch();
-      setShowAddForm(false);
-      setNewExchange({ exchangeName: "binance", apiKey: "", apiSecret: "" });
     },
     onError: (error) => {
       toast.error(`Failed to add exchange: ${error.message}`);
@@ -62,15 +68,36 @@ function ExchangesPanel() {
       refetch();
     },
   });
-  const checkHealth = trpc.exchange.checkHealth.useMutation({
-    onSuccess: () => {
-      toast.success("Health check completed");
-      refetch();
+  // Phase 56 — re-probes stored API keys against the exchange and updates
+  // exchanges.connectionStatus + apiKeys.isValid. Replaces the old
+  // exchange.checkHealth (which only read in-memory monitor state).
+  const reprobe = trpc.settings.refreshExchangeConnection.useMutation();
+  const [reprobingId, setReprobingId] = useState<number | null>(null);
+  const checkHealth = {
+    isPending: reprobingId !== null,
+    mutate: async () => {
+      if (!exchanges || exchanges.length === 0) {
+        toast.info("No exchanges to check");
+        return;
+      }
+      let connected = 0;
+      let failed = 0;
+      for (const ex of exchanges) {
+        if (ex.id <= 0) continue;
+        setReprobingId(ex.id);
+        try {
+          const r = await reprobe.mutateAsync({ exchangeId: ex.id });
+          if (r.success) connected++; else failed++;
+        } catch {
+          failed++;
+        }
+      }
+      setReprobingId(null);
+      await refetch();
+      if (failed === 0) toast.success(`Health check OK (${connected} connected)`);
+      else toast.error(`Health check: ${connected} connected, ${failed} failed`);
     },
-    onError: (error) => {
-      toast.error(`Health check failed: ${error.message}`);
-    },
-  });
+  };
 
   const formatLastSync = (lastConnected: Date | null | undefined) => {
     if (!lastConnected) return "Never";
@@ -135,14 +162,37 @@ function ExchangesPanel() {
                   </p>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => deleteExchange.mutate({ exchangeId: exchange.id })}
-                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    setReprobingId(exchange.id);
+                    try {
+                      const r = await reprobe.mutateAsync({ exchangeId: exchange.id });
+                      if (r.success) toast.success(r.message || 'Connected');
+                      else toast.error(r.message || 'Still disconnected');
+                      await refetch();
+                    } catch (e: any) {
+                      toast.error(e?.message || 'Probe failed');
+                    } finally {
+                      setReprobingId(null);
+                    }
+                  }}
+                  disabled={reprobingId === exchange.id}
+                  title="Re-test API credentials"
+                >
+                  <RefreshCw className={`w-4 h-4 ${reprobingId === exchange.id ? 'animate-spin' : ''}`} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => deleteExchange.mutate({ exchangeId: exchange.id })}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           ))
         ) : (
