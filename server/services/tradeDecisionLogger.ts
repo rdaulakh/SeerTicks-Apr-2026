@@ -134,7 +134,9 @@ class TradeDecisionLoggerService {
   }
 
   /**
-   * Update a decision with execution details
+   * Update a decision with execution details (Phase 60 — also promotes
+   * decision PENDING→EXECUTED so the row reflects actual exchange-side
+   * truth, not just consensus-stage approval).
    */
   async updateExecution(update: TradeExecutionUpdate): Promise<void> {
     const db = await getDb();
@@ -148,13 +150,36 @@ class TradeDecisionLoggerService {
           entryPrice: update.entryPrice?.toString(),
           quantity: update.quantity?.toString(),
           positionSizePercent: update.positionSizePercent?.toString(),
+          decision: 'EXECUTED',
           status: 'POSITION_OPENED',
         })
         .where(eq(tradeDecisionLogs.signalId, update.signalId));
-      
+
       console.log(`[TradeDecisionLogger] Updated execution: ${update.signalId}`);
     } catch (error) {
       console.error('[TradeDecisionLogger] Failed to update execution:', error);
+    }
+  }
+
+  /**
+   * Phase 60 — mark a PENDING decision as FAILED with the gate that
+   * rejected it. Called from EnhancedTradeExecutor when an approved
+   * signal can't actually open a position (R:R, duplicate, VaR,
+   * regime cooldown, insufficient balance, etc.).
+   */
+  async markFailed(signalId: string, reason: string): Promise<void> {
+    const db = await getDb();
+    if (!db || !signalId) return;
+    try {
+      await db.update(tradeDecisionLogs)
+        .set({
+          decision: 'FAILED',
+          decisionReason: reason.slice(0, 250),
+          status: 'OPPORTUNITY_MISSED',
+        })
+        .where(eq(tradeDecisionLogs.signalId, signalId));
+    } catch (error) {
+      console.error('[TradeDecisionLogger] Failed to mark FAILED:', error);
     }
   }
 

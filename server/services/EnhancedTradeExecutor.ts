@@ -289,7 +289,9 @@ export class EnhancedTradeExecutor extends EventEmitter {
     // Check 1: Hard halt (requires manual reset)
     if (this.isHalted) {
       console.warn(`[EnhancedTradeExecutor] 🛑 HALTED: ${this.haltReason}. Trading blocked until manual reset.`);
-      this.emit('trade_rejected', { symbol: signal.symbol, reason: `HALTED: ${this.haltReason}` });
+      const reason = `HALTED: ${this.haltReason}`;
+      if (signal.signalId) tradeDecisionLogger.markFailed(signal.signalId, reason).catch(() => {});
+      this.emit('trade_rejected', { symbol: signal.symbol, reason });
       return;
     }
 
@@ -297,7 +299,9 @@ export class EnhancedTradeExecutor extends EventEmitter {
     if (this.pausedUntil > Date.now()) {
       const remainingSec = Math.ceil((this.pausedUntil - Date.now()) / 1000);
       console.warn(`[EnhancedTradeExecutor] ⏸️ PAUSED: ${this.consecutiveLosses} consecutive losses. Resume in ${remainingSec}s`);
-      this.emit('trade_rejected', { symbol: signal.symbol, reason: `Paused: ${this.consecutiveLosses} consecutive losses` });
+      const reason = `Paused: ${this.consecutiveLosses} consecutive losses`;
+      if (signal.signalId) tradeDecisionLogger.markFailed(signal.signalId, reason).catch(() => {});
+      this.emit('trade_rejected', { symbol: signal.symbol, reason });
       return;
     }
 
@@ -311,7 +315,9 @@ export class EnhancedTradeExecutor extends EventEmitter {
     }
     if (this.dailyTradeCount >= this.MAX_DAILY_TRADES) {
       console.warn(`[EnhancedTradeExecutor] 🛑 Daily trade limit reached: ${this.dailyTradeCount}/${this.MAX_DAILY_TRADES}`);
-      this.emit('trade_rejected', { symbol: signal.symbol, reason: `Daily trade limit: ${this.dailyTradeCount}/${this.MAX_DAILY_TRADES}` });
+      const reason = `Daily trade limit: ${this.dailyTradeCount}/${this.MAX_DAILY_TRADES}`;
+      if (signal.signalId) tradeDecisionLogger.markFailed(signal.signalId, reason).catch(() => {});
+      this.emit('trade_rejected', { symbol: signal.symbol, reason });
       return;
     }
 
@@ -355,7 +361,9 @@ export class EnhancedTradeExecutor extends EventEmitter {
           const concentrationRatio = symbolExposure / wallet.balance;
           if (concentrationRatio >= this.MAX_SYMBOL_CONCENTRATION) {
             console.warn(`[EnhancedTradeExecutor] 🛑 Symbol concentration limit: ${signal.symbol} at ${(concentrationRatio * 100).toFixed(1)}% > ${(this.MAX_SYMBOL_CONCENTRATION * 100).toFixed(0)}%`);
-            this.emit('trade_rejected', { symbol: signal.symbol, reason: `Symbol concentration: ${(concentrationRatio * 100).toFixed(1)}%` });
+            const reason = `Symbol concentration: ${(concentrationRatio * 100).toFixed(1)}%`;
+            if (signal.signalId) tradeDecisionLogger.markFailed(signal.signalId, reason).catch(() => {});
+            this.emit('trade_rejected', { symbol: signal.symbol, reason });
             return;
           }
         }
@@ -386,7 +394,9 @@ export class EnhancedTradeExecutor extends EventEmitter {
 
         if (!varResult.passed) {
           console.warn(`[EnhancedTradeExecutor] 🛑 VaR gate FAILED: ${varResult.reason}`);
-          this.emit('trade_rejected', { symbol: signal.symbol, reason: `VaR gate: ${varResult.reason}` });
+          const reason = `VaR gate: ${varResult.reason}`;
+          if (signal.signalId) tradeDecisionLogger.markFailed(signal.signalId, reason).catch(() => {});
+          this.emit('trade_rejected', { symbol: signal.symbol, reason });
           return;
         }
         console.log(`[EnhancedTradeExecutor] ✅ VaR gate passed (${varResult.method}): portfolioVaR=${(varResult.portfolioVaR95Percent * 100).toFixed(1)}%, incrementalVaR=${(varResult.incrementalVaR95Percent * 100).toFixed(1)}%`);
@@ -401,6 +411,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
       if (failClosed) {
         const reason = `var_gate_error_failclosed: ${varErr instanceof Error ? varErr.message : 'unknown'}`;
         console.warn(`[EnhancedTradeExecutor] 🛑 VaR gate ERROR (fail-closed): ${reason}`);
+        if (signal.signalId) tradeDecisionLogger.markFailed(signal.signalId, reason).catch(() => {});
         this.emit('trade_rejected', { symbol: signal.symbol, reason });
         return;
       }
@@ -1239,9 +1250,18 @@ export class EnhancedTradeExecutor extends EventEmitter {
     });
     console.log(`[EnhancedTradeExecutor] ❌ Trade REJECTED: ${reason}`);
     console.log(`==============================================\n`);
-    
+
     await latencyLogger.recordRejected(latencyContextId, 'rejected');
-    
+
+    // Phase 60 — flip the matching tradeDecisionLogs row from PENDING to
+    // FAILED with the gate name so the audit trail reflects what really
+    // happened. signalId was attached to the signal by AutomatedSignalProcessor
+    // when consensus approved it. Fire-and-forget so a slow DB write never
+    // blocks the next signal.
+    if (signal.signalId) {
+      tradeDecisionLogger.markFailed(signal.signalId, reason).catch(() => { /* non-critical */ });
+    }
+
     this.emit('trade_rejected', {
       symbol: signal.symbol,
       reason,

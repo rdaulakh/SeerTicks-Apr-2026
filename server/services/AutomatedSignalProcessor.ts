@@ -976,13 +976,20 @@ export class AutomatedSignalProcessor extends EventEmitter {
       });
       tradingLogger.info('Signal APPROVED for automated execution', { symbol, action: approvedSignal.recommendation?.action.toUpperCase(), confidencePct: (avgConfidence * 100).toFixed(1), executionScore: avgExecutionScore.toFixed(0) });
 
-      // Log the approved decision
+      // Phase 60 — log the approved decision as PENDING, not EXECUTED.
+      // This row is written when consensus approves the signal, but the
+      // EnhancedTradeExecutor still has gates to run (R:R, duplicate, VaR,
+      // regime cooldown). Most signals fail at least one of those, so
+      // labeling them EXECUTED here was dishonest: 100% of "EXECUTED" rows
+      // had positionId=null. The executor's success path
+      // (`tradeDecisionLogger.updateExecution`) now promotes PENDING→EXECUTED;
+      // its reject paths mark the row FAILED with the gate name as reason.
       const signalId = await this.logDecision({
         symbol,
         signals: highQualitySignals,
         consensus,
-        decision: 'EXECUTED',
-        reason: `Strong ${consensus.direction} consensus with ${highQualitySignals.length} high-quality signals`,
+        decision: 'PENDING',
+        reason: `Strong ${consensus.direction} consensus with ${highQualitySignals.length} high-quality signals — awaiting executor gates`,
         price: this.getLatestPrice(highQualitySignals),
         avgConfidence,
         avgExecutionScore,
@@ -1099,7 +1106,7 @@ export class AutomatedSignalProcessor extends EventEmitter {
     symbol: string;
     signals: AgentSignal[];
     consensus?: Consensus;
-    decision: 'EXECUTED' | 'SKIPPED' | 'VETOED';
+    decision: 'EXECUTED' | 'SKIPPED' | 'VETOED' | 'PENDING' | 'FAILED' | 'PARTIAL';
     reason: string;
     price: number;
     avgConfidence?: number;
