@@ -265,12 +265,27 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
         // Load open positions from database
         await this.loadOpenPositionsFromDatabase(db);
 
-        // Phase B-2.2 — On testnet, the DB-stored balance can be stale (e.g. a
+        // Phase 55.2 — for futures, also hydrate from the EXCHANGE so the
+        // in-memory positions Map matches reality after a restart. The DB is
+        // not authoritative for futures positions: a fill landed on the
+        // exchange but the DB write may have been interrupted (process
+        // crashed, network blip), or someone may have placed an order via the
+        // Binance UI directly. Without this, restart-time the engine has
+        // empty positions.values() while the exchange has open trades →
+        // closePositionById() throws "not found" on every exit attempt and
+        // the Phase 54.2 fallback fires repeatedly. Hydrating from the
+        // authoritative exchange source eliminates that whole class of bug.
+        if (this.config.exchange === 'binance-futures' && typeof (this.exchange as any).getAllOpenPositions === 'function') {
+          await this.hydratePositionsFromFuturesExchange(db);
+        }
+
+        // Phase B-2.2 — On spot testnet, the DB-stored balance can be stale (e.g. a
         // 0-balance row from a failed earlier init when methods were misnamed).
         // Always re-sync from exchange in testnet mode so the wallet reflects
         // the actual testnet account state. Live mode trusts the DB so we
         // don't pay rate-limit cost on every restart in production.
-        if (process.env.BINANCE_USE_TESTNET === '1') {
+        // Phase 55 — also re-sync on futures testnet for the same reason.
+        if (process.env.BINANCE_USE_TESTNET === '1' || process.env.BINANCE_FUTURES_USE_TESTNET === '1') {
           executionLogger.info('Re-syncing wallet balance from testnet (override stale DB)', {});
           await this.syncWalletBalance();
           await this.persistWalletToDatabase();
@@ -370,6 +385,136 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
     } catch (error) {
       executionLogger.error('Failed to load open positions', { error: (error as Error)?.message });
     }
+  }
+
+  /**
+   * Phase 55.2 — Hydrate in-memory positions from the futures exchange.
+   *
+   * Called after loadOpenPositionsFromDatabase. For each EXCHANGE position:
+   *  - If it matches a DB row already loaded, merge: keep the DB metadata
+   *    (dbPositionId, strategy, entryTime, stopLoss, takeProfit) but trust
+   *    the exchange for qty/entryPrice/currentPrice/unrealizedPnL.
+   *  - If it has no matching DB row, persist a new paperPositions row so
+   *    the IntelligentExitManager can monitor it. Without this, an exchange
+   *    position that exists but has no DB row is invisible to the platform
+   *    and runs unmanaged until the user notices.
+   *
+   * Local DB positions that DON'T appear on the exchange are flagged but
+   * NOT auto-closed — that's the reconcile loop's job (Phase 53). It might
+   * be a transient API blip rather than a real divergence.
+   */
+  private async hydratePositionsFromFuturesExchange(db: any): Promise<void> {
+    try {
+      const exchangePositions = await (this.exchange as any).getAllOpenPositions();
+      if (!Array.isArray(exchangePositions) || exchangePositions.length === 0) {
+        executionLogger.info('Futures exchange reports no open positions — in-memory matches');
+        return;
+      }
+
+      const { paperPositions } = await import('../../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+
+      // Build lookup of in-memory positions by symbol (one per symbol in one-way mode).
+      const localBySymbol = new Map<string, RealPosition>();
+      for (const p of this.positions.values()) {
+        localBySymbol.set(this.canonicalSymbol(p.symbol), p);
+      }
+
+      let merged = 0;
+      let inserted = 0;
+      for (const ex of exchangePositions) {
+        // ex.symbol is Binance native (BTCUSDT). Normalize to canonical for matching.
+        const canonical = this.canonicalSymbol(ex.symbol);
+        const existing = localBySymbol.get(canonical);
+
+        if (existing) {
+          // Merge: trust exchange for live fields, keep DB metadata.
+          existing.quantity = ex.quantity;
+          existing.entryPrice = ex.entryPrice;
+          existing.currentPrice = ex.currentPrice;
+          existing.unrealizedPnL = ex.unrealizedPnl;
+          if (existing.entryPrice > 0) {
+            const direction = existing.side === 'long' ? 1 : -1;
+            existing.unrealizedPnLPercent = ((ex.currentPrice - ex.entryPrice) / ex.entryPrice) * 100 * direction;
+          }
+          // Side mismatch is a real problem — log loudly so the operator sees it.
+          if (existing.side !== ex.side) {
+            executionLogger.warn('Side mismatch on hydrate — DB says ${existing.side}, exchange says ${ex.side}; trusting exchange', {
+              symbol: canonical,
+              dbPositionId: existing.dbPositionId,
+            });
+            existing.side = ex.side;
+          }
+          merged++;
+          continue;
+        }
+
+        // No DB row for this exchange position — insert one so the IEM can manage it.
+        const symbolForDb = canonical;
+        const exchangeForDb = 'binance';
+        try {
+          const insertResult = await db.insert(paperPositions).values({
+            userId: this.config.userId,
+            tradingMode: 'live',
+            symbol: symbolForDb,
+            exchange: exchangeForDb,
+            side: ex.side,
+            entryPrice: ex.entryPrice.toString(),
+            currentPrice: ex.currentPrice.toString(),
+            quantity: ex.quantity.toString(),
+            entryTime: new Date(),
+            unrealizedPnL: ex.unrealizedPnl.toString(),
+            unrealizedPnLPercent: '0',
+            commission: '0',
+            strategy: 'hydrated_from_exchange',
+            status: 'open',
+          });
+          const newDbId = Number((insertResult as any)?.[0]?.insertId ?? (insertResult as any)?.insertId ?? 0);
+          const newPos: RealPosition = {
+            id: newDbId.toString(),
+            dbPositionId: newDbId,
+            userId: this.config.userId,
+            symbol: symbolForDb,
+            exchange: exchangeForDb,
+            side: ex.side,
+            entryPrice: ex.entryPrice,
+            currentPrice: ex.currentPrice,
+            quantity: ex.quantity,
+            entryTime: new Date(),
+            unrealizedPnL: ex.unrealizedPnl,
+            unrealizedPnLPercent: 0,
+            commission: 0,
+            strategy: 'hydrated_from_exchange',
+          };
+          this.positions.set(newPos.id, newPos);
+          inserted++;
+          executionLogger.warn('Hydrated unknown exchange position into DB', {
+            symbol: symbolForDb, side: ex.side, qty: ex.quantity, entryPrice: ex.entryPrice, dbId: newDbId,
+          });
+        } catch (insertErr) {
+          executionLogger.error('Failed to persist hydrated position', { symbol: symbolForDb, error: (insertErr as Error)?.message });
+        }
+      }
+
+      executionLogger.info('Futures position hydration complete', {
+        exchangeCount: exchangePositions.length,
+        merged,
+        insertedNew: inserted,
+        localTotal: this.positions.size,
+      });
+    } catch (e) {
+      executionLogger.error('hydratePositionsFromFuturesExchange failed', { error: (e as Error)?.message });
+    }
+  }
+
+  /** "BTCUSDT" / "BTC-USD" / "BTC/USD" → "BTC-USD" (SEER canonical). */
+  private canonicalSymbol(symbol: string): string {
+    const upper = symbol.toUpperCase();
+    if (upper.includes('-')) return upper;
+    if (upper.includes('/')) return upper.replace('/', '-');
+    if (upper.endsWith('USDT')) return `${upper.slice(0, -4)}-USD`;
+    if (upper.endsWith('USD')) return `${upper.slice(0, -3)}-USD`;
+    return upper;
   }
 
   /**

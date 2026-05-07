@@ -174,6 +174,44 @@ export class BinanceFuturesAdapter extends ExchangeInterface {
     }
   }
 
+  /**
+   * Phase 55 — enforce ONE-WAY position mode (dualSidePosition=false).
+   *
+   * Hedge mode lets long and short positions for the same symbol coexist as
+   * separate slots, which breaks SEER's one-position-per-symbol invariant.
+   * In hedge mode, opening a "long" leaves any existing short untouched, and
+   * a "close" order has to specify positionSide; getPositions() returns two
+   * rows per symbol (one LONG, one SHORT). All of that breaks our state model.
+   *
+   * One-way mode is what we want: each symbol has at most one open position
+   * (long OR short, not both). Opening on the opposite side nets the existing
+   * position down to zero before flipping. This call is idempotent — if the
+   * account is already in one-way mode, Binance returns -4059 "No need to
+   * change position side" which we swallow.
+   *
+   * Called once during adapter initialization on the first signed call. Cached
+   * so we don't repeat the round-trip on every order.
+   */
+  private positionModeEnsured = false;
+  private async ensureOneWayPositionMode(): Promise<void> {
+    if (this.positionModeEnsured) return;
+    try {
+      await this.client.setPositionMode({ dualSidePosition: 'false' });
+      console.log('[BinanceFuturesAdapter] One-way position mode confirmed');
+    } catch (e: any) {
+      // -4059 = "No need to change position side" → already one-way. That's success.
+      const msg = e?.message || '';
+      if (/-4059/.test(msg) || /no need/i.test(msg)) {
+        console.log('[BinanceFuturesAdapter] Already in one-way position mode');
+      } else {
+        // Other failure — log and continue. If account ends up in hedge mode,
+        // orders will fail with explicit errors that surface upstream.
+        console.warn('[BinanceFuturesAdapter] setPositionMode(one-way) warning:', msg);
+      }
+    }
+    this.positionModeEnsured = true;
+  }
+
   async testConnection(): Promise<boolean> {
     try {
       const t = await Promise.race([
@@ -209,6 +247,7 @@ export class BinanceFuturesAdapter extends ExchangeInterface {
 
   async placeLimitOrder(params: OrderParams): Promise<OrderResult> {
     const sym = this.normalizeSymbol(params.symbol);
+    await this.ensureOneWayPositionMode();
     await this.ensureSymbolFilters();
     await this.ensureLeverage(sym);
     const qtyStr = this.quantizeQuantity(sym, params.quantity);
@@ -226,6 +265,7 @@ export class BinanceFuturesAdapter extends ExchangeInterface {
 
   async placeMarketOrder(params: OrderParams): Promise<OrderResult> {
     const sym = this.normalizeSymbol(params.symbol);
+    await this.ensureOneWayPositionMode();
     await this.ensureSymbolFilters();
     await this.ensureLeverage(sym);
     const qtyStr = this.quantizeQuantity(sym, params.quantity);
