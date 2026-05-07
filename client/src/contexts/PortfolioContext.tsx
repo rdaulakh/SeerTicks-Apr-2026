@@ -17,13 +17,20 @@ import { trpc } from '@/lib/trpc';
 export interface PortfolioMetrics {
   // Core values
   portfolioFunds: number;        // Initial/configured portfolio funds
-  portfolioValue: number;        // Current total value (funds + unrealized P&L)
-  
+  portfolioValue: number;        // Current total equity = funds + realizedPnL + unrealizedPnL
+
+  // Phase 58 — distinguish "what I own" (portfolioValue) from "what I can deploy"
+  // (availableBalance). Pre-Phase-58 the Performance page labeled portfolioValue
+  // as "Available Balance / Ready to trade" — misleading because margin tied up
+  // in open positions can't be redeployed until those positions close.
+  marginUsed: number;            // sum of entryPrice × qty across open positions
+  availableBalance: number;      // funds + realizedPnL − marginUsed (deployable cash)
+
   // P&L breakdown
   totalPnL: number;              // Realized + Unrealized
   realizedPnL: number;           // From closed positions
   unrealizedPnL: number;         // From open positions
-  
+
   // Position metrics
   openPositionCount: number;
   positionValue: number;         // Total value of open positions
@@ -58,6 +65,8 @@ interface PortfolioContextValue extends PortfolioMetrics {
 const defaultMetrics: PortfolioMetrics = {
   portfolioFunds: 0,
   portfolioValue: 0,
+  marginUsed: 0,
+  availableBalance: 0,
   totalPnL: 0,
   realizedPnL: 0,
   unrealizedPnL: 0,
@@ -155,24 +164,38 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
       }
     }, 0);
     
-    // Calculate position value
+    // Calculate position value (current market value of open positions)
     const positionValue = (positions || []).reduce((sum: number, pos: any) => {
       const currentPrice = parseFloat(pos.currentPrice || pos.entryPrice || '0');
       const quantity = parseFloat(pos.quantity || '0');
       return sum + (currentPrice * quantity);
     }, 0);
-    
+
+    // Phase 58 — margin currently locked in open positions, computed at entry
+    // price (this is what the platform deducted from deployable cash when each
+    // position opened). Closing a position releases this back into available.
+    const marginUsed = (positions || []).reduce((sum: number, pos: any) => {
+      const entryPrice = parseFloat(pos.entryPrice || '0');
+      const quantity = parseFloat(pos.quantity || '0');
+      return sum + (entryPrice * quantity);
+    }, 0);
+
     // Get realized P&L from order analytics
     const realizedPnL = orderAnalytics?.netPnl ?? 0;
-    
+
     // Total P&L = Realized + Unrealized
     const totalPnL = realizedPnL + unrealizedPnL;
-    
-    // Portfolio value = Initial funds + Total P&L (for paper trading)
-    // For live trading, it would be the actual account balance
-    const portfolioValue = isPaperTrading 
-      ? portfolioFunds + totalPnL
-      : portfolioFunds + totalPnL; // Same calculation for now
+
+    // Portfolio value = total equity = initial funds + all P&L (realized + unrealized).
+    // Same formula in paper and live for consistency across pages.
+    const portfolioValue = portfolioFunds + totalPnL;
+
+    // Phase 58 — actual cash you can deploy into a NEW position right now.
+    // Initial deposit, plus realized PnL from closed trades, minus margin tied
+    // up in open positions. Unrealized PnL deliberately excluded — it's not
+    // yet liquid. Floor at 0 so a heavily-negative wallet doesn't show as
+    // a confusing negative deployable.
+    const availableBalance = Math.max(0, portfolioFunds + realizedPnL - marginUsed);
     
     // ROI calculation
     const roi = portfolioFunds > 0 ? (totalPnL / portfolioFunds) * 100 : 0;
@@ -183,6 +206,8 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
     return {
       portfolioFunds,
       portfolioValue,
+      marginUsed,
+      availableBalance,
       totalPnL,
       realizedPnL,
       unrealizedPnL,

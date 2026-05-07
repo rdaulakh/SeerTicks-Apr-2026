@@ -84,8 +84,10 @@ export default function Positions() {
   } = usePositions();
 
   // Use centralized portfolio context for consistent data across pages
-  const { 
-    portfolioFunds: paperTradingBalance, 
+  const {
+    portfolioFunds: paperTradingBalance,
+    portfolioValue: contextPortfolioValue,
+    availableBalance: contextAvailableBalance,
     isPaperTrading,
     isLoading: portfolioLoading,
     isInitialized: portfolioInitialized,
@@ -187,15 +189,17 @@ export default function Positions() {
       totalHoldTime += holdMs;
     });
 
-    // For paper trading: Portfolio Value = Paper Balance + Unrealized P&L
-    // For live trading: Portfolio Value = Sum of position values
-    // Note: In paper trading, the balance already accounts for realized P&L from closed trades
-    const totalValue = isPaperTrading 
-      ? paperTradingBalance + totalPnL  // Paper: Balance + Unrealized P&L
-      : positionValue;                   // Live: Just position values
+    // Phase 58 — Portfolio Value = total equity (initial funds + realized + unrealized).
+    // Use the value computed by PortfolioContext so this card matches the
+    // "Portfolio Value" card on the Performance page exactly. Pre-Phase-58 this
+    // page recomputed locally as `paperBalance + unrealizedPnl_only`, which
+    // diverged from Performance once realized PnL accumulated.
+    const totalValue = portfolioInitialized
+      ? contextPortfolioValue
+      : (isPaperTrading ? paperTradingBalance + totalPnL : positionValue);
 
-    // Calculate P&L percentage based on the base (paper balance or position value)
-    const baseForPercent = isPaperTrading ? paperTradingBalance : positionValue;
+    // Calculate P&L percentage based on the base (initial funds when known)
+    const baseForPercent = paperTradingBalance > 0 ? paperTradingBalance : (isPaperTrading ? 1 : positionValue);
     const totalPnLPercent = baseForPercent > 0 ? (totalPnL / baseForPercent) * 100 : 0;
 
     return {
@@ -207,9 +211,10 @@ export default function Positions() {
       losingCount,
       avgHoldTime: livePositions.length > 0 ? totalHoldTime / livePositions.length : 0,
       paperBalance: paperTradingBalance,
+      availableBalance: contextAvailableBalance,
       isPaperTrading,
     };
-  }, [livePositions, paperTradingBalance, isPaperTrading]);
+  }, [livePositions, paperTradingBalance, isPaperTrading, contextPortfolioValue, contextAvailableBalance, portfolioInitialized]);
 
   // Unique values for filters
   const uniqueSymbols = useMemo(() => 

@@ -131,9 +131,16 @@ export default function Performance() {
   const totalTrades = portfolio.isInitialized ? portfolio.totalTrades : (orderAnalytics?.totalTrades ?? paperWallet?.totalTrades ?? 0);
   const winningTrades = portfolio.isInitialized ? portfolio.winningTrades : (orderAnalytics?.winningTrades ?? paperWallet?.winningTrades ?? 0);
   const losingTrades = portfolio.isInitialized ? portfolio.losingTrades : (orderAnalytics?.losingTrades ?? paperWallet?.losingTrades ?? 0);
-  // Use portfolio context for consistent balance display across pages
+  // Use portfolio context for consistent balance display across pages.
+  // Phase 58 — three distinct values, each shown in its own card so the
+  // "Available Balance" label means what users expect (deployable cash):
+  //   balance          → portfolioFunds  (initial deposit)
+  //   equity           → portfolioValue  (total worth incl. all PnL)
+  //   availableBalance → portfolioFunds + realizedPnL − marginUsed (deployable)
   const balance = portfolio.isInitialized ? portfolio.portfolioFunds : (parseFloat(portfolioFundsData?.funds || '0') || parseFloat(paperWallet?.balance || '10000'));
   const equity = portfolio.isInitialized ? portfolio.portfolioValue : (parseFloat(portfolioFundsData?.funds || '0') || parseFloat(paperWallet?.equity || '10000'));
+  const availableBalance = portfolio.isInitialized ? portfolio.availableBalance : balance;
+  const marginUsed = portfolio.isInitialized ? portfolio.marginUsed : 0;
   const profitFactor = portfolio.isInitialized ? portfolio.profitFactor : (orderAnalytics?.profitFactor ?? 0);
   const avgWin = portfolio.isInitialized ? portfolio.avgWin : (orderAnalytics?.avgWin ?? 0);
   const avgLoss = portfolio.isInitialized ? portfolio.avgLoss : (orderAnalytics?.avgLoss ?? 0);
@@ -436,8 +443,21 @@ export default function Performance() {
               <p className="text-xs text-slate-400">Available Balance</p>
               <Wallet className="w-4 h-4 text-emerald-400" />
             </div>
-            <p className="text-xl font-bold text-emerald-400">${equity.toLocaleString()}</p>
-            <p className="text-xs text-slate-500 mt-1">Ready to trade</p>
+            <p className="text-xl font-bold text-emerald-400">${availableBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {marginUsed > 0
+                ? `Cash free to trade (${marginUsed.toLocaleString(undefined, { maximumFractionDigits: 0 })} locked in positions)`
+                : 'Cash free to trade'}
+            </p>
+          </Card>
+
+          <Card className="glass-card p-4 border-slate-800/50 border-l-4 border-l-cyan-500">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-slate-400">Portfolio Value</p>
+              <Activity className="w-4 h-4 text-cyan-400" />
+            </div>
+            <p className="text-xl font-bold text-cyan-400">${equity.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+            <p className="text-xs text-slate-500 mt-1">Total equity (incl. open P&amp;L)</p>
           </Card>
 
           <Card className="glass-card p-4 border-slate-800/50">
@@ -445,7 +465,7 @@ export default function Performance() {
               <p className="text-xs text-slate-400">Initial Deposit</p>
               <Activity className="w-4 h-4 text-slate-400" />
             </div>
-            <p className="text-xl font-bold text-slate-300">${balance.toLocaleString()}</p>
+            <p className="text-xl font-bold text-slate-300">${balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
             <p className="text-xs text-slate-500 mt-1">Starting capital</p>
           </Card>
 
