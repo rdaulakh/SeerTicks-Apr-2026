@@ -102,6 +102,14 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
   private config: RealTradingConfig;
   private wallet: RealWallet;
   private positions: Map<string, RealPosition> = new Map();
+  // Phase 64 — idempotent close. Once a close is in flight for a positionId,
+  // subsequent calls return early without placing another order. Cleared on
+  // success, failure, or timeout (defensive 30s ceiling). This is THE fix
+  // for the May 7 cascade where IEM fired SL repeatedly with phantom $0
+  // price and each call placed another sell, building a 42.68-SOL short
+  // out of a 4.275 long.
+  private closeInFlight: Map<string, number> = new Map(); // positionId → started-at ms
+  private readonly CLOSE_IN_FLIGHT_TTL_MS = 30_000;
   private orders: Map<string, RealOrder> = new Map();
   private orderHistory: RealOrder[] = [];
   private exchange: any; // Exchange adapter instance
@@ -1149,23 +1157,145 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
   }
 
   /**
-   * Close a specific position
+   * Close a specific position — Phase 64 institutional-grade refactor.
+   *
+   * Three guards layered on top of the previous one-shot version:
+   *
+   *   1. Idempotency: per-positionId close-in-flight set prevents concurrent
+   *      duplicate close orders. Cleared on success/failure/TTL. This alone
+   *      would have prevented the May 7 cascade where IEM fired SL repeatedly
+   *      with phantom $0 price and each call sold MORE.
+   *
+   *   2. Side-aware: closing a short means BUY, closing a long means SELL.
+   *      The pre-Phase-64 hardcoded 'sell' could only ever close longs and
+   *      would silently grow a short if called against one.
+   *
+   *   3. Exchange-as-truth (futures only): query the exchange for the actual
+   *      live position size BEFORE placing the close. If the exchange shows
+   *      no position, the local Map is stale — do a DB-only close, no order.
+   *      If the exchange shows a position with mismatched side, refuse to
+   *      act (zombie); operator must reconcile manually.
+   *      For non-futures exchanges (binance spot, coinbase) we keep the local
+   *      quantity since those adapters don't have a getPosition method.
    */
   async closePositionById(positionId: string, currentPrice: number, strategy: string): Promise<void> {
+    // Garbage-collect stale in-flight entries (defensive: a never-resolving
+    // close shouldn't permanently lock the position out of future closes).
+    const now = Date.now();
+    for (const [id, startedAt] of this.closeInFlight.entries()) {
+      if (now - startedAt > this.CLOSE_IN_FLIGHT_TTL_MS) {
+        executionLogger.warn('Close-in-flight TTL exceeded, releasing lock', { positionId: id, ageMs: now - startedAt });
+        this.closeInFlight.delete(id);
+      }
+    }
+
+    if (this.closeInFlight.has(positionId)) {
+      throw new Error(`Position ${positionId} close already in flight (started ${now - this.closeInFlight.get(positionId)!}ms ago)`);
+    }
+
     const position = Array.from(this.positions.values()).find(p => p.id === positionId);
     if (!position) {
       throw new Error(`Position ${positionId} not found`);
     }
 
-    // Place sell order to close position
-    await this.placeOrder({
-      symbol: position.symbol,
-      type: 'market',
-      side: 'sell',
-      quantity: position.quantity,
-      price: currentPrice,
-      strategy,
-    });
+    this.closeInFlight.set(positionId, now);
+    try {
+      let closeQuantity = position.quantity;
+      let closeSide: 'buy' | 'sell' = position.side === 'long' ? 'sell' : 'buy';
+
+      // Phase 64 exchange-as-truth: only on adapters that expose getPosition.
+      const hasGetPosition = typeof (this.exchange as any).getPosition === 'function';
+      if (hasGetPosition) {
+        const live = await (this.exchange as any).getPosition(position.symbol);
+        if (!live || live.quantity === 0) {
+          // Exchange has no position. Local Map is stale (e.g. position was
+          // closed by an earlier order whose fill we missed). Don't place
+          // another order — DB-close directly so the row stops being seen as
+          // open and the duplicate-block stops blocking new entries.
+          executionLogger.warn('closePositionById: exchange has no position, marking DB closed without order', {
+            positionId, symbol: position.symbol, dbPositionId: position.dbPositionId,
+          });
+          await this.markPositionDbClosedDirectly(position, currentPrice, `${strategy}:exchange_already_closed`);
+          this.closeInFlight.delete(positionId);
+          return;
+        }
+        if (live.side !== position.side) {
+          // The cascade scenario: exchange has the OPPOSITE side. Selling more
+          // would deepen the wrong-side position. Refuse, log loudly, leave
+          // for human reconciliation.
+          executionLogger.error('closePositionById: side mismatch with exchange — refusing to close', {
+            positionId, symbol: position.symbol,
+            localSide: position.side, exchangeSide: live.side, exchangeQty: live.quantity,
+          });
+          throw new Error(`Side mismatch: local says ${position.side}, exchange says ${live.side} ${live.quantity} — manual reconcile required`);
+        }
+        // Exchange truth wins for quantity (handles partial fills, prior
+        // unaccounted closes, leverage adjustments).
+        if (Math.abs(live.quantity - position.quantity) / position.quantity > 0.001) {
+          executionLogger.warn('closePositionById: quantity drift, using exchange truth', {
+            positionId, symbol: position.symbol,
+            localQty: position.quantity, exchangeQty: live.quantity,
+          });
+        }
+        closeQuantity = live.quantity;
+      }
+
+      await this.placeOrder({
+        symbol: position.symbol,
+        type: 'market',
+        side: closeSide,
+        quantity: closeQuantity,
+        price: currentPrice,
+        strategy,
+      });
+
+      // Phase 64 post-close verification (futures only). If the exchange
+      // still shows our side after the close order, alert — this means the
+      // order didn't fully resolve and a second close should NOT be auto-fired
+      // (caller should retry only after explicit operator review).
+      if (hasGetPosition) {
+        try {
+          const after = await (this.exchange as any).getPosition(position.symbol);
+          if (after && after.quantity > 0 && after.side === position.side) {
+            executionLogger.error('closePositionById: post-close verification FAILED — exchange still has our side', {
+              positionId, symbol: position.symbol,
+              remaining: after.quantity, side: after.side,
+            });
+          }
+        } catch (verifyErr) {
+          executionLogger.warn('closePositionById: post-close verification threw (non-fatal)', {
+            positionId, error: (verifyErr as Error)?.message,
+          });
+        }
+      }
+    } finally {
+      this.closeInFlight.delete(positionId);
+    }
+  }
+
+  /**
+   * Phase 64 — DB-only close path used when the exchange shows no position
+   * but our local Map / DB row still says open. Mirrors the side-effects of
+   * closePosition() (DB row update + position_closed emit) without placing
+   * an order or moving the wallet.
+   */
+  private async markPositionDbClosedDirectly(position: RealPosition, exitPrice: number, exitReason: string): Promise<void> {
+    const positionKey = `${position.symbol}_${position.exchange}`;
+    try {
+      if (position.dbPositionId) {
+        const { closePaperPosition } = await import('../db');
+        // closePaperPosition's exitReason enum is narrow; the rich reason
+        // text goes into the audit log + position_closed event payload.
+        await closePaperPosition(position.dbPositionId, exitPrice, 0, 'system');
+        executionLogger.info('Position DB-closed directly (no order)', {
+          positionId: position.id, dbPositionId: position.dbPositionId, exitReason,
+        });
+      }
+    } catch (err) {
+      executionLogger.error('markPositionDbClosedDirectly: DB write failed', { positionId: position.id, error: (err as Error)?.message });
+    }
+    this.positions.delete(positionKey);
+    this.emit('position_closed', { position, pnl: 0, pnlPercent: 0, exitReason });
   }
 
   /**
