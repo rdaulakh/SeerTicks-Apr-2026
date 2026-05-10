@@ -232,6 +232,14 @@ export interface TradingConfiguration {
     // reject the trade (true) or continue permissively (false)?
     // Default: true (fail closed — unknown risk = no trade).
     failClosedOnVaRError: boolean;
+    // Phase 71 — risk-budget cap. Maximum expected dollar risk per trade
+    // expressed as a fraction of equity, computed as
+    // `positionSize × stopLossDistancePercent`. If the post-Kelly,
+    // post-multiplier sizing would imply more risk than this budget, size
+    // is reduced to fit. Institutional default is 0.005 (0.5% per trade);
+    // a 200-trade losing streak at this size is a 63% drawdown — large
+    // but recoverable. Tighten to 0.0025 if more conservative.
+    maxRiskPerTradePercent?: number;
   };
   entry: {
     // Minimum number of historical candles (primary timeframe) required in
@@ -514,6 +522,7 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
   },
   risk: {
     failClosedOnVaRError: true,            // Block trades when VaR gate throws
+    maxRiskPerTradePercent: 0.005,         // Phase 71 — 0.5% of equity per-trade risk budget
   },
   entry: {
     minHistoricalCandlesRequired: 50,      // Need ≥50 historical 1h candles before entry

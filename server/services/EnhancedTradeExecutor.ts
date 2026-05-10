@@ -295,6 +295,19 @@ export class EnhancedTradeExecutor extends EventEmitter {
       return;
     }
 
+    // Phase 66 — heartbeat watchdog auto-halt.
+    try {
+      const { getEngineHeartbeat } = await import('./EngineHeartbeat');
+      const hb = getEngineHeartbeat();
+      if (hb.isHalted()) {
+        const reason = `HEARTBEAT_HALT: ${hb.getHaltReason() ?? 'unknown'}`;
+        console.warn(`[EnhancedTradeExecutor] 🛑 ${reason}`);
+        if (signal.signalId) tradeDecisionLogger.markFailed(signal.signalId, reason).catch(() => {});
+        this.emit('trade_rejected', { symbol: signal.symbol, reason });
+        return;
+      }
+    } catch { /* heartbeat lookup is best-effort */ }
+
     // Check 2: Consecutive loss pause (auto-resets after cooldown)
     if (this.pausedUntil > Date.now()) {
       const remainingSec = Math.ceil((this.pausedUntil - Date.now()) / 1000);
@@ -879,8 +892,35 @@ export class EnhancedTradeExecutor extends EventEmitter {
       }
 
       // Step 6: Execute trade
+      // Phase 71 — Risk-budget cap. Last sizing step before submission. Now
+      // both stopLoss and positionSize are finalized, so we can compute the
+      // implied dollar risk (positionSize × SL distance %) and clamp to the
+      // configured per-trade risk budget. Replaces the implicit assumption
+      // that Kelly + multipliers alone bound risk: a wide SL in a chop
+      // regime can otherwise produce a position that risks 2-3% of equity
+      // even when "the multipliers said it was fine".
+      try {
+        const riskBudgetPct = getTradingConfig().risk?.maxRiskPerTradePercent ?? 0.005;
+        const slDistanceFrac = stopLoss && currentPrice > 0
+          ? Math.abs(currentPrice - stopLoss) / currentPrice
+          : 0.012;
+        if (slDistanceFrac > 0) {
+          const expectedDollarRisk = positionSize * slDistanceFrac;
+          const targetDollarRisk = equity * riskBudgetPct;
+          if (expectedDollarRisk > targetDollarRisk) {
+            const sizedToBudget = targetDollarRisk / slDistanceFrac;
+            console.log(
+              `[EnhancedTradeExecutor] Phase 71 risk-budget cap: SL distance ${(slDistanceFrac * 100).toFixed(2)}%, ` +
+              `implied risk $${expectedDollarRisk.toFixed(2)} > budget $${targetDollarRisk.toFixed(2)} ` +
+              `(${(riskBudgetPct * 100).toFixed(2)}% of equity), sizing down: $${positionSize.toFixed(2)} → $${sizedToBudget.toFixed(2)}`,
+            );
+            positionSize = sizedToBudget;
+          }
+        }
+      } catch { /* risk budget is best-effort — never block on this */ }
+
       const quantity = positionSize / currentPrice;
-      
+
       latencyLogger.recordOrderPlaced(latencyContextId);
 
       const engine = this.tradingEngine || this.paperTradingEngine;
@@ -902,7 +942,10 @@ export class EnhancedTradeExecutor extends EventEmitter {
         stopLoss,
         takeProfit,
         strategy: 'enhanced_automated',
-      });
+        // Phase 67 — propagate traceId from signal so SmartExecutor's TCA
+        // and the FILL trace event share the same id as SIGNAL_APPROVED.
+        traceId: (signal as any).traceId,
+      } as any);
 
       // Step 7: Register with Exit Manager (Week 7-8)
       if (this.config.useIntegratedExitManager) {

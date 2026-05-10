@@ -618,6 +618,7 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
     stopLoss?: number;
     takeProfit?: number;
     strategy: string;
+    traceId?: string;  // Phase 67 — propagated to TCA + FILL trace event
   }): Promise<RealOrder> {
     // Ensure wallet is loaded before placing orders
     await this.waitForReady();
@@ -719,6 +720,10 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
       createdAt: new Date(),
       strategy: params.strategy || 'unknown',
     };
+    // Phase 67 — attach traceId so the SmartExecutor block + FILL log event
+    // share the same id as SIGNAL_APPROVED upstream. Stored on the dynamic
+    // shape so it doesn't pollute the type interface for non-traced callers.
+    if (params.traceId) (order as any).traceId = params.traceId;
 
     this.orders.set(orderId, order);
 
@@ -769,16 +774,64 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
     executionLogger.info('EXECUTING REAL ORDER', { exchange: this.config.exchange, orderId: order.id, side: order.side, quantity: order.quantity, symbol: order.symbol, type: order.type });
 
     try {
-      // Execute the actual order on the exchange
+      // Execute the actual order on the exchange.
+      // Phase 65 — market orders route through SmartExecutor which runs an
+      // IOC-limit ladder (refPrice ± maxSlippageBps → 2× → market fallback)
+      // and emits a TCA report per fill. This kills two failure modes the
+      // pre-Phase-65 engine had: (a) blind market orders that swept thin
+      // testnet books at unbounded slippage, and (b) zero post-trade
+      // visibility into how much we paid in implementation shortfall.
       let exchangeResult: any;
 
       if (order.type === 'market') {
-        exchangeResult = await this.exchange.placeMarketOrder({
-          symbol: order.symbol,
-          side: order.side,
-          type: 'market',
-          quantity: order.quantity,
-        });
+        const { SmartExecutor } = await import('./SmartExecutor');
+        const { trace } = await import('../_core/traceContext');
+        const smart = new SmartExecutor(this.exchange);
+        const refPrice = order.price && order.price > 0 ? order.price : 0;
+        const traceId: string | undefined = (order as any).traceId;
+        if (traceId) {
+          trace({
+            traceId, symbol: order.symbol, event: 'ORDER_PLACED',
+            side: order.side, price: refPrice, quantity: order.quantity,
+            orderId: order.id, metadata: { strategy: order.strategy, type: 'market' },
+          });
+        }
+        if (refPrice <= 0) {
+          // Without a reference price we can't compute slippage; fall back
+          // to plain market and emit a degraded TCA. SmartExecutor handles
+          // this internally by returning early.
+          exchangeResult = await this.exchange.placeMarketOrder({
+            symbol: order.symbol,
+            side: order.side,
+            type: 'market',
+            quantity: order.quantity,
+          });
+        } else {
+          const result = await smart.execute({
+            symbol: order.symbol,
+            side: order.side,
+            quantity: order.quantity,
+            refPrice,
+            maxSlippageBps: 5, // 0.05% target — institutional default
+            strategy: order.strategy,
+            traceId,
+          });
+          exchangeResult = result;
+          (order as any).tca = result.tca;
+          if (traceId) {
+            trace({
+              traceId, symbol: order.symbol, event: 'FILL',
+              side: order.side, price: result.executedPrice, quantity: result.executedQty,
+              orderId: order.id,
+              metadata: {
+                slippageBps: result.tca.slippageBps,
+                stage: result.tca.stageReached,
+                latencyMs: result.tca.totalLatencyMs,
+                exceededCap: result.tca.exceededCap,
+              },
+            });
+          }
+        }
       } else if (order.type === 'limit' && order.price) {
         exchangeResult = await this.exchange.placeLimitOrder({
           symbol: order.symbol,

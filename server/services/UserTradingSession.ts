@@ -538,6 +538,11 @@ export class UserTradingSession extends EventEmitter {
       // Wire signal processor -> trade executor + forward events to EngineAdapter
       // Phase 19: Wrap async handler in try/catch to prevent unhandled rejections
       this.signalProcessor.on('signal_approved', async (signal: any) => {
+        // Phase 66 — heartbeat pulse: decision pipeline alive.
+        try {
+          const { getEngineHeartbeat } = await import('./EngineHeartbeat');
+          getEngineHeartbeat().recordDecision();
+        } catch { /* heartbeat is best-effort */ }
         // Forward to EngineAdapter listeners (PriceFeedService -> Socket.IO -> frontend)
         this.emit('signal_approved', signal);
         try {
@@ -770,6 +775,10 @@ export class UserTradingSession extends EventEmitter {
       this.tradeExecutor.on('trade_executed', (data: any) => {
         this.totalTradesExecuted++;
         this.lastTradeExecutedMs = Date.now();
+        // Phase 66 — heartbeat pulse: a real fill landed.
+        import('./EngineHeartbeat')
+          .then(({ getEngineHeartbeat }) => getEngineHeartbeat().recordFill())
+          .catch(() => { /* best-effort */ });
         this.emit('trade_executed', data);
 
         // Record agent accuracy for weight adjustment
@@ -926,13 +935,19 @@ export class UserTradingSession extends EventEmitter {
       // and positions sit as zombies with currentPrice = entryPrice forever.
       try {
         const { priceFeedService } = await import('./priceFeedService');
+        // Phase 66 — heartbeat: import once, capture reference, pulse on every tick.
+        const { getEngineHeartbeat } = await import('./EngineHeartbeat');
+        const heartbeat = getEngineHeartbeat();
         this.priceUpdateHandler = (priceData: { symbol: string; price: number }) => {
+          heartbeat.recordPriceTick();
           if (this.exitManager && this.isRunning) {
             this.exitManager.onPriceTick(priceData.symbol, priceData.price).catch(() => {});
           }
         };
         priceFeedService.on('price_update', this.priceUpdateHandler);
-        console.log(`[UserTradingSession] 🔗 Price feed wired to exit manager for user ${this.userId}`);
+        // Start the watchdog. Idempotent — safe to call across multiple sessions.
+        heartbeat.start();
+        console.log(`[UserTradingSession] 🔗 Price feed wired to exit manager + heartbeat for user ${this.userId}`);
       } catch (priceErr) {
         console.error(`[UserTradingSession] Failed to wire price feed to exit manager:`, (priceErr as Error)?.message);
       }

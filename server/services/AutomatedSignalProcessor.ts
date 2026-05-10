@@ -998,6 +998,24 @@ export class AutomatedSignalProcessor extends EventEmitter {
       // Attach signalId to the approved signal for tracking
       approvedSignal.signalId = signalId;
 
+      // Phase 67 — generate a traceId now and propagate it through the
+      // executor → order → fill chain. Logged at every hop so audits can
+      // reassemble one trade's full history with `grep <traceId>`.
+      try {
+        const { generateTraceId, trace } = await import('../_core/traceContext');
+        const traceId = generateTraceId();
+        (approvedSignal as any).traceId = traceId;
+        trace({
+          traceId,
+          symbol,
+          event: 'SIGNAL_APPROVED',
+          signalId,
+          side: consensus.direction === 'bullish' ? 'long' : 'short',
+          price: this.getLatestPrice(highQualitySignals),
+          metadata: { confidence: avgConfidence, agentCount: highQualitySignals.length },
+        });
+      } catch { /* tracing best-effort */ }
+
       // Phase 33: Record approval time for cooldown tracking
       this.lastApprovalTime.set(symbol, Date.now());
 
