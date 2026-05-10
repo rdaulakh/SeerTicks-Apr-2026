@@ -1658,6 +1658,24 @@ export class EnhancedTradeExecutor extends EventEmitter {
   }
 
   /**
+   * Phase 72 — Public hook to reconcile the in-memory PositionLimitTracker
+   * with the canonical DB state. Caller schedules this on an interval (UTS
+   * does so every 60s) so non-canonical close paths (Phase 54.2 directDb,
+   * Phase 64 markDbClosedDirectly, admin scripts) can't leave ghost
+   * entries that block future entries forever.
+   */
+  async syncPositionTrackerFromDb(userId: number): Promise<void> {
+    try {
+      const tracker: any = (this.week9RiskManager as any).positionLimitTracker;
+      if (tracker && typeof tracker.syncFromDb === 'function') {
+        await tracker.syncFromDb(userId);
+      }
+    } catch (e) {
+      console.warn('[EnhancedTradeExecutor] syncPositionTrackerFromDb failed:', (e as Error)?.message);
+    }
+  }
+
+  /**
    * Get risk status
    */
   getRiskStatus() {

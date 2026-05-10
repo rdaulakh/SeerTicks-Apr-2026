@@ -774,6 +774,73 @@ export class PositionLimitTracker {
     this.openPositions.clear();
     console.log('[PositionLimitTracker] All positions cleared');
   }
+
+  /**
+   * Phase 72 — Re-sync the in-memory tracker from authoritative DB state.
+   *
+   * The tracker is a separate state machine from `paperPositions` and
+   * `RealTradingEngine.positions`. When any close path bypasses the
+   * canonical flow (Phase 54.2 directDbClose, Phase 64 markDbClosedDirectly,
+   * the May 7 manual cleanup, an admin script, etc.) the tracker rots —
+   * keeps a "ghost" entry for a symbol whose DB row is closed, then blocks
+   * every fresh signal for that symbol with "Already have open position".
+   *
+   * Symptom on 2026-05-11: 113 of 307 FAILED decisions in 1h were ghost
+   * blocks for ETH-USD and SOL-USD even though the DB only had BTC-USD
+   * open. This method makes the tracker reconcile-able: call it before
+   * canOpenPosition (or on a periodic schedule) and stale ghosts are
+   * dropped, missing entries from DB are re-registered.
+   *
+   * Returns the count of corrections applied so callers can log audit.
+   */
+  async syncFromDb(userId: number): Promise<{ added: string[]; removed: string[] }> {
+    try {
+      const { getDb } = await import('../db');
+      const { paperPositions } = await import('../../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) return { added: [], removed: [] };
+
+      const dbRows = await db
+        .select()
+        .from(paperPositions)
+        .where(and(eq(paperPositions.userId, userId), eq(paperPositions.status, 'open')));
+      const dbSymbols = new Set(dbRows.map((r: any) => r.symbol as string));
+
+      const added: string[] = [];
+      const removed: string[] = [];
+
+      // Drop tracker entries that DB says are closed.
+      for (const sym of Array.from(this.openPositions.keys())) {
+        if (!dbSymbols.has(sym)) {
+          this.openPositions.delete(sym);
+          removed.push(sym);
+        }
+      }
+
+      // Add tracker entries for DB-open positions the tracker missed.
+      for (const r of dbRows) {
+        const sym = r.symbol as string;
+        if (!this.openPositions.has(sym)) {
+          const size = parseFloat(r.entryPrice ?? '0') * parseFloat(r.quantity ?? '0');
+          this.openPositions.set(sym, {
+            size,
+            direction: (r.side === 'short' ? 'short' : 'long'),
+            openTime: r.entryTime ? new Date(r.entryTime).getTime() : Date.now(),
+          });
+          added.push(sym);
+        }
+      }
+
+      if (added.length > 0 || removed.length > 0) {
+        console.log(`[PositionLimitTracker] syncFromDb: +${added.join(',') || 'none'} -${removed.join(',') || 'none'} (now tracking ${this.openPositions.size})`);
+      }
+      return { added, removed };
+    } catch (e) {
+      console.warn('[PositionLimitTracker] syncFromDb failed:', (e as Error)?.message);
+      return { added: [], removed: [] };
+    }
+  }
 }
 
 // ============================================================================
@@ -786,7 +853,10 @@ export class Week9RiskManager extends EventEmitter {
   private circuitBreaker: CircuitBreaker;
   private correlationManager: CorrelationManager;
   private dailyDrawdownTracker: DailyDrawdownTracker;
-  private positionLimitTracker: PositionLimitTracker;
+  // Phase 72 — exposed (was private) so EnhancedTradeExecutor can call
+  // syncFromDb on a periodic interval to drop ghost entries left behind
+  // by non-canonical close paths.
+  public readonly positionLimitTracker: PositionLimitTracker;
 
   constructor(config?: Partial<RiskManagerConfig>) {
     super();

@@ -91,6 +91,11 @@ export class UserTradingSession extends EventEmitter {
   private paperPriceUpdateInterval: NodeJS.Timeout | null = null;
   private readonly PAPER_PRICE_UPDATE_INTERVAL_MS = 10_000; // 10 seconds
 
+  // Phase 72 — periodic PositionLimitTracker reconciliation against DB.
+  // Fixes ghost-entry blocking after non-canonical closes.
+  private positionTrackerSyncInterval: NodeJS.Timeout | null = null;
+  private readonly POSITION_TRACKER_SYNC_INTERVAL_MS = 60_000; // 60 seconds
+
   // Phase 46: Single-source exit ownership. When true, IntelligentExitManager
   // owns all exit decisions and the safety-net in the price-update interval
   // skips threshold evaluation (DB-sync path still runs). Flipped true when
@@ -1131,6 +1136,25 @@ export class UserTradingSession extends EventEmitter {
       }, this.PAPER_PRICE_UPDATE_INTERVAL_MS);
       console.log(`[UserTradingSession] 📊 Paper position price updater started (every ${this.PAPER_PRICE_UPDATE_INTERVAL_MS / 1000}s) for user ${this.userId}`);
 
+      // Phase 72 — periodic position-tracker reconciliation. Drops ghost
+      // entries left in PositionLimitTracker after non-canonical closes
+      // (Phase 54.2 directDb, Phase 64 markDbClosedDirectly, admin scripts).
+      // Without this, signals for a ghost-tracked symbol get FAILED with
+      // "Already have open position" forever.
+      this.positionTrackerSyncInterval = setInterval(async () => {
+        try {
+          if (this.tradeExecutor?.syncPositionTrackerFromDb) {
+            await this.tradeExecutor.syncPositionTrackerFromDb(this.userId);
+          }
+        } catch { /* best-effort — never block on this */ }
+      }, this.POSITION_TRACKER_SYNC_INTERVAL_MS);
+      // Run once immediately so we don't wait 60s for the first reconcile.
+      try {
+        if (this.tradeExecutor?.syncPositionTrackerFromDb) {
+          await this.tradeExecutor.syncPositionTrackerFromDb(this.userId);
+        }
+      } catch { /* best-effort */ }
+
       this.isRunning = true;
       console.log(`[UserTradingSession] ✅ Session initialized for user ${this.userId} (auto-trade: ${this.autoTradingEnabled}, symbols: ${Array.from(this.subscribedSymbols).join(', ')})`);
     } catch (err) {
@@ -1647,6 +1671,12 @@ export class UserTradingSession extends EventEmitter {
     if (this.paperPriceUpdateInterval) {
       clearInterval(this.paperPriceUpdateInterval);
       this.paperPriceUpdateInterval = null;
+    }
+
+    // Phase 72 — stop position-tracker reconciliation
+    if (this.positionTrackerSyncInterval) {
+      clearInterval(this.positionTrackerSyncInterval);
+      this.positionTrackerSyncInterval = null;
     }
 
     // Phase 40: Unsubscribe from price feed
