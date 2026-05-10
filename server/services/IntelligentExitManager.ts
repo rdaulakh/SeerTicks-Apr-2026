@@ -633,11 +633,21 @@ export class IntelligentExitManager extends EventEmitter {
     
     // Phase 32: FIRST CHECK — Static TP/SL price-level enforcement
     // These are the absolute price levels from ScenarioEngine / calculateDynamicLevels
-    if (position.stopLoss && position.stopLoss > 0) {
+    //
+    // Phase 63 — guard against `currentPrice <= 0`. Found 2026-05-07 12:13:
+    // a hydrated position had currentPrice=0 (price feed hadn't updated it yet).
+    // For a long, `0 <= stopLoss` is always true, so the SL check fired with
+    // "Price $0.00 breached SL $79914.01 (-100.00%)" → engine sold the long →
+    // sell flipped to short on exchange (one-way mode) → next tick same SL
+    // fired again → cascading short build-up that lost ~$200 testnet before
+    // we caught it. Treat `currentPrice <= 0` as "unknown, do not act" — exit
+    // logic depends on a real mark price; stale/missing mark must abstain,
+    // not trigger.
+    if (position.currentPrice > 0 && position.stopLoss && position.stopLoss > 0) {
       const slHit = position.side === 'long'
         ? position.currentPrice <= position.stopLoss
         : position.currentPrice >= position.stopLoss;
-      
+
       if (slHit) {
         const slDistance = Math.abs(position.currentPrice - position.stopLoss);
         const slPercent = (slDistance / position.entryPrice) * 100;
@@ -652,8 +662,10 @@ export class IntelligentExitManager extends EventEmitter {
         };
       }
     }
-    
-    if (position.takeProfit && position.takeProfit > 0) {
+
+    // Phase 63 — same currentPrice>0 guard for take-profit. For shorts the
+    // condition `currentPrice <= takeProfit` is always true at currentPrice=0.
+    if (position.currentPrice > 0 && position.takeProfit && position.takeProfit > 0) {
       const tpHit = position.side === 'long'
         ? position.currentPrice >= position.takeProfit
         : position.currentPrice <= position.takeProfit;
