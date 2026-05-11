@@ -22,6 +22,15 @@ git fetch origin
 git reset --hard origin/main
 echo "    HEAD: $(git log -1 --oneline)"
 
+echo "==> Rebuilding CLIENT (vite build → dist/public)..."
+# Phase 74 — previously this script only rebuilt the server bundle, so any
+# frontend changes (Navigation.tsx, page components, etc) never reached prod
+# until someone manually ran 'npm run build'. dist/public was stale from
+# May 7 even after multiple successful deploys. This step makes the
+# client+server build atomic.
+npx vite build
+echo "    Client built: $(stat -c %s dist/public/index.html 2>/dev/null || stat -f %z dist/public/index.html) bytes index.html"
+
 echo "==> Rebuilding server bundle (esbuild)..."
 npx esbuild server/_core/index.ts \
   --platform=node \
