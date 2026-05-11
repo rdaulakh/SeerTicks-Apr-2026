@@ -264,11 +264,20 @@ export class EngineCore {
     if (!(this.clock instanceof MockClock)) {
       throw new Error('runBacktest only valid with MockClock');
     }
-    this.clock.jumpTo(startTimeMs);
-    while (this.clock.now() < endTimeMs) {
-      await this.tick();
-      this.clock.advance(tickIntervalMs);
+    // Phase 79 — set process-wide active clock so any service that calls
+    // getActiveClock() (EnhancedTradeExecutor halt math, future migrations)
+    // sees backtest time instead of wall clock.
+    const { setActiveClock, resetActiveClock } = await import('./clock');
+    setActiveClock(this.clock);
+    try {
+      this.clock.jumpTo(startTimeMs);
+      while (this.clock.now() < endTimeMs) {
+        await this.tick();
+        this.clock.advance(tickIntervalMs);
+      }
+      return this.summary();
+    } finally {
+      resetActiveClock();
     }
-    return this.summary();
   }
 }

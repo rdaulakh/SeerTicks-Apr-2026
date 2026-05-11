@@ -189,11 +189,37 @@ export interface GateConfig {
   minEffectiveN: number;
 }
 
-export const DEFAULT_GATE_CONFIG: GateConfig = {
-  minDistanceFromHalf: 0.15,  // posterior must be > 0.65 or < 0.35 for trade
-  maxUncertainty: 0.18,       // std cap — beyond this, too unreliable
-  minEffectiveN: 1.5,         // need at least 1.5 independent voices
-};
+/**
+ * Phase 78 — Gate thresholds recalibrated from Tokyo A/B data (120 entries).
+ *
+ * Observation: with the platform's typical 2-3 actionable agent voters
+ * (most agents emit 'neutral'), Beta posterior naturally has std ≈ 0.27.
+ * The original 0.18 cap was tuned assuming many more voters; it was
+ * rejecting 100% of signals.
+ *
+ * Recalibrated for the actual signal density:
+ *   - maxUncertainty: 0.18 → 0.30 (allows 2-3 voter scenarios; rejects
+ *     true noise where std > 0.35)
+ *   - minDistanceFromHalf: 0.15 → 0.10 (with realistic posteriors clustering
+ *     near 0.55-0.60, the 0.15 cap was too aggressive)
+ *   - minEffectiveN unchanged at 1.5
+ *
+ * Override at runtime via env vars:
+ *   BAYESIAN_MAX_UNCERTAINTY, BAYESIAN_MIN_DISTANCE, BAYESIAN_MIN_EFF_N
+ */
+function getConfiguredGate(): GateConfig {
+  const envFloat = (k: string, d: number): number => {
+    const v = parseFloat(process.env[k] ?? '');
+    return Number.isFinite(v) ? v : d;
+  };
+  return {
+    maxUncertainty: envFloat('BAYESIAN_MAX_UNCERTAINTY', 0.30),
+    minDistanceFromHalf: envFloat('BAYESIAN_MIN_DISTANCE', 0.10),
+    minEffectiveN: envFloat('BAYESIAN_MIN_EFF_N', 1.5),
+  };
+}
+
+export const DEFAULT_GATE_CONFIG: GateConfig = getConfiguredGate();
 
 export type GateDecision =
   | { approved: true; direction: 'bullish' | 'bearish'; reason: string }

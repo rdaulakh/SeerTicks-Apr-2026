@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "seer",
+      "url": "http://localhost:3001",
+      "runtimeExecutable": "/Users/rdaulakh/.nvm/versions/node/v22.22.1/bin/node",
+      "runtimeArgs": ["-e", "setTimeout(()=>{},999999999)"],
+      "port": 3001
+    }
+  ]
+}

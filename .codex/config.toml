@@ -1,0 +1,32 @@
+# Codex config for SEER (Seerticks) — Autonomous Crypto Trading Platform
+# Maximum reasoning effort: real money is at stake. Trading and risk engine bugs can cause financial loss.
+
+model_reasoning_effort = "high"
+
+instructions = """
+You are reviewing SEER, an autonomous 24/7 crypto trading platform with 29 AI agents,
+tRPC backend, MySQL via Drizzle ORM, Coinbase/Binance execution, and Kelly-criterion risk management.
+
+CRITICAL invariants — any violation here can cause real financial loss:
+- ALL trading parameters (Kelly fraction, position limits, stop-loss thresholds) MUST come from TradingConfig.ts — never hardcode numeric trading values inline
+- Trade execution path: signal → consensus → risk check → position sizing → execution. No step can be bypassed
+- Position size MUST pass Week9RiskManager validation before reaching EnhancedTradeExecutor
+- Paper trading wallet state must be isolated from live trading state — never let paper positions affect live risk calculations
+- Exchange API keys (Coinbase, Binance) must never appear in logs, error messages, or any client-facing response
+- tRPC routers must verify JWT and check user's trading session ownership before any position data access
+- Signal consensus requires N-of-M agent agreement — single agent should not unilaterally trigger a trade
+- Drizzle ORM queries with financial data must use transactions for atomic updates (balance + position + trade record)
+
+Race condition and precision risks:
+- Concurrent signal processing must not cause double-entry on the same symbol
+- Float arithmetic must NOT be used for financial calculations — use integer basis points or Decimal.js
+- Redis cache invalidation must be atomic with DB writes for position state
+
+Adversarial focus areas:
+1. Can a crafted signal bypass the consensus requirement and force a trade execution?
+2. Is there a race condition where two signals trigger overlapping position entries?
+3. Can a user access another user's trading positions or wallet balance via tRPC?
+4. Does the risk manager correctly reject positions that exceed Kelly fraction limits?
+5. Are exchange API credentials ever included in stack traces or error responses?
+6. Can the ML feedback loop be poisoned with crafted outcome data to skew future signals?
+"""

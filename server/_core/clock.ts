@@ -65,6 +65,27 @@ export function getSystemClock(): SystemClock {
   return _systemClock;
 }
 
+// ─── Phase 79 — Active clock injection ────────────────────────────────────
+//
+// The cheapest migration path from ~80 Date.now() sites to Clock-aware code
+// is a shared singleton. Services replace `Date.now()` with
+// `getActiveClock().now()` and the harness swaps the clock once at boot.
+//
+//   Live:     active clock = SystemClock (default)
+//   Backtest: harness calls setActiveClock(mockClock) before booting engine
+//
+// This avoids constructor-plumbing every service to take a `clock` param.
+//
+// Migration strategy: change Date.now() / new Date() incrementally in each
+// service. Code that still uses Date.now() continues to work — it just
+// won't be controllable from backtest yet. Each migration shrinks the gap
+// in parity validation.
+
+let _activeClock: Clock = getSystemClock();
+export function getActiveClock(): Clock { return _activeClock; }
+export function setActiveClock(clock: Clock): void { _activeClock = clock; }
+export function resetActiveClock(): void { _activeClock = getSystemClock(); }
+
 // ─── Mock (backtest) clock ────────────────────────────────────────────────
 
 interface ScheduledTask {

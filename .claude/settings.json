@@ -24,8 +24,47 @@
       "Bash(rm -rf /)",
       "Bash(rm -rf ~)",
       "Bash(rm -rf /*)",
-      "Bash(git push --force origin main)",
-      "Bash(git push -f origin main)"
+      "Bash(rm -rf .)",
+      "Bash(rm -rf ..)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git reset --hard *)",
+      "Bash(git clean -fd *)",
+      "Bash(git clean -f *)",
+      "Bash(sudo rm *)",
+      "Bash(npx drizzle-kit drop *)",
+      "Bash(npx drizzle-kit push *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if printf '%s' \"$TOOL_INPUT\" | grep -qE '(minConsensusStrength|minConfidence|stopLoss|maxHoldTime|takeProfitTarget|directionFlipCooldown|kellyFraction|maxPortfolioVaR)[[:space:]]*[:=][[:space:]]*[0-9]' && ! printf '%s' \"$TOOL_INPUT\" | grep -q 'TradingConfig'; then echo 'BLOCKED: Trading parameters must live in TradingConfig.ts — never hardcode them in service files.' >&2; exit 2; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if printf '%s' \"$TOOL_INPUT\" | grep -q '\\-\\-no-verify'; then echo 'BLOCKED: --no-verify not allowed.' >&2; exit 2; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if printf '%s' \"$TOOL_INPUT\" | grep -qE 'drizzle-kit (drop|push)'; then echo 'BLOCKED: Use drizzle-kit generate + drizzle-kit migrate. Never use drop or push.' >&2; exit 2; fi"
+          }
+        ]
+      }
     ]
   }
 }

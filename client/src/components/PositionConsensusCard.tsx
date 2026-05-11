@@ -65,6 +65,11 @@ interface PositionConsensusData {
   agentsVotingHold: number;
   agentsVotingAdd: number;
   exitThreshold: number;
+  // Phase 78 — Bayesian fields for uncertainty visualization
+  posteriorMean?: number;     // 0..1 calibrated belief
+  posteriorStd?: number;      // 0..0.5 uncertainty (Beta variance)
+  effectiveN?: number;        // <= totalAgents (correlation-adjusted)
+  avgCorrelation?: number;    // 0..1 avg pairwise agent correlation
   lastUpdated: number;
 }
 
@@ -261,9 +266,32 @@ export function PositionConsensusCard({
               {data.consensusStrength}%
             </span>
             <span className="text-xs text-gray-500">strength</span>
+            {/* Phase 78 — Bayesian uncertainty band shown alongside naive strength.
+                If 22 agents look unanimous but they're all reading the same data,
+                naive=high but std is high too. This is the false-confidence catch. */}
+            {data.posteriorStd !== undefined && data.posteriorMean !== undefined && (
+              <span
+                className={cn(
+                  "text-[10px] font-mono ml-1 px-1.5 py-0.5 rounded",
+                  data.posteriorStd >= 0.30
+                    ? "bg-red-500/20 text-red-300 border border-red-500/40"
+                    : data.posteriorStd >= 0.20
+                    ? "bg-yellow-500/20 text-yellow-300 border border-yellow-500/40"
+                    : "bg-green-500/20 text-green-300 border border-green-500/40"
+                )}
+                title={`Bayesian posterior: ${(data.posteriorMean * 100).toFixed(0)}% ± ${(data.posteriorStd * 100).toFixed(0)}%. Effective independent agents: ${(data.effectiveN ?? 0).toFixed(1)} of ${data.totalAgents}.`}
+              >
+                ±{(data.posteriorStd * 100).toFixed(0)}%
+              </span>
+            )}
           </div>
           <p className="text-[10px] text-gray-500 mt-0.5">
             {data.totalAgents} agents voting
+            {data.effectiveN !== undefined && data.effectiveN < data.totalAgents * 0.7 && (
+              <span className="text-yellow-400/80 ml-1">
+                · {data.effectiveN.toFixed(1)} effective (corr ~{((data.avgCorrelation ?? 0) * 100).toFixed(0)}%)
+              </span>
+            )}
           </p>
         </div>
 

@@ -296,12 +296,16 @@ export class EnhancedTradeExecutor extends EventEmitter {
     // These checks prevent catastrophic loss events like Feb 17 (-$293K)
     // ============================================================
 
-    // Check 1: Hard halt — Phase 73: time-bounded auto-resume
+    // Check 1: Hard halt — Phase 73: time-bounded auto-resume.
+    // Phase 79: time queries route through getActiveClock() so backtests
+    // can deterministically advance through halt windows.
     if (this.isHalted) {
+      const { getActiveClock } = await import('../_core/clock');
+      const clock = getActiveClock();
       // Auto-clear once cooldown window elapses. Reset peakEquity so we don't
       // immediately re-trigger off the same stale ceiling that caused the halt.
-      if (this.haltedUntil > 0 && Date.now() >= this.haltedUntil) {
-        const heldFor = ((Date.now() - (this.haltedUntil - this.DRAWDOWN_HALT_COOLDOWN_MS)) / 60000).toFixed(0);
+      if (this.haltedUntil > 0 && clock.now() >= this.haltedUntil) {
+        const heldFor = ((clock.now() - (this.haltedUntil - this.DRAWDOWN_HALT_COOLDOWN_MS)) / 60000).toFixed(0);
         console.log(`[EnhancedTradeExecutor] ✅ Halt auto-cleared after cooldown (held ${heldFor}min). Reason was: ${this.haltReason}`);
         this.isHalted = false;
         this.haltReason = '';
@@ -309,7 +313,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
         this.peakEquity = 0; // Reset peak so we don't immediately re-trigger
         this.wasRecentlyHalted = true; // Will reduce position size on next trade
       } else {
-        const remainingMin = this.haltedUntil > 0 ? Math.ceil((this.haltedUntil - Date.now()) / 60000) : 0;
+        const remainingMin = this.haltedUntil > 0 ? Math.ceil((this.haltedUntil - clock.now()) / 60000) : 0;
         console.warn(`[EnhancedTradeExecutor] 🛑 HALTED: ${this.haltReason}. Auto-resume in ${remainingMin}min`);
         const reason = `HALTED: ${this.haltReason} (${remainingMin}min remaining)`;
         if (signal.signalId) tradeDecisionLogger.markFailed(signal.signalId, reason).catch(() => {});
@@ -363,8 +367,9 @@ export class EnhancedTradeExecutor extends EventEmitter {
       if (wallet && wallet.balance > 0) {
         const dailyLossLimit = wallet.balance * this.MAX_DAILY_LOSS_PERCENT;
         if (this.dailyPnL < -dailyLossLimit) {
+          const { getActiveClock } = await import('../_core/clock');
           this.isHalted = true;
-          this.haltedUntil = Date.now() + this.DAILY_LOSS_HALT_COOLDOWN_MS; // Phase 73
+          this.haltedUntil = getActiveClock().now() + this.DAILY_LOSS_HALT_COOLDOWN_MS; // Phase 73+79
           this.haltReason = `Daily loss limit breached: $${Math.abs(this.dailyPnL).toFixed(2)} > $${dailyLossLimit.toFixed(2)} (${(this.MAX_DAILY_LOSS_PERCENT * 100).toFixed(0)}%)`;
           console.error(`[EnhancedTradeExecutor] 🚨 ${this.haltReason} — auto-resume in ${this.DAILY_LOSS_HALT_COOLDOWN_MS / 60000}min`);
           this.emit('circuit_breaker_triggered', { reason: this.haltReason, type: 'daily_loss' });
@@ -377,8 +382,9 @@ export class EnhancedTradeExecutor extends EventEmitter {
         if (currentEquity > this.peakEquity) this.peakEquity = currentEquity;
         const drawdownFromPeak = (this.peakEquity - currentEquity) / this.peakEquity;
         if (drawdownFromPeak > this.MAX_DRAWDOWN_PERCENT) {
+          const { getActiveClock } = await import('../_core/clock');
           this.isHalted = true;
-          this.haltedUntil = Date.now() + this.DRAWDOWN_HALT_COOLDOWN_MS; // Phase 73
+          this.haltedUntil = getActiveClock().now() + this.DRAWDOWN_HALT_COOLDOWN_MS; // Phase 73+79
           this.haltReason = `Max drawdown breached: ${(drawdownFromPeak * 100).toFixed(1)}% > ${(this.MAX_DRAWDOWN_PERCENT * 100).toFixed(0)}% (peak=$${this.peakEquity.toFixed(2)}, now=$${currentEquity.toFixed(2)})`;
           console.error(`[EnhancedTradeExecutor] 🚨 ${this.haltReason} — auto-resume in ${this.DRAWDOWN_HALT_COOLDOWN_MS / 60000}min`);
           this.emit('circuit_breaker_triggered', { reason: this.haltReason, type: 'max_drawdown' });

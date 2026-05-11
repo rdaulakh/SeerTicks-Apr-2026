@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { router, protectedProcedure } from '../_core/trpc';
 import { getEngineAdapter } from '../services/EngineAdapter';
 import { getDb } from '../db';
-import { positions, paperPositions, agentSignals, paperOrders } from '../../drizzle/schema';
+import { positions, paperPositions, agentSignals, paperOrders, bayesianConsensusLog } from '../../drizzle/schema';
 import { eq, and, desc, gte } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 
@@ -25,27 +25,39 @@ interface AgentVote {
 interface PositionConsensusData {
   positionId: number;
   symbol: string;
-  
+
   // Consensus breakdown
-  exitPercentage: number;      // % of agents signaling exit
-  holdPercentage: number;      // % of agents signaling hold
-  addPercentage: number;       // % of agents signaling add
-  
+  exitPercentage: number;
+  holdPercentage: number;
+  addPercentage: number;
+
   // Overall consensus
   consensusAction: 'exit' | 'hold' | 'add' | 'neutral';
-  consensusStrength: number;   // 0-100, how strong the consensus is
-  confidenceScore: number;     // 0-100, overall confidence
-  
+  consensusStrength: number;
+  confidenceScore: number;
+
   // Agent breakdown
   agentVotes: AgentVote[];
   totalAgents: number;
   agentsVotingExit: number;
   agentsVotingHold: number;
   agentsVotingAdd: number;
-  
+
   // Thresholds
-  exitThreshold: number;       // Current threshold to trigger exit (60%)
-  
+  exitThreshold: number;
+
+  // Phase 78 — Bayesian uncertainty surfacing.
+  // posteriorMean: calibrated belief (vs naive consensusStrength)
+  // posteriorStd:  uncertainty around the mean — high = noisy/correlated signal
+  // effectiveN:    information-theoretic agent count (<= rawN)
+  // The UI uses these to show a "confidence interval" band on the agreement
+  // bar, so operators see "85% strength but ±27% uncertainty" instead of
+  // mistaking high mean for high confidence.
+  posteriorMean?: number;
+  posteriorStd?: number;
+  effectiveN?: number;
+  avgCorrelation?: number;
+
   // Last update
   lastUpdated: number;
 }
@@ -193,7 +205,32 @@ export const positionConsensusRouter = router({
       const avgConfidence = agentVotes.length > 0
         ? agentVotes.reduce((sum, v) => sum + v.confidence, 0) / agentVotes.length
         : 50;
-      
+
+      // Phase 78 — pull the latest Bayesian consensus snapshot for this symbol
+      // so the UI panel can render uncertainty bands ("85% ±27%").
+      let bayesianFields: {
+        posteriorMean?: number;
+        posteriorStd?: number;
+        effectiveN?: number;
+        avgCorrelation?: number;
+      } = {};
+      try {
+        const [latestBayes] = await db
+          .select()
+          .from(bayesianConsensusLog)
+          .where(eq(bayesianConsensusLog.symbol, position.symbol))
+          .orderBy(desc(bayesianConsensusLog.timestamp))
+          .limit(1);
+        if (latestBayes) {
+          bayesianFields = {
+            posteriorMean: parseFloat(latestBayes.posteriorMean),
+            posteriorStd: parseFloat(latestBayes.posteriorStd),
+            effectiveN: parseFloat(latestBayes.effectiveN),
+            avgCorrelation: latestBayes.avgCorrelation ? parseFloat(latestBayes.avgCorrelation) : 0,
+          };
+        }
+      } catch {/* best-effort; UI will just skip the badge */}
+
       return {
         positionId: position.id,
         symbol: position.symbol,
@@ -209,6 +246,7 @@ export const positionConsensusRouter = router({
         agentsVotingHold: holdVotes,
         agentsVotingAdd: addVotes,
         exitThreshold: 60,
+        ...bayesianFields,
         lastUpdated: Date.now(),
       };
     }),

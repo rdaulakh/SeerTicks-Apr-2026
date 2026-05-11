@@ -156,10 +156,10 @@ describe('BayesianAggregator', () => {
 
   describe('gate decisions', () => {
     it('rejects high-mean / high-std (the false confidence case)', () => {
-      // effectiveN >= 1.5 so we fall through to the uncertainty check
+      // Phase 78 — cap raised to 0.30; test value must exceed that
       const result = {
         posteriorMean: 0.78,
-        posteriorStd: 0.25,  // exceeds 0.18 cap
+        posteriorStd: 0.40,  // exceeds 0.30 cap
         effectiveN: 2.5,
         rawN: 5,
         avgCorrelation: 0.9,

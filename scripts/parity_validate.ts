@@ -32,8 +32,8 @@ import { MockClock } from '../server/_core/clock';
 import { MockExchange } from '../server/exchanges/MockExchange';
 import { EngineCore, type TickDecision } from '../server/_core/engineCore';
 import { getDb } from '../server/db';
-import { tradeDecisionLogs, candleData } from '../drizzle/schema';
-import { and, eq, gte, lte, asc } from 'drizzle-orm';
+import { tradeDecisionLogs, historicalCandles } from '../drizzle/schema';
+import { and, eq, gte, lte, asc, sql } from 'drizzle-orm';
 import type { MarketData } from '../server/exchanges/ExchangeInterface';
 
 interface LiveDecision {
@@ -94,16 +94,28 @@ async function loadCandlesForSymbol(symbol: string, startMs: number, endMs: numb
   const db = await getDb();
   if (!db) return [];
 
-  const rows = await db
-    .select()
-    .from(candleData)
-    .where(and(
-      eq(candleData.symbol, symbol),
-      eq(candleData.interval, '1m'),
-      gte(candleData.timestamp, new Date(startMs)),
-      lte(candleData.timestamp, new Date(endMs)),
-    ))
-    .orderBy(asc(candleData.timestamp));
+  // Phase 68 — historicalCandles uses Binance-native naming ("BTCUSDT") but
+  // tradeDecisionLogs/positions use SEER-canonical ("BTC-USD"). Map either way.
+  const candidateSymbols = [
+    symbol,                                          // BTC-USD
+    symbol.replace('-USD', 'USDT'),                  // BTCUSDT
+    symbol.replace('-USD', '').replace('-', ''),     // BTC
+  ];
+
+  let rows: any[] = [];
+  for (const sym of candidateSymbols) {
+    rows = await db
+      .select()
+      .from(historicalCandles)
+      .where(and(
+        eq(historicalCandles.symbol, sym),
+        eq(historicalCandles.interval, '1m'),
+        gte(historicalCandles.timestamp, new Date(startMs)),
+        lte(historicalCandles.timestamp, new Date(endMs)),
+      ))
+      .orderBy(asc(historicalCandles.timestamp));
+    if (rows.length > 0) break;
+  }
 
   return rows.map((r: any) => ({
     timestamp: new Date(r.timestamp).getTime(),
