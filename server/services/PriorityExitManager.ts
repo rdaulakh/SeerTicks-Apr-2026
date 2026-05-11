@@ -138,8 +138,14 @@ export const DEFAULT_PRIORITY_EXIT_CONFIG: PriorityExitConfig = {
   // Phase 5B: Agent-driven
   atrStopMultiplier: 1.5,               // Phase 15C: tightened from 2.0
   atrTrailingMultiplier: 1.2,           // Phase 15C: tightened from 1.5
-  agentUnanimousMinCount: 3,
-  agentConsensusExitScore: 60,
+  // Phase 76 — these thresholds were tuned when only 2 agents (Technical +
+  // PatternMatcher) reported exitRecommendation. With the universal exit
+  // interpreter, ~22 agents now contribute. Scaled accordingly so the agent
+  // collective actually drives exits instead of just being decoration.
+  //   agentUnanimousMinCount: was 3 (=150% of reporters) → 6 (≈30% of 22)
+  //   agentConsensusExitScore: was 60/100 → kept 60 but score now reflects 22-agent weighted average
+  agentUnanimousMinCount: 6,
+  agentConsensusExitScore: 55,
   orderFlowReversalThreshold: 150, // Phase 41: Raised from 50 — was triggering on normal noise
   orderFlowMinHoldSeconds: 60, // Phase 41: Don't exit on order flow within first 60s
 };

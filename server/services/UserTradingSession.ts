@@ -371,7 +371,34 @@ export class UserTradingSession extends EventEmitter {
       // Set exit manager callbacks
       this.exitManager.setCallbacks({
         getAgentSignals: async (symbol: string, _position: any) => {
-          // Get agent signals from GlobalMarketEngine
+          // Phase 76 — UNIVERSAL EXIT INTERPRETER.
+          //
+          // Pre-Phase-76 behavior: only TechnicalAnalyst and PatternMatcher
+          // (2 of ~22 agents) wrote an `exitRecommendation` field on their
+          // signals. The IEM consensus aggregator counted only signals with
+          // exitRecommendation set, so 20+ agents were silent on exits —
+          // their bullish/bearish opinion on market direction never reached
+          // the exit decision path. The exit logic effectively fell back to
+          // mechanical SL/max-hold rules. That's what the user correctly
+          // called out as "bot behavior, not agentic".
+          //
+          // Phase 76 synthesizes an exitRecommendation for EVERY agent by
+          // translating their directional signal into a position-relative
+          // exit signal:
+          //
+          //   Long position + agent bearish        → exit (partial/full by conf)
+          //   Short position + agent bullish       → exit (partial/full by conf)
+          //   Same direction as position           → hold
+          //   Neutral                              → hold (no contribution)
+          //
+          // If an agent already provided an explicit exitRecommendation
+          // (PatternMatcher's chart-pattern target hit, TechnicalAnalyst's
+          // SR breach, etc), THAT takes precedence — it's richer signal.
+          // Otherwise we use the synthesized one.
+          //
+          // Net effect: all 22+ agents now contribute to the exit decision,
+          // and PriorityExitManager's AGENT_UNANIMOUS_EXIT / AGENT_EXIT_CONSENSUS
+          // rules actually fire based on collective intelligence.
           try {
             const { getGlobalMarketEngine } = await import('./GlobalMarketEngine');
             const globalEngine = getGlobalMarketEngine();
@@ -380,16 +407,63 @@ export class UserTradingSession extends EventEmitter {
 
             const agentManager = analyzer.getAgentManager();
             const agents = agentManager.getAllAgentsWithSignals();
+            const positionSide: 'long' | 'short' = _position?.side === 'short' ? 'short' : 'long';
 
             return agents
               .filter((a: any) => a.latestSignal)
-              .map((a: any) => ({
-                agentName: a.agentName,
-                signal: a.latestSignal?.signal || 'neutral',
-                confidence: a.latestSignal?.confidence || 0,
-                exitRecommendation: a.latestSignal?.exitRecommendation,
-                evidence: a.latestSignal?.evidence,
-              }));
+              .map((a: any) => {
+                const sig = a.latestSignal;
+                const direction = sig?.signal || 'neutral'; // bullish | bearish | neutral
+                const confidence = Math.max(0, Math.min(1, sig?.confidence || 0));
+                const explicitExitRec = sig?.exitRecommendation;
+
+                // Synthesize a position-relative exit recommendation from the
+                // agent's directional signal. Confidence range is 0.05-0.20
+                // post-Phase-40 (NOT 0-1), so thresholds are scaled to that.
+                let synthAction: 'hold' | 'partial_exit' | 'full_exit' = 'hold';
+                let synthUrgency: 'low' | 'medium' | 'high' | 'critical' = 'low';
+                let synthReason = '';
+
+                const isAgainstPosition =
+                  (positionSide === 'long' && direction === 'bearish') ||
+                  (positionSide === 'short' && direction === 'bullish');
+
+                if (isAgainstPosition) {
+                  if (confidence >= 0.15) {
+                    synthAction = 'full_exit';
+                    synthUrgency = 'high';
+                    synthReason = `${a.agentName} sees ${direction} reversal (conf ${(confidence * 100).toFixed(0)}%) against ${positionSide} position`;
+                  } else if (confidence >= 0.10) {
+                    synthAction = 'partial_exit';
+                    synthUrgency = 'medium';
+                    synthReason = `${a.agentName} weak ${direction} (conf ${(confidence * 100).toFixed(0)}%) — caution on ${positionSide}`;
+                  }
+                }
+
+                // The explicit recommendation (from Pattern/Technical) wins —
+                // they have richer per-pattern logic. Synthesis is the fallback.
+                const finalRec = explicitExitRec ?? (synthAction !== 'hold' ? {
+                  action: synthAction,
+                  urgency: synthUrgency,
+                  reason: synthReason,
+                  confidence,
+                } : undefined);
+
+                // The IEM's primary `signal` field is the per-position vote.
+                // Map: 'exit' if recommendation says exit (any flavor), 'hold' otherwise.
+                const positionVote =
+                  finalRec?.action === 'full_exit' || finalRec?.action === 'partial_exit' ? 'exit' : 'hold';
+
+                return {
+                  agentName: a.agentName,
+                  signal: positionVote, // IEM consumes this for exit/hold counts
+                  confidence,
+                  exitRecommendation: finalRec,
+                  evidence: sig?.evidence,
+                  // Keep the original direction signal for richer downstream logic
+                  directionSignal: direction,
+                };
+              });
           } catch {
             return [];
           }
