@@ -22,6 +22,7 @@
  */
 
 import { getDb } from '../db';
+import { getActiveClock } from '../_core/clock';
 import {
   agentSignals,
   agentCorrelations,
@@ -82,7 +83,7 @@ export async function recompute(
     return { pairs: 0, agents: 0 };
   }
 
-  const windowStart = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+  const windowStart = new Date(getActiveClock().now() - windowDays * 24 * 60 * 60 * 1000);
 
   // Pull all agent signals for the symbol in the window.
   // NOTE: agentSignals.signalData is JSON; we filter by symbol field in the JSON.
@@ -188,7 +189,7 @@ export async function recompute(
  */
 export async function getCorrelationMap(symbol: string): Promise<CorrelationMap> {
   const cached = correlationCache.get(symbol);
-  if (cached && Date.now() - cached.loadedAt < CACHE_TTL_MS) {
+  if (cached && getActiveClock().now() - cached.loadedAt < CACHE_TTL_MS) {
     return cached.map;
   }
 
@@ -212,7 +213,7 @@ export async function getCorrelationMap(symbol: string): Promise<CorrelationMap>
         correlation: parseFloat(r.correlation),
       })),
     );
-    correlationCache.set(symbol, { map, loadedAt: Date.now() });
+    correlationCache.set(symbol, { map, loadedAt: getActiveClock().now() });
     return map;
   } catch {
     return IDENTITY_CORRELATION;

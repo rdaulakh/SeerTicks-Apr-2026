@@ -10,6 +10,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -737,7 +738,7 @@ export class PositionLimitTracker {
   }
 
   registerPosition(symbol: string, size: number, direction: 'long' | 'short'): void {
-    this.openPositions.set(symbol, { size, direction, openTime: Date.now() });
+    this.openPositions.set(symbol, { size, direction, openTime: getActiveClock().now() });
     console.log(`[PositionLimitTracker] Position opened: ${symbol} (${this.openPositions.size}/${this.config.maxConcurrentPositions})`);
   }
 
@@ -826,7 +827,7 @@ export class PositionLimitTracker {
           this.openPositions.set(sym, {
             size,
             direction: (r.side === 'short' ? 'short' : 'long'),
-            openTime: r.entryTime ? new Date(r.entryTime).getTime() : Date.now(),
+            openTime: r.entryTime ? new Date(r.entryTime).getTime() : getActiveClock().now(),
           });
           added.push(sym);
         }

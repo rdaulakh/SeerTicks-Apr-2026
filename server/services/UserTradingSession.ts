@@ -26,6 +26,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { priceFeedService } from './priceFeedService';
 import { GlobalSignal } from './GlobalSymbolAnalyzer';
 import { getTradingConfig } from '../config/TradingConfig';
@@ -825,7 +826,7 @@ export class UserTradingSession extends EventEmitter {
             remainingQuantity: posData.quantity,
             unrealizedPnl: 0,
             unrealizedPnlPercent: 0,
-            entryTime: posData.entryTime ? new Date(posData.entryTime).getTime() : Date.now(),
+            entryTime: posData.entryTime ? new Date(posData.entryTime).getTime() : getActiveClock().now(),
             originalConsensus: 0.65, // Will be updated by agent signals
             marketRegime: 'unknown', // Will be updated by getMarketRegime callback
             stopLoss: posData.stopLoss,
@@ -853,7 +854,7 @@ export class UserTradingSession extends EventEmitter {
       // Wire trade executor events
       this.tradeExecutor.on('trade_executed', (data: any) => {
         this.totalTradesExecuted++;
-        this.lastTradeExecutedMs = Date.now();
+        this.lastTradeExecutedMs = getActiveClock().now();
         // Phase 66 — heartbeat pulse: a real fill landed.
         import('./EngineHeartbeat')
           .then(({ getEngineHeartbeat }) => getEngineHeartbeat().recordFill())
@@ -983,7 +984,7 @@ export class UserTradingSession extends EventEmitter {
                 remainingQuantity: quantity,
                 unrealizedPnl: parseFloat(pos.unrealizedPnL || '0'),
                 unrealizedPnlPercent: parseFloat(pos.unrealizedPnLPercent || '0'),
-                entryTime: pos.entryTime ? new Date(pos.entryTime).getTime() : Date.now(),
+                entryTime: pos.entryTime ? new Date(pos.entryTime).getTime() : getActiveClock().now(),
                 originalConsensus: parseFloat(pos.originalConsensus || '0.65'),
                 marketRegime: 'unknown',
                 // Phase 32: TP/SL from DB if available
@@ -1080,7 +1081,7 @@ export class UserTradingSession extends EventEmitter {
             const TRAILING_ACTIVATION = 0.30;      // Phase 45: raised from 0.15% — avoid locking in tiny profits
             const TRAILING_RATIO = 0.40;           // Phase 45: tightened from 0.50 — keep 60% of peak profit
 
-            const holdTimeMinutes = pos.entryTime ? (Date.now() - new Date(pos.entryTime).getTime()) / 60000 : 0;
+            const holdTimeMinutes = pos.entryTime ? (getActiveClock().now() - new Date(pos.entryTime).getTime()) / 60000 : 0;
             let shouldClose = false;
             let closeReason = '';
 
@@ -1251,7 +1252,7 @@ export class UserTradingSession extends EventEmitter {
     // Skip if session not fully initialized
     if (!this.signalProcessor || !this.isRunning) return;
 
-    this.lastSignalProcessedMs = Date.now();
+    this.lastSignalProcessedMs = getActiveClock().now();
 
     try {
       // Apply per-user agent weights

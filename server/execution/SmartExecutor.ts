@@ -26,6 +26,7 @@
  */
 
 import { ExchangeInterface, OrderParams, OrderResult } from '../exchanges/ExchangeInterface';
+import { getActiveClock } from '../_core/clock';
 import { executionLogger } from '../utils/logger';
 
 export interface SmartOrderParams {
@@ -63,7 +64,7 @@ export class SmartExecutor {
    * total failure (all stages fail or adapter throws).
    */
   async execute(params: SmartOrderParams): Promise<OrderResult & { tca: TCAReport }> {
-    const start = Date.now();
+    const start = getActiveClock().now();
     const hasOrderBook = typeof (this.exchange as any).getOrderBook === 'function';
 
     // For adapters without an order book (e.g. paper-only), short-circuit
@@ -257,7 +258,7 @@ export class SmartExecutor {
       executedQty: filledQty,
       slippageBps,
       stageReached: stage,
-      totalLatencyMs: Date.now() - startMs,
+      totalLatencyMs: getActiveClock().now() - startMs,
       bookSpreadBps,
       partialFill,
       exceededCap: slippageBps > cap,

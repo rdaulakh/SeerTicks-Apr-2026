@@ -21,6 +21,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { GlobalSymbolAnalyzer, GlobalSignal, GlobalSymbolStatus } from './GlobalSymbolAnalyzer';
 
 // Phase 20 — SOL-USD added to defaults. Pre-Phase-20 the price feeds
@@ -64,7 +65,7 @@ class GlobalMarketEngine extends EventEmitter {
     }
 
     console.log('[GlobalMarketEngine] Starting always-on market observation...');
-    this.startedAt = Date.now();
+    this.startedAt = getActiveClock().now();
     this._startState = 'starting';
 
     // Load symbols from database, fall back to defaults
@@ -236,7 +237,7 @@ class GlobalMarketEngine extends EventEmitter {
 
     return {
       isRunning: this.isRunning,
-      uptimeMs: this.startedAt > 0 ? Date.now() - this.startedAt : 0,
+      uptimeMs: this.startedAt > 0 ? getActiveClock().now() - this.startedAt : 0,
       symbols: Array.from(this.analyzers.keys()),
       analyzerStatuses,
       lastHealthCheck: this.lastHealthCheckMs,
@@ -324,7 +325,7 @@ class GlobalMarketEngine extends EventEmitter {
   }
 
   private performHealthCheck(): void {
-    this.lastHealthCheckMs = Date.now();
+    this.lastHealthCheckMs = getActiveClock().now();
 
     let healthyCount = 0;
     let unhealthyCount = 0;
@@ -338,7 +339,7 @@ class GlobalMarketEngine extends EventEmitter {
         // Phase 15D: Agent-level watchdog — check for stale/dead agents within each analyzer
         // If an agent hasn't produced a signal in 30 minutes, it's effectively dead
         const AGENT_STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
-        const now = Date.now();
+        const now = getActiveClock().now();
         let staleAgents = 0;
 
         if (status.agentHealth && Array.isArray(status.agentHealth)) {
@@ -417,7 +418,7 @@ class GlobalMarketEngine extends EventEmitter {
    */
   private updateAgentLastSignal(): void {
     import('../routers/healthRouter').then(({ updateHealthState }) => {
-      updateHealthState('agents', { lastSignal: Date.now() });
+      updateHealthState('agents', { lastSignal: getActiveClock().now() });
     }).catch(() => {});
   }
 }

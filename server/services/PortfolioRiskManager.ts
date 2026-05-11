@@ -12,6 +12,7 @@
  */
 
 import { getPositionSizeMultiplier } from './RegimeCalibration';
+import { getActiveClock } from '../_core/clock';
 
 // ============================================================================
 // TYPES
@@ -181,8 +182,8 @@ export class PortfolioRiskManager {
     // CHECK 1: Is trading halted?
     // ================================================================
     if (this.isHalted) {
-      if (Date.now() < this.haltedUntil) {
-        const minutesLeft = Math.ceil((this.haltedUntil - Date.now()) / 60000);
+      if (getActiveClock().now() < this.haltedUntil) {
+        const minutesLeft = Math.ceil((this.haltedUntil - getActiveClock().now()) / 60000);
         return {
           canTrade: false,
           maxAllowedSize: 0,
@@ -374,7 +375,7 @@ export class PortfolioRiskManager {
       maxAllowedSize = reducedSize;
       
       // Clear the flag after 3 successful trades
-      const recentWins = this.recentOutcomes.filter(o => o.pnl > 0 && o.timestamp > Date.now() - 3600000).length;
+      const recentWins = this.recentOutcomes.filter(o => o.pnl > 0 && o.timestamp > getActiveClock().now() - 3600000).length;
       if (recentWins >= 3) {
         this.wasRecentlyHalted = false;
         console.log(`[PortfolioRiskManager] Post-halt reduced sizing cleared after 3 winning trades`);
@@ -401,7 +402,7 @@ export class PortfolioRiskManager {
    * Record a closed trade outcome for drawdown tracking
    */
   recordTradeOutcome(pnl: number): void {
-    this.recentOutcomes.push({ pnl, timestamp: Date.now() });
+    this.recentOutcomes.push({ pnl, timestamp: getActiveClock().now() });
     this.closedPnlToday += pnl;
     this.closedPnlWeek += pnl;
     
@@ -461,7 +462,7 @@ export class PortfolioRiskManager {
   private triggerHalt(reason: string): void {
     this.isHalted = true;
     this.haltReason = reason;
-    this.haltedUntil = Date.now() + (this.config.drawdownCooldownMinutes * 60 * 1000);
+    this.haltedUntil = getActiveClock().now() + (this.config.drawdownCooldownMinutes * 60 * 1000);
     
     console.log(`[PortfolioRiskManager] ⛔ TRADING HALTED for user ${this.userId}`);
     console.log(`  Reason: ${reason}`);
@@ -470,7 +471,7 @@ export class PortfolioRiskManager {
   }
 
   private checkAndResetCounters(equity: number): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     // Daily reset (every 24 hours from first trade)
     if (now - this.dailyResetTime > 24 * 60 * 60 * 1000) {

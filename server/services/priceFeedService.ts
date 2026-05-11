@@ -19,6 +19,7 @@ async function _getAuditLoggerModule() {
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { Server as HTTPServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 
@@ -173,7 +174,7 @@ class PriceFeedService extends EventEmitter {
       return;
     }
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     // Preserve existing 24h metadata if new update doesn't provide it
     // (PriceFabric consensus ticks don't carry 24h stats — only exchange tickers do)
     const existing = this.priceCache.get(symbol);
@@ -264,7 +265,7 @@ class PriceFeedService extends EventEmitter {
    * Get tick metrics for monitoring
    */
   getTickMetrics(): { tickCount: number; lastTickTime: number; ticksPerSecond: number } {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const elapsed = (now - this.lastTickTime) / 1000;
     return {
       tickCount: this.tickCount,
@@ -294,7 +295,7 @@ class PriceFeedService extends EventEmitter {
     }
 
     // Check if price is stale
-    const age = Date.now() - cached.timestamp;
+    const age = getActiveClock().now() - cached.timestamp;
     if (age > this.config.cacheExpiry) {
       console.warn(`[PriceFeedService] Price for ${symbol} is stale (${age}ms old)`);
       return undefined;
@@ -307,7 +308,7 @@ class PriceFeedService extends EventEmitter {
    * Get all cached prices
    */
   getAllPrices(): PriceData[] {
-    const now = Date.now();
+    const now = getActiveClock().now();
     return Array.from(this.priceCache.values()).filter(
       (price) => now - price.timestamp < this.config.cacheExpiry
     );
@@ -349,7 +350,7 @@ class PriceFeedService extends EventEmitter {
       return { trendPct: 0, sampleCount: 0, direction: 'flat' };
     }
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     const cutoff = now - lookbackMs;
     const relevant = history.filter(h => h.time >= cutoff);
     if (relevant.length < 2) {
@@ -368,7 +369,7 @@ class PriceFeedService extends EventEmitter {
    * Clean stale prices from cache
    */
   private cleanStaleCache(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     let removedCount = 0;
 
     for (const [symbol, price] of this.priceCache.entries()) {

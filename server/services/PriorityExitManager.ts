@@ -1,4 +1,5 @@
 import { exitLogger } from '../utils/logger';
+import { getActiveClock } from '../_core/clock';
 import { getRegimeAdjustedExits, getVolatilityRegime, getTradingConfig } from '../config/TradingConfig';
 import {
   shouldAllowClose as profitLockShouldAllowClose,
@@ -173,7 +174,7 @@ export function evaluatePriorityExitRules(
       currentDirection: position.currentDirection,
       currentConsensusStrength: position.currentCombinedScore,
       peakUnrealizedPnlPercent: position.peakPnlPercent,
-      holdMinutes: (Date.now() - position.entryTime) / 60_000,
+      holdMinutes: (getActiveClock().now() - position.entryTime) / 60_000,
     },
     position.currentPrice,
     reasonForGuard,
@@ -196,7 +197,7 @@ export function evaluatePriorityExitRulesRaw(
   config: PriorityExitConfig = DEFAULT_PRIORITY_EXIT_CONFIG
 ): PriorityExitDecision {
 
-  const holdTimeMinutes = (Date.now() - position.entryTime) / 60000;
+  const holdTimeMinutes = (getActiveClock().now() - position.entryTime) / 60000;
   const pnlPercent = position.unrealizedPnlPercent;
   const isLosing = pnlPercent < 0;
   const isWinning = pnlPercent > 0;
@@ -331,7 +332,7 @@ export function evaluatePriorityExitRulesRaw(
   // Inherently adaptive — watches rate-of-change, not absolute level
   // ═══════════════════════════════════════════════════════════════════════════
   if (isLosing && position.recentPnlHistory && position.recentPnlHistory.length >= 2) {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const windowStart = now - config.momentumCrashWindowMs;
     const oldestInWindow = position.recentPnlHistory.find(p => p.timestamp >= windowStart);
     if (oldestInWindow) {
@@ -632,7 +633,7 @@ export function updatePnlHistory(position: PriorityExitPosition, pnlPercent: num
   if (!position.recentPnlHistory) {
     position.recentPnlHistory = [];
   }
-  const now = Date.now();
+  const now = getActiveClock().now();
   position.recentPnlHistory.push({ pnlPercent, timestamp: now });
   const cutoff = now - 180000;
   position.recentPnlHistory = position.recentPnlHistory.filter(p => p.timestamp >= cutoff);
@@ -647,7 +648,7 @@ export function updateOrderFlowHistory(position: PriorityExitPosition, score: nu
   if (!position.recentOrderFlowHistory) {
     position.recentOrderFlowHistory = [];
   }
-  const now = Date.now();
+  const now = getActiveClock().now();
   position.recentOrderFlowHistory.push({ score, timestamp: now });
   const cutoff = now - 180000;
   position.recentOrderFlowHistory = position.recentOrderFlowHistory.filter(p => p.timestamp >= cutoff);

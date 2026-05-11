@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { getActiveClock } from '../_core/clock';
 import { invokeLLM } from "../_core/llm";
 import { getDb } from "../db";
 import { agentSignals } from "../../drizzle/schema";
@@ -92,7 +93,7 @@ export abstract class AgentBase extends EventEmitter {
   constructor(config: AgentConfig) {
     super();
     this.config = config;
-    this.startTime = Date.now();
+    this.startTime = getActiveClock().now();
     this.health = {
       agentName: config.name,
       status: "healthy",
@@ -167,7 +168,7 @@ export abstract class AgentBase extends EventEmitter {
    * Generate a signal for a given symbol
    */
   async generateSignal(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Phase 33: Inject agent-specific task directive from MarketRegimeAI
@@ -212,7 +213,7 @@ export abstract class AgentBase extends EventEmitter {
       }
 
       // Update health metrics
-      const processingTime = Date.now() - startTime;
+      const processingTime = getActiveClock().now() - startTime;
       this.updateHealthMetrics(true, processingTime);
 
       // Store signal in history
@@ -234,7 +235,7 @@ export abstract class AgentBase extends EventEmitter {
       console.error(`[${this.config.name}] Error generating signal:`, error);
       
       // Update health metrics
-      this.updateHealthMetrics(false, Date.now() - startTime);
+      this.updateHealthMetrics(false, getActiveClock().now() - startTime);
 
       // Create neutral signal on error and STORE it in signalHistory
       // Critical fix: without this, getLatestSignal() returns null when analyze() throws,
@@ -252,7 +253,7 @@ export abstract class AgentBase extends EventEmitter {
    * Get agent health status
    */
   getHealth(): AgentHealth {
-    this.health.uptime = Math.floor((Date.now() - this.startTime) / 1000);
+    this.health.uptime = Math.floor((getActiveClock().now() - this.startTime) / 1000);
     return { ...this.health };
   }
 
@@ -275,7 +276,7 @@ export abstract class AgentBase extends EventEmitter {
    * Updates lastTickTime to track real-time data flow
    */
   onTick(tick: { price: number; timestamp: number; symbol?: string }): void {
-    this.health.lastTickTime = Date.now();
+    this.health.lastTickTime = getActiveClock().now();
     this.health.ticksReceived++;
   }
 
@@ -335,7 +336,7 @@ export abstract class AgentBase extends EventEmitter {
    * Update health metrics
    */
   private updateHealthMetrics(success: boolean, processingTime: number): void {
-    this.health.lastSignalTime = Date.now();
+    this.health.lastSignalTime = getActiveClock().now();
 
     // Update success rate (exponential moving average)
     const alpha = 0.1;
@@ -386,7 +387,7 @@ export abstract class AgentBase extends EventEmitter {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: "neutral",
       confidence: 0,
       strength: 0,
@@ -478,7 +479,7 @@ export class AgentManager extends EventEmitter {
       updateHealthState('agents', {
         active: this.agents.size,
         total: 12, // Total expected agents
-        lastSignal: this.lastSignalTime > 0 ? this.lastSignalTime : Date.now()
+        lastSignal: this.lastSignalTime > 0 ? this.lastSignalTime : getActiveClock().now()
       });
     }).catch(() => {
       // Silently ignore if healthRouter not available
@@ -588,7 +589,7 @@ export class AgentManager extends EventEmitter {
     
     // Update health state with latest signal time
     if (signals.length > 0) {
-      this.lastSignalTime = Date.now();
+      this.lastSignalTime = getActiveClock().now();
       this.updateAgentHealthState();
     }
     

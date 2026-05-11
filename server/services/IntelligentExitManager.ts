@@ -15,6 +15,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { LRUCache } from '../utils/LRUCache';
 import { PriceBuffer, PriceBufferManager, getPriceBufferManager } from '../utils/PriceBuffer';
 import { ConfidenceDecayTracker, getConfidenceDecayTracker, DecayExitDecision } from './ConfidenceDecayTracker';
@@ -442,7 +443,7 @@ export class IntelligentExitManager extends EventEmitter {
   addPosition(position: Omit<Position, 'highestPrice' | 'lowestPrice' | 'breakevenActivated' | 'partialExits' | 'agentSignals' | 'lastAgentCheck' | 'entryConfidence' | 'peakConfidence' | 'currentConfidence' | 'exitThreshold' | 'entryDirection' | 'entryCombinedScore' | 'peakCombinedScore' | 'peakCombinedScoreTime' | 'currentCombinedScore' | 'currentDirection'>): void {
     // Use originalConsensus as entry confidence
     const entryConfidence = position.originalConsensus || 0.65;
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     // Phase 26 fix — entryDirection MUST derive from position.side, NOT from
     // the current consensus cache. Pre-Phase-26 the code set both `entryDirection`
@@ -593,7 +594,7 @@ export class IntelligentExitManager extends EventEmitter {
         currentConsensusStrength: position.currentCombinedScore,
         peakUnrealizedPnlPercent: position.peakPnlPercent,
         holdMinutes: position.entryTime
-          ? (Date.now() - position.entryTime) / 60_000
+          ? (getActiveClock().now() - position.entryTime) / 60_000
           : undefined,
       },
       position.currentPrice,
@@ -758,7 +759,7 @@ export class IntelligentExitManager extends EventEmitter {
         currentConsensusStrength: position.currentCombinedScore,
         peakUnrealizedPnlPercent: position.peakPnlPercent,
         holdMinutes: position.entryTime
-          ? (Date.now() - position.entryTime) / 60_000
+          ? (getActiveClock().now() - position.entryTime) / 60_000
           : undefined,
       };
       const grossPnlPct = computeGrossPnlPercent(guardPos, position.currentPrice);
@@ -870,7 +871,7 @@ export class IntelligentExitManager extends EventEmitter {
     }
     
     // 6. Check time-based exit
-    const holdTimeHours = (Date.now() - position.entryTime) / (1000 * 60 * 60);
+    const holdTimeHours = (getActiveClock().now() - position.entryTime) / (1000 * 60 * 60);
     const maxHoldTime = this.config.maxHoldTimeHours * regimeMultiplier;
     
     if (holdTimeHours >= maxHoldTime) {
@@ -918,13 +919,13 @@ export class IntelligentExitManager extends EventEmitter {
     for (const [positionId, position] of this.positions) {
       try {
         // Only check if enough time has passed since last check
-        if (Date.now() - position.lastAgentCheck < this.config.agentCheckIntervalMs) {
+        if (getActiveClock().now() - position.lastAgentCheck < this.config.agentCheckIntervalMs) {
           continue;
         }
         
         const signals = await this.getAgentSignals(position.symbol, position);
         position.agentSignals = signals;
-        position.lastAgentCheck = Date.now();
+        position.lastAgentCheck = getActiveClock().now();
         
         // Log agent consensus
         const exitCount = signals.filter(s => s.signal === 'exit').length;
@@ -1052,7 +1053,7 @@ export class IntelligentExitManager extends EventEmitter {
    * 
    * Performance target: < 1ms per tick per position
    */
-  async onPriceTick(symbol: string, price: number, timestamp: number = Date.now()): Promise<void> {
+  async onPriceTick(symbol: string, price: number, timestamp: number = getActiveClock().now()): Promise<void> {
     // Store price in memory-optimized buffer ALWAYS (O(1), ~0.001ms)
     this.priceBufferManager.push(symbol, price, timestamp);
 
@@ -1140,7 +1141,7 @@ export class IntelligentExitManager extends EventEmitter {
       const currentCombinedScore = calculateCombinedScore(currentConsensus, 50);
 
       // Update position state for hard exit rules
-      const now = Date.now();
+      const now = getActiveClock().now();
       position.currentConfidence = currentConsensus;
       position.currentCombinedScore = currentCombinedScore;
       position.currentDirection = currentDirection;
@@ -1473,7 +1474,7 @@ export class IntelligentExitManager extends EventEmitter {
           positionId: position.id,
           urgency: decision.urgency,
           entryPrice: position.entryPrice,
-          holdTimeMs: Date.now() - position.entryTime,
+          holdTimeMs: getActiveClock().now() - position.entryTime,
           breakevenActivated: position.breakevenActivated,
           partialExitsCount: position.partialExits.length,
         },
@@ -1488,7 +1489,7 @@ export class IntelligentExitManager extends EventEmitter {
       // Record partial exit
       if (decision.action === 'exit_partial') {
         position.partialExits.push({
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
           price: position.currentPrice,
           quantity: exitQuantity,
           pnlPercent: position.unrealizedPnlPercent,
@@ -1617,7 +1618,7 @@ export class IntelligentExitManager extends EventEmitter {
     }
     
     // 5. Check time-based exit
-    const holdTimeHours = (Date.now() - position.entryTime) / (1000 * 60 * 60);
+    const holdTimeHours = (getActiveClock().now() - position.entryTime) / (1000 * 60 * 60);
     if (holdTimeHours >= this.config.maxHoldTimeHours) {
       if (pnlPercent >= this.config.minProfitForTimeExit) {
         return {

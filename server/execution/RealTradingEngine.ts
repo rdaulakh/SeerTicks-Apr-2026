@@ -19,6 +19,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import type { ITradingEngine, ITradingEngineOrder, ITradingEngineWallet, ITradingEnginePosition, PlaceOrderParams, TradingMode } from './ITradingEngine';
 import { executionLogger } from '../utils/logger';
 
@@ -702,7 +703,7 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
       executionLogger.info('Balance reserved for order', { reserved: orderValue.toFixed(2), remaining: this.wallet.balance.toFixed(2) });
     }
 
-    const orderId = `real_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const orderId = `real_${getActiveClock().now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const order: RealOrder = {
       id: orderId,
@@ -923,7 +924,7 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
     } else {
       // New position
       const position: RealPosition = {
-        id: `pos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: `pos_${getActiveClock().now()}_${Math.random().toString(36).substr(2, 9)}`,
         userId: this.config.userId,
         symbol: order.symbol,
         exchange: order.exchange,
@@ -1238,7 +1239,7 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
   async closePositionById(positionId: string, currentPrice: number, strategy: string): Promise<void> {
     // Garbage-collect stale in-flight entries (defensive: a never-resolving
     // close shouldn't permanently lock the position out of future closes).
-    const now = Date.now();
+    const now = getActiveClock().now();
     for (const [id, startedAt] of this.closeInFlight.entries()) {
       if (now - startedAt > this.CLOSE_IN_FLIGHT_TTL_MS) {
         executionLogger.warn('Close-in-flight TTL exceeded, releasing lock', { positionId: id, ageMs: now - startedAt });

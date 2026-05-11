@@ -18,6 +18,7 @@ async function _getAuditLoggerModule() {
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import type { ProcessedSignal } from './AutomatedSignalProcessor';
 import type { PaperTradingEngine } from '../execution/PaperTradingEngine';
 import type { ITradingEngine } from '../execution/ITradingEngine';
@@ -113,7 +114,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
   private dailyTradeCount: number = 0;
   private dailyTradeCountResetDate: string = '';
   private consecutiveLosses: number = 0;
-  private pausedUntil: number = 0; // Timestamp — if > Date.now(), trading paused
+  private pausedUntil: number = 0; // Timestamp — if > getActiveClock().now(), trading paused
   private isHalted: boolean = false; // Halt flag — cleared automatically when haltedUntil elapses
   private haltedUntil: number = 0; // Phase 73 — timestamp at which a triggered halt auto-clears
   private wasRecentlyHalted: boolean = false; // Phase 73 — set true on auto-resume; flagged to size reducer
@@ -182,7 +183,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
     
     // Phase 19: Periodic cache eviction to prevent unbounded growth
     this.cacheCleanupInterval = setInterval(() => {
-      const now = Date.now();
+      const now = getActiveClock().now();
       for (const [key, entry] of this.dynamicLevelsCache) {
         if (now - entry.timestamp > 120_000) this.dynamicLevelsCache.delete(key); // 2 min
       }
@@ -336,8 +337,8 @@ export class EnhancedTradeExecutor extends EventEmitter {
     } catch { /* heartbeat lookup is best-effort */ }
 
     // Check 2: Consecutive loss pause (auto-resets after cooldown)
-    if (this.pausedUntil > Date.now()) {
-      const remainingSec = Math.ceil((this.pausedUntil - Date.now()) / 1000);
+    if (this.pausedUntil > getActiveClock().now()) {
+      const remainingSec = Math.ceil((this.pausedUntil - getActiveClock().now()) / 1000);
       console.warn(`[EnhancedTradeExecutor] ⏸️ PAUSED: ${this.consecutiveLosses} consecutive losses. Resume in ${remainingSec}s`);
       const reason = `Paused: ${this.consecutiveLosses} consecutive losses`;
       if (signal.signalId) tradeDecisionLogger.markFailed(signal.signalId, reason).catch(() => {});
@@ -463,7 +464,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
       console.warn(`[EnhancedTradeExecutor] VaR gate errored but failClosedOnVaRError=false, proceeding:`, varErr);
     }
 
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const { symbol, recommendation, metrics } = signal;
     
     // Start latency tracking
@@ -591,10 +592,10 @@ export class EnhancedTradeExecutor extends EventEmitter {
           // instead of DB createdAt which may not exist for paper positions
           const posInfo = this.week9RiskManager.getPositionInfo(symbol);
           if (posInfo) {
-            holdTimeSeconds = (Date.now() - posInfo.openTime) / 1000;
+            holdTimeSeconds = (getActiveClock().now() - posInfo.openTime) / 1000;
           } else if (existingPos?.createdAt) {
             // Fallback to DB createdAt if in-memory not available
-            holdTimeSeconds = (Date.now() - new Date(existingPos.createdAt).getTime()) / 1000;
+            holdTimeSeconds = (getActiveClock().now() - new Date(existingPos.createdAt).getTime()) / 1000;
           } else {
             // If neither available, assume position is old enough to flip
             holdTimeSeconds = 999;
@@ -991,7 +992,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
           initialSize: quantity,
           notionalValue: positionSize,
           unrealizedPnL: 0,
-          openTime: Date.now(),
+          openTime: getActiveClock().now(),
         };
         
         this.integratedExitManager.registerPosition(managedPosition);
@@ -1007,7 +1008,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
         );
       }
 
-      const executionTime = Date.now() - startTime;
+      const executionTime = getActiveClock().now() - startTime;
       await latencyLogger.recordOrderFilled(latencyContextId, order.filledPrice || currentPrice, 'executed');
 
       logPipelineEvent('TRADE_EXECUTED', {
@@ -1078,7 +1079,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
       } catch { /* audit logger not ready */ }
 
     } catch (error) {
-      const executionTime = Date.now() - startTime;
+      const executionTime = getActiveClock().now() - startTime;
       await latencyLogger.recordOrderFilled(latencyContextId, undefined, 'failed');
 
       console.error(`[EnhancedTradeExecutor] ❌ Trade FAILED after ${executionTime}ms:`, error);
@@ -1175,8 +1176,8 @@ export class EnhancedTradeExecutor extends EventEmitter {
           exitPrice: currentPrice,
           pnlPercent,
           pnlAbsolute,
-          timestamp: Date.now(),
-          holdTimeMs: Date.now() - new Date(position.createdAt).getTime(),
+          timestamp: getActiveClock().now(),
+          holdTimeMs: getActiveClock().now() - new Date(position.createdAt).getTime(),
         };
         
         this.week9RiskManager.recordTrade(tradeResult);
@@ -1284,7 +1285,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
       // Phase 17: Check cache first
       const cached = this.positionIdCache.get(symbol);
       const cacheTTL = getTradingConfig().execution.positionIdCacheTtlMs;
-      if (cached && Date.now() - cached.timestamp < cacheTTL) {
+      if (cached && getActiveClock().now() - cached.timestamp < cacheTTL) {
         return cached.id;
       }
 
@@ -1305,7 +1306,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
         .limit(1);
 
       const id = latestPosition ? String(latestPosition.id) : null;
-      this.positionIdCache.set(symbol, { id, timestamp: Date.now() });
+      this.positionIdCache.set(symbol, { id, timestamp: getActiveClock().now() });
       return id;
     } catch {
       return null;
@@ -1461,7 +1462,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
       const cacheKey = `${symbol}_${action}`;
       const cached = this.dynamicLevelsCache.get(cacheKey);
       const cacheTTL = getTradingConfig().execution.dynamicLevelsCacheTtlMs;
-      if (cached && Date.now() - cached.timestamp < cacheTTL) {
+      if (cached && getActiveClock().now() - cached.timestamp < cacheTTL) {
         // Phase 34: Recalculate stop/TP from cached ATR with current price using smoothed regime-aware multipliers
         const atr = cached.atr;
         const cachedAtrMultiplier = getSmoothedStopLossAtrMultiplier(cached.regime, symbol);
@@ -1528,7 +1529,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
       // Phase 17: Populate cache
       this.dynamicLevelsCache.set(cacheKey, {
         stopLoss, takeProfit, atr, regime,
-        price: currentPrice, action, timestamp: Date.now(),
+        price: currentPrice, action, timestamp: getActiveClock().now(),
       });
 
       return { stopLoss, takeProfit, atr, regime };
@@ -1624,7 +1625,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
     if (pnl < 0) {
       this.consecutiveLosses++;
       if (this.consecutiveLosses >= this.MAX_CONSECUTIVE_LOSSES) {
-        this.pausedUntil = Date.now() + this.CONSECUTIVE_LOSS_PAUSE_MS;
+        this.pausedUntil = getActiveClock().now() + this.CONSECUTIVE_LOSS_PAUSE_MS;
         console.warn(`[EnhancedTradeExecutor] ⏸️ ${this.consecutiveLosses} consecutive losses — pausing for ${this.CONSECUTIVE_LOSS_PAUSE_MS / 60000} minutes`);
         this.emit('circuit_breaker_triggered', {
           reason: `${this.consecutiveLosses} consecutive losses`,
@@ -1642,7 +1643,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
         const dailyLossLimit = wallet.balance * this.MAX_DAILY_LOSS_PERCENT;
         if (this.dailyPnL < -dailyLossLimit) {
           this.isHalted = true;
-          this.haltedUntil = Date.now() + this.DAILY_LOSS_HALT_COOLDOWN_MS; // Phase 73
+          this.haltedUntil = getActiveClock().now() + this.DAILY_LOSS_HALT_COOLDOWN_MS; // Phase 73
           this.haltReason = `Daily loss limit: $${Math.abs(this.dailyPnL).toFixed(2)} > $${dailyLossLimit.toFixed(2)}`;
           console.error(`[EnhancedTradeExecutor] 🚨 CIRCUIT BREAKER: ${this.haltReason} — auto-resume in ${this.DAILY_LOSS_HALT_COOLDOWN_MS / 60000}min`);
           this.emit('circuit_breaker_triggered', { reason: this.haltReason, type: 'daily_loss' });
@@ -1673,7 +1674,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
     return {
       isHalted: this.isHalted,
       haltReason: this.haltReason,
-      isPaused: this.pausedUntil > Date.now(),
+      isPaused: this.pausedUntil > getActiveClock().now(),
       pausedUntil: this.pausedUntil,
       consecutiveLosses: this.consecutiveLosses,
       dailyTradeCount: this.dailyTradeCount,

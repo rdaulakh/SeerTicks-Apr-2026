@@ -6,6 +6,7 @@ async function _getAuditLoggerModule() {
 }
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { appendFileSync } from 'fs';
 import type { AgentSignal } from "../agents/AgentBase";
 import { tradeDecisionLogger, TradeDecisionInput, AgentScore } from './tradeDecisionLogger';
@@ -261,7 +262,7 @@ export class AutomatedSignalProcessor extends EventEmitter {
   }
 
   async processSignals(signals: AgentSignal[], symbol: string, marketContext?: any): Promise<ProcessedSignal> {
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     // FIX: drop stale signals — stale consensus is a leading cause of losing trades
     const MAX_SIGNAL_AGE_MS = 2000;
@@ -420,7 +421,7 @@ export class AutomatedSignalProcessor extends EventEmitter {
       const maxStaleMs = entryCfg?.priceFeedMaxStalenessMs ?? 5_000;
       if (maxStaleMs < Number.MAX_SAFE_INTEGER) {
         const latestPrice = priceFeedService.getLatestPrice(symbol);
-        const priceAgeMs = latestPrice ? (Date.now() - latestPrice.timestamp) : Number.POSITIVE_INFINITY;
+        const priceAgeMs = latestPrice ? (getActiveClock().now() - latestPrice.timestamp) : Number.POSITIVE_INFINITY;
         if (!latestPrice || priceAgeMs > maxStaleMs) {
           logPipelineEvent('SIGNAL_REJECTED', {
             userId: this.userId,
@@ -994,7 +995,7 @@ export class AutomatedSignalProcessor extends EventEmitter {
       const lastDir = this.lastApprovedDirection.get(symbol);
       if (lastDir && lastDir !== consensus.direction) {
         const lastFlipTime = this.lastDirectionFlipTime.get(symbol) || 0;
-        const timeSinceFlip = Date.now() - lastFlipTime;
+        const timeSinceFlip = getActiveClock().now() - lastFlipTime;
         if (timeSinceFlip < this.DIRECTION_FLIP_COOLDOWN_MS) {
           const remaining = ((this.DIRECTION_FLIP_COOLDOWN_MS - timeSinceFlip) / 1000).toFixed(1);
           try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} DIRECTION FLIP BLOCKED: ${lastDir}→${consensus.direction}, cooldown ${remaining}s remaining\n`); } catch(e) {}
@@ -1014,7 +1015,7 @@ export class AutomatedSignalProcessor extends EventEmitter {
       }
       // Track direction for flip detection
       if (lastDir !== consensus.direction) {
-        this.lastDirectionFlipTime.set(symbol, Date.now());
+        this.lastDirectionFlipTime.set(symbol, getActiveClock().now());
       }
       this.lastApprovedDirection.set(symbol, consensus.direction);
 
@@ -1091,7 +1092,7 @@ export class AutomatedSignalProcessor extends EventEmitter {
       } catch { /* tracing best-effort */ }
 
       // Phase 33: Record approval time for cooldown tracking
-      this.lastApprovalTime.set(symbol, Date.now());
+      this.lastApprovalTime.set(symbol, getActiveClock().now());
 
       this.emit('signal_approved', approvedSignal);
 
@@ -1624,7 +1625,7 @@ const CONSENSUS_CACHE_TTL_MS = 5000; // Cache valid for 5 seconds
 
 // Phase 19: Periodic eviction of stale consensus cache entries (prevents unbounded growth)
 setInterval(() => {
-  const now = Date.now();
+  const now = getActiveClock().now();
   for (const [key, entry] of consensusCache) {
     if (now - entry.timestamp > 60_000) { // Evict entries older than 60s
       consensusCache.delete(key);
@@ -1640,7 +1641,7 @@ export function updateConsensusCache(symbol: string, consensus: Consensus): void
   const c = consensus as any;
   consensusCache.set(symbol, {
     consensus: consensus.strength,
-    timestamp: Date.now(),
+    timestamp: getActiveClock().now(),
     direction: consensus.direction,
     posteriorMean: c.posteriorMean,
     posteriorStd: c.posteriorStd,
@@ -1663,7 +1664,7 @@ export function getLatestConsensus(symbol: string): number | null {
   if (!cached) return null;
   
   // Check if cache is still valid
-  if (Date.now() - cached.timestamp > CONSENSUS_CACHE_TTL_MS) {
+  if (getActiveClock().now() - cached.timestamp > CONSENSUS_CACHE_TTL_MS) {
     return null; // Stale data
   }
   
@@ -1677,7 +1678,7 @@ export function getLatestConsensusDirection(symbol: string): 'bullish' | 'bearis
   const cached = consensusCache.get(symbol);
   if (!cached) return null;
   
-  if (Date.now() - cached.timestamp > CONSENSUS_CACHE_TTL_MS) {
+  if (getActiveClock().now() - cached.timestamp > CONSENSUS_CACHE_TTL_MS) {
     return null;
   }
   
