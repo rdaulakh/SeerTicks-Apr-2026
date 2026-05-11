@@ -1,6 +1,9 @@
 import { ExchangeInterface } from "./ExchangeInterface";
 import { BinanceAdapter } from "./BinanceAdapter";
+import { BinanceFuturesAdapter } from "./BinanceFuturesAdapter";
 import { CoinbaseAdapter } from "./CoinbaseAdapter";
+
+export type SupportedExchange = "binance" | "coinbase" | "binance-futures";
 
 /**
  * Exchange Factory
@@ -9,13 +12,12 @@ import { CoinbaseAdapter } from "./CoinbaseAdapter";
 export class ExchangeFactory {
   /**
    * Create an exchange adapter instance
-   * @param exchangeName The exchange to connect to ("binance" or "coinbase")
+   * @param exchangeName The exchange to connect to
    * @param apiKey API key for the exchange
    * @param apiSecret API secret for the exchange
-   * @returns An instance of the appropriate exchange adapter
    */
   static createExchange(
-    exchangeName: "binance" | "coinbase",
+    exchangeName: SupportedExchange,
     apiKey: string,
     apiSecret: string
   ): ExchangeInterface {
@@ -24,6 +26,8 @@ export class ExchangeFactory {
         return new BinanceAdapter(apiKey, apiSecret);
       case "coinbase":
         return new CoinbaseAdapter(apiKey, apiSecret);
+      case "binance-futures":
+        return new BinanceFuturesAdapter(apiKey, apiSecret);
       default:
         throw new Error(`Unsupported exchange: ${exchangeName}`);
     }
@@ -32,14 +36,14 @@ export class ExchangeFactory {
   /**
    * Get list of supported exchanges
    */
-  static getSupportedExchanges(): ("binance" | "coinbase")[] {
-    return ["binance", "coinbase"];
+  static getSupportedExchanges(): SupportedExchange[] {
+    return ["binance", "coinbase", "binance-futures"];
   }
 
   /**
    * Validate exchange name
    */
-  static isValidExchange(exchangeName: string): exchangeName is "binance" | "coinbase" {
-    return exchangeName === "binance" || exchangeName === "coinbase";
+  static isValidExchange(exchangeName: string): exchangeName is SupportedExchange {
+    return exchangeName === "binance" || exchangeName === "coinbase" || exchangeName === "binance-futures";
   }
 }

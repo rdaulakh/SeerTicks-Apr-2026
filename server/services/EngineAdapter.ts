@@ -521,6 +521,13 @@ export class EngineAdapter extends EventEmitter {
           states[symbol].recommendation = {
             action: dir === 'bullish' ? 'BUY' : dir === 'bearish' ? 'SELL' : 'HOLD',
             confidence: strength,
+            // Phase 70 — Bayesian posterior fields (when available) so the UI
+            // can show "high mean but high uncertainty" warnings instead of
+            // letting the user think strength=86% is decisive.
+            posteriorMean: consensus.posteriorMean,
+            posteriorStd: consensus.posteriorStd,
+            effectiveN: consensus.effectiveN,
+            avgCorrelation: consensus.avgCorrelation,
           };
         }
       }

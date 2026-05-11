@@ -1608,7 +1608,18 @@ export function calculateExitConsensus(
  * Cached consensus for millisecond-level access
  * Used by IntelligentExitManager for confidence decay tracking
  */
-const consensusCache: Map<string, { consensus: number; timestamp: number; direction: 'bullish' | 'bearish' }> = new Map();
+// Phase 70 — cached consensus now carries Bayesian fields so the UI panel
+// and downstream consumers can render posterior + uncertainty without
+// re-running the aggregator.
+const consensusCache: Map<string, {
+  consensus: number;
+  timestamp: number;
+  direction: 'bullish' | 'bearish';
+  posteriorMean?: number;
+  posteriorStd?: number;
+  effectiveN?: number;
+  avgCorrelation?: number;
+}> = new Map();
 const CONSENSUS_CACHE_TTL_MS = 5000; // Cache valid for 5 seconds
 
 // Phase 19: Periodic eviction of stale consensus cache entries (prevents unbounded growth)
@@ -1622,13 +1633,19 @@ setInterval(() => {
 }, 30_000); // Run every 30 seconds
 
 /**
- * Update consensus cache (called by processSignals)
+ * Update consensus cache (called by processSignals).
+ * Phase 70 — also caches Bayesian posterior fields if present on the consensus.
  */
 export function updateConsensusCache(symbol: string, consensus: Consensus): void {
+  const c = consensus as any;
   consensusCache.set(symbol, {
     consensus: consensus.strength,
     timestamp: Date.now(),
     direction: consensus.direction,
+    posteriorMean: c.posteriorMean,
+    posteriorStd: c.posteriorStd,
+    effectiveN: c.effectiveN,
+    avgCorrelation: c.avgCorrelation,
   });
 }
 
@@ -1668,8 +1685,17 @@ export function getLatestConsensusDirection(symbol: string): 'bullish' | 'bearis
 }
 
 /**
- * Get all cached consensus values (for debugging/monitoring)
+ * Get all cached consensus values (for debugging/monitoring).
+ * Phase 70 — also returns Bayesian posterior fields when available.
  */
-export function getAllCachedConsensus(): Map<string, { consensus: number; timestamp: number; direction: 'bullish' | 'bearish' }> {
+export function getAllCachedConsensus(): Map<string, {
+  consensus: number;
+  timestamp: number;
+  direction: 'bullish' | 'bearish';
+  posteriorMean?: number;
+  posteriorStd?: number;
+  effectiveN?: number;
+  avgCorrelation?: number;
+}> {
   return new Map(consensusCache);
 }

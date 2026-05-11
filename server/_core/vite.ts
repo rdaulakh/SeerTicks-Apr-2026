@@ -66,10 +66,26 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  // Phase 77 — cache strategy:
+  //   - /assets/*  (hashed filenames like index-DQMAzmJ8.js): long cache, immutable
+  //   - index.html: no-cache so users always pick up new bundle hashes
+  //   This eliminates the "hard refresh needed" issue after deploys.
+  app.use(express.static(distPath, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      } else if (/\/assets\/.+\.(js|css|woff2?|png|jpg|svg)$/.test(filePath)) {
+        // Vite outputs hash-named assets — safe to cache for a year.
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    },
+  }));
 
   // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }
