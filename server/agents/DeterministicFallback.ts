@@ -11,6 +11,7 @@
  */
 
 import { AgentSignal } from './AgentBase';
+import { getActiveClock } from '../_core/clock';
 
 export interface DeterministicFallbackConfig {
   name: string;
@@ -51,7 +52,7 @@ export abstract class DeterministicFallback {
    * Check if fallback should be activated
    */
   shouldActivate(llmStartTime: number): boolean {
-    return Date.now() - llmStartTime > this.config.timeout;
+    return getActiveClock().now() - llmStartTime > this.config.timeout;
   }
 }
 
@@ -445,7 +446,7 @@ export class FallbackManager {
       news: 15000,
       macro: 20000,
     };
-    return Date.now() - startTime > timeouts[agentType];
+    return getActiveClock().now() - startTime > timeouts[agentType];
   }
 
   /**
@@ -454,7 +455,7 @@ export class FallbackManager {
   private recordActivation(type: string): void {
     const stats = this.fallbackStats.get(type) || { activations: 0, lastActivation: 0 };
     stats.activations++;
-    stats.lastActivation = Date.now();
+    stats.lastActivation = getActiveClock().now();
     this.fallbackStats.set(type, stats);
   }
 

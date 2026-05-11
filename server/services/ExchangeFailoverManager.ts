@@ -15,6 +15,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // ============================================================================
 // Types & Interfaces
@@ -185,7 +186,7 @@ export class ExchangeFailoverManager extends EventEmitter {
     }, this.config.reconciliationIntervalMs);
 
     console.log('[ExchangeFailoverManager] Started');
-    this.emit('manager_started', { timestamp: Date.now() });
+    this.emit('manager_started', { timestamp: getActiveClock().now() });
   }
 
   stop(): void {
@@ -203,7 +204,7 @@ export class ExchangeFailoverManager extends EventEmitter {
     }
 
     console.log('[ExchangeFailoverManager] Stopped');
-    this.emit('manager_stopped', { timestamp: Date.now() });
+    this.emit('manager_stopped', { timestamp: getActiveClock().now() });
   }
 
   // ============================================================================
@@ -222,7 +223,7 @@ export class ExchangeFailoverManager extends EventEmitter {
       avgLatencyMs: 0,
       p99LatencyMs: 0,
       errorRate: 0,
-      lastSuccessTime: Date.now(),
+      lastSuccessTime: getActiveClock().now(),
       lastErrorTime: null,
       lastError: null,
       consecutiveErrors: 0,
@@ -312,8 +313,8 @@ export class ExchangeFailoverManager extends EventEmitter {
 
     if (availableExchanges.length === 0) {
       const event: FailoverEvent = {
-        id: `FO-${Date.now()}-${this.eventCounter}`,
-        timestamp: Date.now(),
+        id: `FO-${getActiveClock().now()}-${this.eventCounter}`,
+        timestamp: getActiveClock().now(),
         fromExchange,
         toExchange: 'none',
         reason,
@@ -335,8 +336,8 @@ export class ExchangeFailoverManager extends EventEmitter {
     const latencyMs = performance.now() - startTime;
 
     const event: FailoverEvent = {
-      id: `FO-${Date.now()}-${this.eventCounter}`,
-      timestamp: Date.now(),
+      id: `FO-${getActiveClock().now()}-${this.eventCounter}`,
+      timestamp: getActiveClock().now(),
       fromExchange,
       toExchange,
       reason,
@@ -376,7 +377,7 @@ export class ExchangeFailoverManager extends EventEmitter {
     if (!health) return;
 
     this.stats.totalRequests++;
-    health.lastSuccessTime = Date.now();
+    health.lastSuccessTime = getActiveClock().now();
     health.consecutiveSuccesses++;
     health.consecutiveErrors = 0;
     health.latencyMs = latencyMs;
@@ -397,7 +398,7 @@ export class ExchangeFailoverManager extends EventEmitter {
 
     this.stats.totalRequests++;
     this.stats.totalErrors++;
-    health.lastErrorTime = Date.now();
+    health.lastErrorTime = getActiveClock().now();
     health.lastError = error;
     health.consecutiveErrors++;
     health.consecutiveSuccesses = 0;
@@ -520,7 +521,7 @@ export class ExchangeFailoverManager extends EventEmitter {
   private runHealthChecks(): void {
     for (const [exchangeId, health] of this.healthData) {
       // Check for stale data
-      const timeSinceSuccess = Date.now() - health.lastSuccessTime;
+      const timeSinceSuccess = getActiveClock().now() - health.lastSuccessTime;
       if (timeSinceSuccess > 60000) {
         health.status = 'unhealthy';
         health.score = Math.max(0, health.score - 10);
@@ -529,7 +530,7 @@ export class ExchangeFailoverManager extends EventEmitter {
       // Update uptime
       const config = this.exchanges.get(exchangeId);
       if (config) {
-        const totalTime = Date.now() - (health.lastSuccessTime - timeSinceSuccess);
+        const totalTime = getActiveClock().now() - (health.lastSuccessTime - timeSinceSuccess);
         health.uptime = Math.max(0, 1 - (timeSinceSuccess / totalTime));
       }
     }
@@ -557,7 +558,7 @@ export class ExchangeFailoverManager extends EventEmitter {
       primaryStatus: 'pending',
       backupStatus: backupExchange ? 'pending' : null,
       discrepancy: false,
-      lastChecked: Date.now(),
+      lastChecked: getActiveClock().now(),
     });
   }
 
@@ -578,7 +579,7 @@ export class ExchangeFailoverManager extends EventEmitter {
       reconciliation.backupStatus = status;
     }
 
-    reconciliation.lastChecked = Date.now();
+    reconciliation.lastChecked = getActiveClock().now();
 
     // Check for discrepancies
     this.checkOrderDiscrepancy(orderId);
@@ -600,7 +601,7 @@ export class ExchangeFailoverManager extends EventEmitter {
   }
 
   private runReconciliation(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     for (const [orderId, reconciliation] of this.orderReconciliations) {
       // Clean up old reconciliations
@@ -634,11 +635,11 @@ export class ExchangeFailoverManager extends EventEmitter {
     
     while (pool.length < this.config.minConnections) {
       pool.push({
-        id: `${exchangeId}-conn-${Date.now()}-${pool.length}`,
+        id: `${exchangeId}-conn-${getActiveClock().now()}-${pool.length}`,
         exchangeId,
         status: 'idle',
-        createdAt: Date.now(),
-        lastUsedAt: Date.now(),
+        createdAt: getActiveClock().now(),
+        lastUsedAt: getActiveClock().now(),
         requestCount: 0,
       });
     }
@@ -657,7 +658,7 @@ export class ExchangeFailoverManager extends EventEmitter {
     const idleConnection = pool.find(c => c.status === 'idle');
     if (idleConnection) {
       idleConnection.status = 'active';
-      idleConnection.lastUsedAt = Date.now();
+      idleConnection.lastUsedAt = getActiveClock().now();
       idleConnection.requestCount++;
       return idleConnection;
     }
@@ -666,11 +667,11 @@ export class ExchangeFailoverManager extends EventEmitter {
     const config = this.exchanges.get(exchangeId);
     if (config && pool.length < this.config.maxConnections) {
       const newConnection: ExchangeConnection = {
-        id: `${exchangeId}-conn-${Date.now()}-${pool.length}`,
+        id: `${exchangeId}-conn-${getActiveClock().now()}-${pool.length}`,
         exchangeId,
         status: 'active',
-        createdAt: Date.now(),
-        lastUsedAt: Date.now(),
+        createdAt: getActiveClock().now(),
+        lastUsedAt: getActiveClock().now(),
         requestCount: 1,
       };
       pool.push(newConnection);
@@ -688,7 +689,7 @@ export class ExchangeFailoverManager extends EventEmitter {
       const connection = pool.find(c => c.id === connectionId);
       if (connection) {
         connection.status = 'idle';
-        connection.lastUsedAt = Date.now();
+        connection.lastUsedAt = getActiveClock().now();
         return;
       }
     }

@@ -1,4 +1,5 @@
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 import { ExchangeInterface, MarketData } from "../exchanges";
 import { getCandleCache, type Candle } from '../WebSocketCandleCache';
 import { getIndicatorCache, calculateRSI, calculateMACD, calculateBollingerBands } from '../utils/IndicatorCache';
@@ -110,7 +111,7 @@ export class TechnicalAnalyst extends AgentBase {
   }
 
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     // Note: exchange is optional — agents use CandleCache (from WebSocket ticks)
     // and database fallback for candle data. No REST API calls needed.
@@ -263,8 +264,8 @@ export class TechnicalAnalyst extends AgentBase {
         signal
       );
 
-      const processingTime = Date.now() - startTime;
-      const dataFreshness = (Date.now() - candles[candles.length - 1].timestamp) / 1000;
+      const processingTime = getActiveClock().now() - startTime;
+      const dataFreshness = (getActiveClock().now() - candles[candles.length - 1].timestamp) / 1000;
 
       // Debug log execution score
       agentLogger.debug('Execution score calculated', { agent: 'TechnicalAnalyst', symbol, executionScore, signal, confidence: (confidence * 100).toFixed(1) + '%' });
@@ -272,7 +273,7 @@ export class TechnicalAnalyst extends AgentBase {
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal,
         confidence,
         strength,
@@ -393,7 +394,7 @@ export class TechnicalAnalyst extends AgentBase {
 
   protected async periodicUpdate(): Promise<void> {
     // Clear old cache entries
-    const now = Date.now();
+    const now = getActiveClock().now();
     for (const [key, value] of Array.from(this.indicatorCache.entries())) {
       if (now - value.timestamp > this.CACHE_TTL) {
         this.indicatorCache.delete(key);
@@ -982,7 +983,7 @@ export class TechnicalAnalyst extends AgentBase {
 
     // Add small deterministic variation based on timestamp
     // Uses sine wave to create natural-looking variation without randomness
-    const timeVariation = Math.sin(Date.now() / 60000) * 0.01; // ±1% oscillation over ~1 min
+    const timeVariation = Math.sin(getActiveClock().now() / 60000) * 0.01; // ±1% oscillation over ~1 min
 
     return adjustment + timeVariation;
   }
@@ -1333,7 +1334,7 @@ export class TechnicalAnalyst extends AgentBase {
   ): Promise<{ signal: 'bullish' | 'bearish' | 'neutral'; confidence: number; strength: number; reasoning: string }> {
     try {
       // Check cache first
-      if (this.onChainSignalCache && Date.now() - this.onChainSignalCache.timestamp < this.ONCHAIN_CACHE_TTL) {
+      if (this.onChainSignalCache && getActiveClock().now() - this.onChainSignalCache.timestamp < this.ONCHAIN_CACHE_TTL) {
         return this.processOnChainSignal(signal, confidence, strength, reasoning, this.onChainSignalCache.signal);
       }
 
@@ -1347,7 +1348,7 @@ export class TechnicalAnalyst extends AgentBase {
       const onChainSignal = await duneProvider.getQuickSignal('BTC');
       
       // Cache the signal
-      this.onChainSignalCache = { signal: onChainSignal, timestamp: Date.now() };
+      this.onChainSignalCache = { signal: onChainSignal, timestamp: getActiveClock().now() };
 
       return this.processOnChainSignal(signal, confidence, strength, reasoning, onChainSignal);
     } catch (error) {

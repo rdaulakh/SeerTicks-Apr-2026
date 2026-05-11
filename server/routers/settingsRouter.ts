@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getActiveClock } from '../_core/clock';
 import { protectedProcedure, router } from "../_core/trpc";
 
 // Phase 57 — exchange enum widened to include Binance USDM Futures so users
@@ -849,7 +850,7 @@ export const settingsRouter = router({
   updateAutoTrading: protectedProcedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      const startTime = Date.now();
+      const startTime = getActiveClock().now();
       console.log(`[updateAutoTrading] User ${ctx.user.id} setting auto trading to: ${input.enabled}`);
       
       try {
@@ -859,7 +860,7 @@ export const settingsRouter = router({
           autoTradeEnabled: input.enabled,
         });
         
-        const duration = Date.now() - startTime;
+        const duration = getActiveClock().now() - startTime;
         console.log(`[updateAutoTrading] Updated tradingModeConfig in ${duration}ms. Engine will sync within 5 seconds.`);
         
         return { success: true };

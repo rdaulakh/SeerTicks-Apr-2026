@@ -26,6 +26,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 interface RingTick {
   price: number;
@@ -90,7 +91,7 @@ export class LeadLagTracker extends EventEmitter {
    * Push a Binance bookTicker mid-price. Returns true if it triggered a
    * lead candidate (significant price move).
    */
-  pushBinance(symbol: string, price: number, ts: number = Date.now()): void {
+  pushBinance(symbol: string, price: number, ts: number = getActiveClock().now()): void {
     if (!this.isRunning || !isFinite(price) || price <= 0) return;
     const ring = this.getRing('binance', symbol);
     this.append(ring, { price, ts });
@@ -133,7 +134,7 @@ export class LeadLagTracker extends EventEmitter {
    * Push a Coinbase ticker price. Resolves any pending lead whose direction
    * Coinbase has now confirmed.
    */
-  pushCoinbase(symbol: string, price: number, ts: number = Date.now()): void {
+  pushCoinbase(symbol: string, price: number, ts: number = getActiveClock().now()): void {
     if (!this.isRunning || !isFinite(price) || price <= 0) return;
     const ring = this.getRing('coinbase', symbol);
     this.append(ring, { price, ts });
@@ -171,7 +172,7 @@ export class LeadLagTracker extends EventEmitter {
    * not skew the median lag.
    */
   private resolvePending(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     for (let i = this.pendingLeads.length - 1; i >= 0; i--) {
       if (this.pendingLeads[i].resolveBy < now) this.pendingLeads.splice(i, 1);
     }

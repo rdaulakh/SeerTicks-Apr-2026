@@ -28,6 +28,7 @@
  * is supported by the API but adds complexity SEER doesn't need yet.
  */
 
+import { getActiveClock } from '../_core/clock';
 import {
   ExchangeInterface,
   NormalizedTick,
@@ -116,7 +117,7 @@ export class BinanceFuturesAdapter extends ExchangeInterface {
    * coarser stepSize and a higher minNotional ($5 typical vs spot $10).
    */
   private async ensureSymbolFilters(): Promise<void> {
-    if (this.symbolFilters.size > 0 && Date.now() - this.filtersLoadedAt < this.FILTERS_TTL_MS) return;
+    if (this.symbolFilters.size > 0 && getActiveClock().now() - this.filtersLoadedAt < this.FILTERS_TTL_MS) return;
     try {
       const info = await this.client.getExchangeInfo();
       for (const sym of info.symbols || []) {
@@ -132,7 +133,7 @@ export class BinanceFuturesAdapter extends ExchangeInterface {
           });
         }
       }
-      this.filtersLoadedAt = Date.now();
+      this.filtersLoadedAt = getActiveClock().now();
       console.log(`[BinanceFuturesAdapter] Loaded LOT_SIZE/PRICE_FILTER for ${this.symbolFilters.size} perp symbols`);
     } catch (e: any) {
       console.warn('[BinanceFuturesAdapter] Failed to load symbol filters:', e?.message);
@@ -243,7 +244,7 @@ export class BinanceFuturesAdapter extends ExchangeInterface {
     return {
       bids: r.bids.map((b: [string, string]) => ({ price: parseFloat(b[0]), quantity: parseFloat(b[1]) })),
       asks: r.asks.map((a: [string, string]) => ({ price: parseFloat(a[0]), quantity: parseFloat(a[1]) })),
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
     };
   }
 
@@ -426,7 +427,7 @@ export class BinanceFuturesAdapter extends ExchangeInterface {
       status: this.mapOrderStatus(r.status),
       executedQty: parseFloat(r.executedQty ?? '0'),
       executedPrice: parseFloat(r.avgPrice ?? r.price ?? '0'),
-      timestamp: Number(r.updateTime ?? r.transactTime ?? Date.now()),
+      timestamp: Number(r.updateTime ?? r.transactTime ?? getActiveClock().now()),
     };
   }
 

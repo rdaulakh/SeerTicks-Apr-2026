@@ -3,6 +3,7 @@
  */
 
 import { eq, and, desc, gte } from "drizzle-orm";
+import { getActiveClock } from '../_core/clock';
 import { getDb } from "../db";
 import { tradingSignals, type InsertTradingSignal, type TradingSignal } from "../../drizzle/schema";
 
@@ -157,7 +158,7 @@ export async function getRecentSignalsByTime(
   }
 
   try {
-    const cutoffTime = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
+    const cutoffTime = new Date(getActiveClock().now() - hoursAgo * 60 * 60 * 1000);
 
     const signals = await db
       .select()

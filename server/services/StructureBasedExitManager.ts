@@ -9,6 +9,7 @@
  */
 
 import { getTradingConfig } from '../config/TradingConfig';
+import { getActiveClock } from '../_core/clock';
 
 export interface StructureLevel {
   price: number;
@@ -415,7 +416,7 @@ export class StructureBasedExitManager {
     const signals: ExitSignal[] = [];
     
     // Time-based exit
-    const holdTime = Date.now() - position.openTime;
+    const holdTime = getActiveClock().now() - position.openTime;
     if (holdTime > this.config.maxHoldTime) {
       signals.push({
         type: 'max_time_exit',

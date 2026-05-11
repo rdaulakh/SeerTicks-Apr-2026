@@ -14,6 +14,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // ============================================================================
 // Types & Interfaces
@@ -173,14 +174,14 @@ export class FlashCrashDetector extends EventEmitter {
     if (this.isActive) return;
     this.isActive = true;
     console.log('[FlashCrashDetector] Started - monitoring for flash crashes');
-    this.emit('detector_started', { timestamp: Date.now() });
+    this.emit('detector_started', { timestamp: getActiveClock().now() });
   }
 
   stop(): void {
     if (!this.isActive) return;
     this.isActive = false;
     console.log('[FlashCrashDetector] Stopped');
-    this.emit('detector_stopped', { timestamp: Date.now() });
+    this.emit('detector_stopped', { timestamp: getActiveClock().now() });
   }
 
   // ============================================================================
@@ -210,7 +211,7 @@ export class FlashCrashDetector extends EventEmitter {
       this.symbolStates.set(symbol, state);
     }
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     const pricePoint: PricePoint = { price, volume, timestamp: now, source };
 
     // Step 1: Price Sanity Check (fast rejection)
@@ -378,7 +379,7 @@ export class FlashCrashDetector extends EventEmitter {
     if (state.lastPrice > 0) {
       const jumpPercent = Math.abs((price - state.lastPrice) / state.lastPrice) * 100;
       // Allow larger jumps if enough time has passed
-      const timeSinceLastPrice = Date.now() - state.lastPriceTime;
+      const timeSinceLastPrice = getActiveClock().now() - state.lastPriceTime;
       const maxJumpPercent = this.config.maxPriceDeviationPercent * 
         Math.max(1, timeSinceLastPrice / this.config.minPriceValidityMs);
       
@@ -453,7 +454,7 @@ export class FlashCrashDetector extends EventEmitter {
     },
     latencyMs: number
   ): FlashCrashEvent {
-    const now = Date.now();
+    const now = getActiveClock().now();
     this.eventCounter++;
 
     const severity: 'warning' | 'critical' | 'emergency' = 
@@ -491,7 +492,7 @@ export class FlashCrashDetector extends EventEmitter {
   private checkRecovery(symbol: string, state: SymbolFlashState): void {
     if (!state.isInFlashCrash || !state.flashCrashStartTime) return;
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     const timeSinceFlash = now - state.flashCrashStartTime;
 
     // Wait for recovery delay
@@ -537,7 +538,7 @@ export class FlashCrashDetector extends EventEmitter {
     this.stats.successfulRecoveries++;
 
     console.log(`[FlashCrashDetector] Recovery complete for ${symbol}`);
-    this.emit('recovery_complete', { symbol, timestamp: Date.now() });
+    this.emit('recovery_complete', { symbol, timestamp: getActiveClock().now() });
   }
 
   // ============================================================================
@@ -551,7 +552,7 @@ export class FlashCrashDetector extends EventEmitter {
       vwap: initialPrice,
       vwapVolume: 0,
       lastPrice: initialPrice,
-      lastPriceTime: Date.now(),
+      lastPriceTime: getActiveClock().now(),
       volatility: 0,
       baselineVolatility: 0.01, // 1% baseline
       isInFlashCrash: false,

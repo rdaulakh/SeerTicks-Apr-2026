@@ -13,6 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // ============================================================================
 // Types & Interfaces
@@ -371,7 +372,7 @@ export class StressTestingFramework extends EventEmitter {
     }, 60000); // Every minute
 
     console.log('[StressTestingFramework] Started');
-    this.emit('framework_started', { timestamp: Date.now() });
+    this.emit('framework_started', { timestamp: getActiveClock().now() });
   }
 
   stop(): void {
@@ -384,7 +385,7 @@ export class StressTestingFramework extends EventEmitter {
     }
 
     console.log('[StressTestingFramework] Stopped');
-    this.emit('framework_stopped', { timestamp: Date.now() });
+    this.emit('framework_stopped', { timestamp: getActiveClock().now() });
   }
 
   // ============================================================================
@@ -463,10 +464,10 @@ export class StressTestingFramework extends EventEmitter {
     const durationMs = performance.now() - startTime;
 
     const result: StressTestResult = {
-      id: `ST-${scenarioId}-${Date.now()}-${this.resultCounter}`,
+      id: `ST-${scenarioId}-${getActiveClock().now()}-${this.resultCounter}`,
       scenarioId,
       scenarioName: scenario.name,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       durationMs,
       
       initialValue: testPortfolioValue,
@@ -739,8 +740,8 @@ export class StressTestingFramework extends EventEmitter {
     const extremeScenarios = allReturns.filter(r => Math.abs(r) > 0.2).length;
 
     const result: MonteCarloResult = {
-      id: `MC-${Date.now()}`,
-      timestamp: Date.now(),
+      id: `MC-${getActiveClock().now()}`,
+      timestamp: getActiveClock().now(),
       config: mcConfig,
       meanReturn: meanReturn * 100,
       stdDevReturn: stdDevReturn * 100,
@@ -845,12 +846,12 @@ export class StressTestingFramework extends EventEmitter {
 
   private initializeStressIndicators(): void {
     const indicators: StressIndicator[] = [
-      { name: 'Market Volatility Index', value: 20, threshold: 40, status: 'normal', trend: 'stable', lastUpdated: Date.now() },
-      { name: 'Liquidity Stress', value: 10, threshold: 50, status: 'normal', trend: 'stable', lastUpdated: Date.now() },
-      { name: 'Correlation Breakdown', value: 0.3, threshold: 0.8, status: 'normal', trend: 'stable', lastUpdated: Date.now() },
-      { name: 'Spread Widening', value: 5, threshold: 50, status: 'normal', trend: 'stable', lastUpdated: Date.now() },
-      { name: 'Order Book Depth', value: 80, threshold: 30, status: 'normal', trend: 'stable', lastUpdated: Date.now() },
-      { name: 'Exchange Health', value: 95, threshold: 70, status: 'normal', trend: 'stable', lastUpdated: Date.now() },
+      { name: 'Market Volatility Index', value: 20, threshold: 40, status: 'normal', trend: 'stable', lastUpdated: getActiveClock().now() },
+      { name: 'Liquidity Stress', value: 10, threshold: 50, status: 'normal', trend: 'stable', lastUpdated: getActiveClock().now() },
+      { name: 'Correlation Breakdown', value: 0.3, threshold: 0.8, status: 'normal', trend: 'stable', lastUpdated: getActiveClock().now() },
+      { name: 'Spread Widening', value: 5, threshold: 50, status: 'normal', trend: 'stable', lastUpdated: getActiveClock().now() },
+      { name: 'Order Book Depth', value: 80, threshold: 30, status: 'normal', trend: 'stable', lastUpdated: getActiveClock().now() },
+      { name: 'Exchange Health', value: 95, threshold: 70, status: 'normal', trend: 'stable', lastUpdated: getActiveClock().now() },
     ];
 
     for (const indicator of indicators) {
@@ -864,7 +865,7 @@ export class StressTestingFramework extends EventEmitter {
 
     const previousValue = indicator.value;
     indicator.value = value;
-    indicator.lastUpdated = Date.now();
+    indicator.lastUpdated = getActiveClock().now();
 
     // Determine trend
     if (value > previousValue * 1.1) {

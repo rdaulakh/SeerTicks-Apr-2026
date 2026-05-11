@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 /**
  * High-Frequency Tick Processor
@@ -80,7 +81,7 @@ export class HighFrequencyTickProcessor extends EventEmitter {
    * Process a new tick and update all windows
    */
   processTick(tick: Tick): void {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     // Initialize windows for symbol if not exists
     if (!this.tickWindows.has(tick.symbol)) {
@@ -111,7 +112,7 @@ export class HighFrequencyTickProcessor extends EventEmitter {
     }
 
     // Track processing latency
-    const latency = Date.now() - startTime;
+    const latency = getActiveClock().now() - startTime;
     this.trackLatency(latency);
 
     // Emit tick processed event
@@ -158,7 +159,7 @@ export class HighFrequencyTickProcessor extends EventEmitter {
         strength,
         priceVelocity: velocity1s,
         volumeVelocity: volumeVelocity1s,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
       };
 
       this.emit('momentum_signal', signal);
@@ -209,7 +210,7 @@ export class HighFrequencyTickProcessor extends EventEmitter {
         strength,
         volumeSpike,
         buyPressure,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
       };
 
       this.emit('volume_signal', signal);

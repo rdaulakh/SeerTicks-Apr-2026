@@ -13,6 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // ============================================
 // TYPES AND INTERFACES
@@ -241,7 +242,7 @@ class SlowDeathMonitor extends EventEmitter {
    * Remove data older than retention period
    */
   private pruneOldData(): void {
-    const cutoff = Date.now() - (this.config.retentionHours * 60 * 60 * 1000);
+    const cutoff = getActiveClock().now() - (this.config.retentionHours * 60 * 60 * 1000);
 
     this.memorySnapshots = this.memorySnapshots.filter(s => s.timestamp.getTime() > cutoff);
     this.latencySnapshots = this.latencySnapshots.filter(s => s.timestamp.getTime() > cutoff);
@@ -299,7 +300,7 @@ class SlowDeathMonitor extends EventEmitter {
         analysis.growthRatePerHour > this.config.memoryGrowthAlertThresholdMBPerHour) {
       
       // Check if growth has been sustained
-      const hoursOfData = (Date.now() - this.memorySnapshots[0].timestamp.getTime()) / (1000 * 60 * 60);
+      const hoursOfData = (getActiveClock().now() - this.memorySnapshots[0].timestamp.getTime()) / (1000 * 60 * 60);
       
       if (hoursOfData >= this.config.memoryGrowthSustainedHours) {
         this.raiseAlert({
@@ -335,7 +336,7 @@ class SlowDeathMonitor extends EventEmitter {
 
     // Check for latency increase over the window
     const windowMs = this.config.latencyIncreaseWindowMinutes * 60 * 1000;
-    const windowStart = Date.now() - windowMs;
+    const windowStart = getActiveClock().now() - windowMs;
     const recentSnapshots = this.latencySnapshots.filter(s => s.timestamp.getTime() > windowStart);
     
     if (recentSnapshots.length >= 2) {
@@ -373,7 +374,7 @@ class SlowDeathMonitor extends EventEmitter {
 
       // Check for sustained queue growth
       const windowMs = this.config.queueDepthSustainedMinutes * 60 * 1000;
-      const windowStart = Date.now() - windowMs;
+      const windowStart = getActiveClock().now() - windowMs;
       const recentSnapshots = snapshots.filter(s => s.timestamp.getTime() > windowStart);
 
       if (recentSnapshots.length >= 2) {
@@ -422,7 +423,7 @@ class SlowDeathMonitor extends EventEmitter {
       };
     }
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     const currentValue = data[data.length - 1].value;
     
     // Find values at different time points

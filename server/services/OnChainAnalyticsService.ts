@@ -11,6 +11,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { getBGeometricsService, OnChainSignal } from './BGeometricsService';
 import { getDeFiLlamaService, DeFiSentiment } from './DeFiLlamaService';
 import { getDuneAnalyticsService } from './DuneAnalyticsService';
@@ -161,7 +162,7 @@ export class OnChainAnalyticsService extends EventEmitter {
 
     // Cache the result
     this.dashboardCache = dashboard;
-    this.cacheExpiry = new Date(Date.now() + this.cacheTTL);
+    this.cacheExpiry = new Date(getActiveClock().now() + this.cacheTTL);
 
     return dashboard;
   }

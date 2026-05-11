@@ -1,4 +1,5 @@
 import { eq, and, desc, asc, gte, lte, isNull, or, sql } from "drizzle-orm";
+import { getActiveClock } from './_core/clock';
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from 'mysql2/promise';
 import { InsertUser, users, paperWallets, InsertPaperWallet, paperPositions, InsertPaperPosition, paperOrders, InsertPaperOrder, paperTrades, InsertPaperTrade, tradingModeConfig, InsertTradingModeConfig, agentAccuracy, settings, InsertSettings, Settings, automatedTradingSettings, InsertAutomatedTradingSettings, AutomatedTradingSettings, automatedTradeLog, InsertAutomatedTradeLog, AutomatedTradeLog, automatedTradingMetrics, InsertAutomatedTradingMetric } from "../drizzle/schema";
@@ -105,7 +106,7 @@ export async function getDb() {
 
       // FIX: Update health state so health endpoint shows DB as connected
       import('./routers/healthRouter').then(({ updateHealthState }) => {
-        updateHealthState('database', { connected: true, lastQuery: Date.now() });
+        updateHealthState('database', { connected: true, lastQuery: getActiveClock().now() });
       }).catch(() => {}); // Silent fail
     } catch (error) {
       console.error("[Database] Failed to initialize:", error);
@@ -505,7 +506,7 @@ export async function resetPaperWallet(userId: number, tradingMode: 'paper' | 'l
       await db.insert(paperTrades).values({
         userId,
         tradingMode,
-        orderId: `reset_close_${Date.now()}_${position.id}`,
+        orderId: `reset_close_${getActiveClock().now()}_${position.id}`,
         symbol: position.symbol,
         side: position.side === 'long' ? 'sell' : 'buy',
         price: (exitPx > 0 ? exitPx : entryPrice).toString(),

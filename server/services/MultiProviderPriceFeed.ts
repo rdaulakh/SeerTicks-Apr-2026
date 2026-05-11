@@ -18,6 +18,7 @@
  */
 
 import WebSocket from 'ws';
+import { getActiveClock } from '../_core/clock';
 import EventEmitter from 'eventemitter3';
 import { priceFeedService } from './priceFeedService';
 
@@ -209,7 +210,7 @@ export class MultiProviderPriceFeed extends EventEmitter {
           
           status.connected = true;
           status.reconnectAttempts = 0;
-          status.lastMessage = Date.now();
+          status.lastMessage = getActiveClock().now();
           status.error = undefined;
           
           this.connections.set(providerName, ws);
@@ -284,7 +285,7 @@ export class MultiProviderPriceFeed extends EventEmitter {
    */
   private handleMessage(providerName: string, data: WebSocket.Data): void {
     const status = this.providerStatus.get(providerName)!;
-    status.lastMessage = Date.now();
+    status.lastMessage = getActiveClock().now();
 
     try {
       const message = JSON.parse(data.toString());
@@ -305,7 +306,7 @@ export class MultiProviderPriceFeed extends EventEmitter {
     const config = this.providers.get('coincap');
     if (!config) return;
     
-    const timestamp = Date.now();
+    const timestamp = getActiveClock().now();
 
     for (const [coinCapSymbol, priceStr] of Object.entries(message)) {
       const normalizedSymbol = config.reverseSymbolMapping.get(coinCapSymbol);
@@ -385,7 +386,7 @@ export class MultiProviderPriceFeed extends EventEmitter {
       // Rate-limit failover attempt logging to reduce spam
       // Completely skip logging for CoinCap - known service unavailability
       if (name !== 'coincap') {
-        const now = Date.now();
+        const now = getActiveClock().now();
         const lastLog = this.lastFailoverLogTime.get(name) || 0;
         const shouldLog = now - lastLog > MultiProviderPriceFeed.FAILOVER_LOG_INTERVAL;
         
@@ -463,7 +464,7 @@ export class MultiProviderPriceFeed extends EventEmitter {
    * Check health of all providers
    */
   private checkProviderHealth(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     this.providerStatus.forEach((status, name) => {
       if (status.connected && status.lastMessage) {

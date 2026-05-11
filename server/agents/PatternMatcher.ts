@@ -1,4 +1,5 @@
 import { AgentBase, type AgentConfig, type AgentSignal } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 import { ExchangeInterface } from "../exchanges/ExchangeInterface";
 import { getCandleCache } from '../WebSocketCandleCache';
 import { getValidatedPatterns, getPatternConfig, type ValidatedPattern } from '../db/patternQueries';
@@ -108,11 +109,11 @@ export class PatternMatcher extends AgentBase {
   }
 
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Reload patterns if needed
-      if (Date.now() - this.lastPatternLoad > this.PATTERN_RELOAD_INTERVAL) {
+      if (getActiveClock().now() - this.lastPatternLoad > this.PATTERN_RELOAD_INTERVAL) {
         await this.loadPatterns();
       }
 
@@ -281,7 +282,7 @@ export class PatternMatcher extends AgentBase {
         return {
           agentName: this.config.name,
           symbol,
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
           signal,
           confidence,
           strength,
@@ -296,7 +297,7 @@ export class PatternMatcher extends AgentBase {
             allDetected: detectedPatterns.map(p => `${p.name} (${p.timeframe})`).join(", "),
           },
           qualityScore: 0.4, // Lower quality for unvalidated
-          processingTime: Date.now() - startTime,
+          processingTime: getActiveClock().now() - startTime,
           dataFreshness: 0,
           recommendation: undefined,
         };
@@ -391,12 +392,12 @@ export class PatternMatcher extends AgentBase {
         }
       }
 
-      const processingTime = Date.now() - startTime;
+      const processingTime = getActiveClock().now() - startTime;
 
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal,
         confidence: adjustedConfidence,
         strength,
@@ -460,7 +461,7 @@ export class PatternMatcher extends AgentBase {
         };
       });
 
-      this.lastPatternLoad = Date.now();
+      this.lastPatternLoad = getActiveClock().now();
       console.log(`[${this.config.name}] Loaded ${this.patterns.length} validated patterns (WR >= 50%)`);
       if (this.patterns.length > 0) {
         console.log(`[${this.config.name}] Sample patterns:`, this.patterns.slice(0, 3).map(p => `${p.patternName} (${p.timeframe}, WR=${(p.winRate * 100).toFixed(1)}%)`))

@@ -1,4 +1,5 @@
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 import { ExchangeInterface } from "../exchanges/ExchangeInterface";
 import { getHotPath, HotPathEvents } from "../hotpath";
 
@@ -109,7 +110,7 @@ export class OrderFlowAnalyst extends AgentBase {
   }
 
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Try to get order book from cache first (populated by Hot Path)
@@ -188,13 +189,13 @@ export class OrderFlowAnalyst extends AgentBase {
       // A++ Grade: Calculate execution score (0-100) for order flow timing quality
       const executionScore = this.calculateExecutionScore(metrics, this.currentPrice, orderBook);
 
-      const processingTime = Date.now() - startTime;
-      const dataFreshness = (Date.now() - orderBook.timestamp) / 1000;
+      const processingTime = getActiveClock().now() - startTime;
+      const dataFreshness = (getActiveClock().now() - orderBook.timestamp) / 1000;
 
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal,
         confidence,
         strength,
@@ -234,7 +235,7 @@ export class OrderFlowAnalyst extends AgentBase {
       symbol,
       bids: orderBook.bids || [],
       asks: orderBook.asks || [],
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
     });
   }
 

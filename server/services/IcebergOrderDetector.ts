@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * Iceberg Order Detector (Priority 1)
  * 
@@ -71,7 +72,7 @@ export class IcebergOrderDetector {
     }
 
     // Filter trades within time window
-    const now = Date.now();
+    const now = getActiveClock().now();
     const recentTrades = trades.filter(t => now - t.timestamp < this.config.timeWindowMs);
     
     if (recentTrades.length < this.config.minChunkCount) {
@@ -251,7 +252,7 @@ export class IcebergOrderDetector {
       confidence: pattern.confidence,
       estimatedSize: pattern.estimatedTotalSize,
       priceLevel: avgPrice,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
     };
   }
 

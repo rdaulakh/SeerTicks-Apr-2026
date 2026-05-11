@@ -19,6 +19,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { getDb, getPoolStats } from '../db';
 import { priceFeedService } from './priceFeedService';
 
@@ -121,7 +122,7 @@ export class ConnectionResilienceManager extends EventEmitter {
     }
 
     this.isRunning = true;
-    this.startTime = Date.now();
+    this.startTime = getActiveClock().now();
 
     console.log('[ConnectionResilienceManager] 🚀 Starting connection resilience monitoring');
     console.log(`[ConnectionResilienceManager] Health check interval: ${this.config.healthCheckIntervalMs}ms`);
@@ -138,7 +139,7 @@ export class ConnectionResilienceManager extends EventEmitter {
     // Initial health check
     this.performHealthCheck();
 
-    this.emit('started', { timestamp: Date.now() });
+    this.emit('started', { timestamp: getActiveClock().now() });
   }
 
   /**
@@ -155,7 +156,7 @@ export class ConnectionResilienceManager extends EventEmitter {
     }
 
     console.log('[ConnectionResilienceManager] Stopped');
-    this.emit('stopped', { timestamp: Date.now() });
+    this.emit('stopped', { timestamp: getActiveClock().now() });
   }
 
   /**
@@ -163,7 +164,7 @@ export class ConnectionResilienceManager extends EventEmitter {
    */
   private subscribeToPriceFeed(): void {
     priceFeedService.on('price_update', () => {
-      this.lastPriceTickTime = Date.now();
+      this.lastPriceTickTime = getActiveClock().now();
       this.priceTickCount++;
       
       // Mark price feed as healthy
@@ -175,7 +176,7 @@ export class ConnectionResilienceManager extends EventEmitter {
    * Perform health check on all connections
    */
   private async performHealthCheck(): Promise<void> {
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     // Check database connection
     await this.checkDatabaseHealth();
@@ -199,7 +200,7 @@ export class ConnectionResilienceManager extends EventEmitter {
    * Check database connection health
    */
   private async checkDatabaseHealth(): Promise<void> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     
     try {
       const db = await getDb();
@@ -213,7 +214,7 @@ export class ConnectionResilienceManager extends EventEmitter {
       
       // Simple query to verify connection
       // The getDb() already tests connection, so if we got here, it's working
-      const latency = Date.now() - startTime;
+      const latency = getActiveClock().now() - startTime;
       
       const health = this.connections.get('database');
       if (health) {
@@ -279,7 +280,7 @@ export class ConnectionResilienceManager extends EventEmitter {
     const health = this.connections.get(connectionName);
     if (!health) return;
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     health.lastSuccessTime = now;
     health.consecutiveFailures = 0;
     health.isRecovering = false;
@@ -306,7 +307,7 @@ export class ConnectionResilienceManager extends EventEmitter {
     const health = this.connections.get(connectionName);
     if (!health) return;
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     health.lastErrorTime = now;
     health.lastError = error || 'Unknown error';
     health.consecutiveFailures++;
@@ -345,7 +346,7 @@ export class ConnectionResilienceManager extends EventEmitter {
     health.status = 'recovering';
 
     console.log(`[ConnectionResilienceManager] 🔄 Triggering recovery for ${connectionName}`);
-    this.emit('recovery_started', { name: connectionName, timestamp: Date.now() });
+    this.emit('recovery_started', { name: connectionName, timestamp: getActiveClock().now() });
 
     // Get recovery callback
     const recoveryCallback = this.recoveryCallbacks.get(connectionName);
@@ -385,7 +386,7 @@ export class ConnectionResilienceManager extends EventEmitter {
   private updateUptime(health: ConnectionHealth): void {
     if (!this.startTime) return;
 
-    const totalTime = Date.now() - this.startTime;
+    const totalTime = getActiveClock().now() - this.startTime;
     if (totalTime === 0) return;
 
     // Estimate uptime based on success/failure ratio
@@ -408,7 +409,7 @@ export class ConnectionResilienceManager extends EventEmitter {
     }
 
     this.signalBuffer.push({
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       type,
       data,
     });
@@ -418,7 +419,7 @@ export class ConnectionResilienceManager extends EventEmitter {
    * Flush buffered signals after recovery
    */
   flushSignalBuffer(): BufferedSignal[] {
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     // Filter out expired signals
     const validSignals = this.signalBuffer.filter(

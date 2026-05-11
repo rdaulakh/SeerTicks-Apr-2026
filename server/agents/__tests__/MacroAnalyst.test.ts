@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
+import { getActiveClock } from '../../_core/clock';
 import { MacroAnalyst } from '../MacroAnalyst';
 
 describe('MacroAnalyst - Institutional Grade Tests', () => {
@@ -280,7 +281,7 @@ describe('MacroAnalyst - Institutional Grade Tests', () => {
       const regime = { regime: 'risk-on' as const, confidence: 0.9 };
       
       // Set lastMacroFetch to now for fresh data
-      (analyst as any).lastMacroFetch = Date.now();
+      (analyst as any).lastMacroFetch = getActiveClock().now();
       (analyst as any).vetoActive = false;
       
       const executionScore = (analyst as any).calculateExecutionScore(macroData, regime);
@@ -310,7 +311,7 @@ describe('MacroAnalyst - Institutional Grade Tests', () => {
       
       // Activate veto
       (analyst as any).vetoActive = true;
-      (analyst as any).lastMacroFetch = Date.now();
+      (analyst as any).lastMacroFetch = getActiveClock().now();
       
       const executionScore = (analyst as any).calculateExecutionScore(macroData, regime);
 
@@ -343,7 +344,7 @@ describe('MacroAnalyst - Institutional Grade Tests', () => {
       };
 
       const regime = { regime: 'risk-on' as const, confidence: 0.8 };
-      (analyst as any).lastMacroFetch = Date.now();
+      (analyst as any).lastMacroFetch = getActiveClock().now();
       (analyst as any).vetoActive = false;
 
       const strongScore = (analyst as any).calculateExecutionScore(strongCorrelationData, regime);
@@ -370,7 +371,7 @@ describe('MacroAnalyst - Institutional Grade Tests', () => {
       };
 
       const regime = { regime: 'risk-off' as const, confidence: 0.1 };
-      (analyst as any).lastMacroFetch = Date.now();
+      (analyst as any).lastMacroFetch = getActiveClock().now();
       (analyst as any).vetoActive = true;
 
       const executionScore = (analyst as any).calculateExecutionScore(extremeData, regime);
@@ -398,7 +399,7 @@ describe('MacroAnalyst - Institutional Grade Tests', () => {
         btcDxy30d: -0.4,
         correlationRegime: 'risk-on' as const,
       };
-      (analyst as any).lastMacroFetch = Date.now();
+      (analyst as any).lastMacroFetch = getActiveClock().now();
 
       const signal = await analyst.generateSignal('BTCUSDT', { currentPrice: 98000 });
 

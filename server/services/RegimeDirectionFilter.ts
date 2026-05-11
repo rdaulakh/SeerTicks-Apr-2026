@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { getActiveClock } from '../_core/clock';
 import type { AgentSignal } from "../agents/AgentBase";
 
 /**
@@ -126,7 +127,7 @@ export class RegimeDirectionFilter extends EventEmitter {
       regime,
       confidence,
       allowedActions: REGIME_ALLOWED_ACTIONS[regime],
-      lastUpdated: Date.now(),
+      lastUpdated: getActiveClock().now(),
       source,
     };
 
@@ -158,7 +159,7 @@ export class RegimeDirectionFilter extends EventEmitter {
    * Check if an action is allowed in current regime
    */
   checkActionAllowed(action: 'buy' | 'sell', symbol: string): RegimeFilterDecision {
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     // Check 1: Is regime data fresh?
     if (now - this.regimeState.lastUpdated > this.REGIME_STALE_MS) {
@@ -225,7 +226,7 @@ export class RegimeDirectionFilter extends EventEmitter {
    * Check if regime data is fresh
    */
   isRegimeDataFresh(): boolean {
-    return (Date.now() - this.regimeState.lastUpdated) < this.REGIME_STALE_MS;
+    return (getActiveClock().now() - this.regimeState.lastUpdated) < this.REGIME_STALE_MS;
   }
 
   /**

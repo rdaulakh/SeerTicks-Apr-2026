@@ -11,6 +11,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { getDb } from '../db';
 import { candleData, agentSignals } from '../../drizzle/schema';
 import { eq, and, gte, lte, desc, asc } from 'drizzle-orm';
@@ -132,7 +133,7 @@ export class APlusPlusBacktestEngine extends EventEmitter {
     // A++ Grade Default Configuration
     this.config = {
       symbols: ['BTC-USD', 'ETH-USD'],
-      startDate: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000), // 60 days ago
+      startDate: new Date(getActiveClock().now() - 60 * 24 * 60 * 60 * 1000), // 60 days ago
       endDate: new Date(),
       initialCapital: 50000,
       
@@ -419,7 +420,7 @@ export class APlusPlusBacktestEngine extends EventEmitter {
     const wouldEnterWithoutFilters = consensus >= 0.50 && avgConfidence >= 0.40;
     if (wouldEnterWithoutFilters) {
       this.tradesWithoutFilters.push({
-        id: `${symbol}-${Date.now()}`,
+        id: `${symbol}-${getActiveClock().now()}`,
         symbol,
         direction,
         entryTime: new Date(),

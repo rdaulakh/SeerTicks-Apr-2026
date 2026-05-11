@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { getActiveClock } from '../_core/clock';
 import { AgentManager, AgentSignal } from "../agents/AgentBase";
 import { invokeLLM } from "../_core/llm";
 import { orchestratorLogger } from '../utils/logger';
@@ -323,7 +324,7 @@ export class StrategyOrchestrator extends EventEmitter {
    * Get trading recommendation for a symbol with latency tracking
    */
   async getRecommendation(symbol: string, context?: any): Promise<TradeRecommendation> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     
     // Start latency trace
     const latencyTracker = getLatencyTracker();
@@ -410,7 +411,7 @@ export class StrategyOrchestrator extends EventEmitter {
         await this.handleRecommendation(recommendation);
       }
 
-      const processingTime = Date.now() - startTime;
+      const processingTime = getActiveClock().now() - startTime;
       orchestratorLogger.info('Generated recommendation', { symbol: this.symbol, processingTimeMs: processingTime });
 
       return recommendation;
@@ -429,7 +430,7 @@ export class StrategyOrchestrator extends EventEmitter {
    * Called on every WebSocket trade event
    */
   async getFastRecommendation(symbol: string, context?: any): Promise<TradeRecommendation> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     
     try {
       // Collect signals from ONLY fast agents
@@ -459,7 +460,7 @@ export class StrategyOrchestrator extends EventEmitter {
         updateHealthState('agents', {
           active: allSignals.length,
           total: 12,
-          lastSignal: Date.now(),
+          lastSignal: getActiveClock().now(),
         });
       }).catch(() => {}); // Silent fail — health reporting is non-critical
 
@@ -526,7 +527,7 @@ export class StrategyOrchestrator extends EventEmitter {
         await this.handleRecommendation(recommendation);
       }
       
-      const processingTime = Date.now() - startTime;
+      const processingTime = getActiveClock().now() - startTime;
       orchestratorLogger.info('Fast recommendation generated', { symbol: this.symbol, processingTimeMs: processingTime });
       
       return recommendation;
@@ -550,7 +551,7 @@ export class StrategyOrchestrator extends EventEmitter {
 
       // Update slow signal cache
       this.slowSignalCache.set(symbol, slowSignals);
-      this.slowSignalTimestamp.set(symbol, Date.now());
+      this.slowSignalTimestamp.set(symbol, getActiveClock().now());
 
       // Refresh veto cache from slow signals (so fast ticks always have fresh veto state)
       this.checkVeto(slowSignals);
@@ -566,7 +567,7 @@ export class StrategyOrchestrator extends EventEmitter {
    */
   private async collectFastSignals(symbol: string, context?: any): Promise<AgentSignal[]> {
     const degradation = getGracefulDegradation();
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     
     // Ensure userId is in context for signal persistence
     const enrichedContext = { ...context, userId: this.userId };
@@ -577,7 +578,7 @@ export class StrategyOrchestrator extends EventEmitter {
       // Slow agents (MacroAnalyst, etc.) are called separately on 15-min interval
       const fastSignals = await this.agentManager.getSignalsFromAgents(symbol, [...this.FAST_AGENTS], enrichedContext);
       
-      const collectionTime = Date.now() - startTime;
+      const collectionTime = getActiveClock().now() - startTime;
       if (collectionTime > 30) {
         orchestratorLogger.warn('Slow fast signal collection', { collectionTimeMs: collectionTime, target: '<30ms' });
       }
@@ -608,7 +609,7 @@ export class StrategyOrchestrator extends EventEmitter {
           console.log(`[${this.symbol}] [StrategyOrchestrator] Filtering ${signal.agentName} signal: qualityScore ${signal.qualityScore.toFixed(2)} < threshold ${qualityThreshold.toFixed(2)}`);
         }
       }
-      orchestratorLogger.info('Fast signal collection completed', { collectionTimeMs: Date.now() - startTime, passedFilter: filteredSignals.length, total: fastSignals.length });
+      orchestratorLogger.info('Fast signal collection completed', { collectionTimeMs: getActiveClock().now() - startTime, passedFilter: filteredSignals.length, total: fastSignals.length });
       return filteredSignals;
     } catch (error) {
       orchestratorLogger.error('Failed to collect fast signals', { error: error instanceof Error ? error.message : String(error) });
@@ -813,7 +814,7 @@ export class StrategyOrchestrator extends EventEmitter {
       // Staleness penalty for slow agents — signals decay over time
       // Fast agents are tick-driven so always fresh. Slow agents can be up to 15min old.
       let stalenessFactor = 1.0;
-      const signalAge = Date.now() - signal.timestamp;
+      const signalAge = getActiveClock().now() - signal.timestamp;
       if (signalAge > 120000) { // >2 minutes old
         // Linear decay: 100% at 2min, 80% at 5min, 50% at 10min, 20% at 15min
         stalenessFactor = Math.max(0.2, 1.0 - (signalAge - 120000) / (13 * 60000));
@@ -909,17 +910,17 @@ export class StrategyOrchestrator extends EventEmitter {
         reason: macroSignal.evidence.vetoReason as string || "Macro veto active",
       };
       // Update cached veto state for fast tick access
-      this.cachedVeto = { ...result, timestamp: Date.now() };
+      this.cachedVeto = { ...result, timestamp: getActiveClock().now() };
       return result;
     }
 
     // If we have a fresh macro signal that's NOT vetoing, clear the cache
     if (macroSignal) {
-      this.cachedVeto = { active: false, reason: '', timestamp: Date.now() };
+      this.cachedVeto = { active: false, reason: '', timestamp: getActiveClock().now() };
     }
 
     // If no macro signal in this batch, check cached veto (still valid within TTL)
-    if (!macroSignal && this.cachedVeto.active && (Date.now() - this.cachedVeto.timestamp) < this.VETO_CACHE_TTL) {
+    if (!macroSignal && this.cachedVeto.active && (getActiveClock().now() - this.cachedVeto.timestamp) < this.VETO_CACHE_TTL) {
       return { active: true, reason: `${this.cachedVeto.reason} (cached)` };
     }
 
@@ -1142,7 +1143,7 @@ Be concise and actionable.`;
     
     // PHASE 10B: Reduce position size during regime instability
     let regimeInstabilityMultiplier = 1.0;
-    if (this.regimeTransitionCount >= 3 && (Date.now() - this.lastRegimeChangeTime) < 30 * 60000) {
+    if (this.regimeTransitionCount >= 3 && (getActiveClock().now() - this.lastRegimeChangeTime) < 30 * 60000) {
       regimeInstabilityMultiplier = 0.5; // Half position size during rapid regime changes
       orchestratorLogger.warn('Regime instability: reducing position size by 50%', { transitions: this.regimeTransitionCount });
     }
@@ -1218,7 +1219,7 @@ Be concise and actionable.`;
 
       return {
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         action,
         confidence: consensus.confidence,
         strength: Math.abs(consensus.score),
@@ -1401,7 +1402,7 @@ Be concise and actionable.`;
       
       return {
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         action,
         confidence: consensus.confidence,
         strength: Math.abs(consensus.score),
@@ -1452,7 +1453,7 @@ Be concise and actionable.`;
 
       return {
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         action,
         confidence: consensus.confidence,
         strength: Math.abs(consensus.score),
@@ -1731,7 +1732,7 @@ Be concise and actionable.`;
   ): TradeRecommendation {
     return {
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       action: "hold",
       confidence: 0,
       strength: 0,
@@ -1759,7 +1760,7 @@ Be concise and actionable.`;
   ): TradeRecommendation {
     return {
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       action: "exit",
       confidence: 0.95,
       strength: 1.0,
@@ -2044,7 +2045,7 @@ Be concise and actionable.`;
    */
   private async calculateATR(symbol: string, period: number = 14): Promise<number> {
     // Check cache first (60-second TTL)
-    if (this.atrCache && (Date.now() - this.atrCache.timestamp) < this.CACHE_TTL) {
+    if (this.atrCache && (getActiveClock().now() - this.atrCache.timestamp) < this.CACHE_TTL) {
       return this.atrCache.value;
     }
     
@@ -2078,7 +2079,7 @@ Be concise and actionable.`;
       const atrPercentage = (atr / currentPrice) * 100;
 
       // Cache for 60 seconds
-      this.atrCache = { value: atrPercentage, timestamp: Date.now() };
+      this.atrCache = { value: atrPercentage, timestamp: getActiveClock().now() };
 
       // Return as percentage
       return atrPercentage;
@@ -2146,7 +2147,7 @@ Be concise and actionable.`;
    */
   private async detectRegime(symbol: string): Promise<'trending_up' | 'trending_down' | 'range_bound' | 'high_volatility'> {
     // Check cache first (60-second TTL)
-    if (this.regimeCache && (Date.now() - this.regimeCache.timestamp) < this.CACHE_TTL) {
+    if (this.regimeCache && (getActiveClock().now() - this.regimeCache.timestamp) < this.CACHE_TTL) {
       return this.regimeCache.value as any;
     }
 
@@ -2208,13 +2209,13 @@ Be concise and actionable.`;
       const regime = detectMarketRegime(currentPrice, sma50, sma200, atr, avgATR);
       
       // Cache for 60 seconds
-      this.regimeCache = { value: regime, timestamp: Date.now() };
+      this.regimeCache = { value: regime, timestamp: getActiveClock().now() };
       
       // PHASE 10B: Regime transition early warning
       if (this.previousRegime && this.previousRegime !== regime) {
         this.regimeTransitionCount++;
-        const timeSinceLastChange = Date.now() - this.lastRegimeChangeTime;
-        this.lastRegimeChangeTime = Date.now();
+        const timeSinceLastChange = getActiveClock().now() - this.lastRegimeChangeTime;
+        this.lastRegimeChangeTime = getActiveClock().now();
         
         orchestratorLogger.warn('REGIME TRANSITION DETECTED', {
           symbol,
@@ -2232,7 +2233,7 @@ Be concise and actionable.`;
           });
         }
       } else if (!this.previousRegime) {
-        this.lastRegimeChangeTime = Date.now();
+        this.lastRegimeChangeTime = getActiveClock().now();
       }
       this.previousRegime = regime;
       
@@ -2385,7 +2386,7 @@ Be concise and actionable.`;
     }
     
     // 2. Data freshness: check if signals are stale (>5 minutes old)
-    const now = Date.now();
+    const now = getActiveClock().now();
     const staleSignals = signals.filter(s => {
       const signalAge = now - (s.timestamp || now);
       return signalAge > 5 * 60 * 1000; // 5 minutes

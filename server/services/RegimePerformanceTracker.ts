@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * RegimePerformanceTracker — Phase 36: Track trade outcomes per market regime.
  *
@@ -81,7 +82,7 @@ export class RegimePerformanceTracker {
     const entryTs = typeof trade.entryTime === 'number' ? trade.entryTime : trade.entryTime.getTime();
     const exitTs = trade.exitTime
       ? (typeof trade.exitTime === 'number' ? trade.exitTime : trade.exitTime.getTime())
-      : Date.now();
+      : getActiveClock().now();
 
     // Calculate actual R:R
     let riskRewardActual = 0;

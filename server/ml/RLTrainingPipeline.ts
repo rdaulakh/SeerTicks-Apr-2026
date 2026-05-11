@@ -6,6 +6,7 @@
  */
 
 import { DQNAgent } from './rl/DQNAgent';
+import { getActiveClock } from '../_core/clock';
 import { PPOAgent } from './rl/PPOAgent';
 import { RLTradingEnvironment, MarketState } from './rl/RLTradingEnvironment';
 import { getDb } from '../db';
@@ -387,7 +388,7 @@ export class RLTrainingPipeline extends EventEmitter {
     }
 
     this.isTraining = true;
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const trainingConfig = { ...this.config, ...config };
 
     console.log('[RLTrainingPipeline] Starting DQN training...');
@@ -526,7 +527,7 @@ export class RLTrainingPipeline extends EventEmitter {
         validationReward = await this.validateAgent(this.dqnAgent, validationStates, env);
       }
 
-      const trainingTime = Date.now() - startTime;
+      const trainingTime = getActiveClock().now() - startTime;
       const finalStepResult = env.step({ type: 'hold' });
       const finalInfo = {
         totalPnL: finalStepResult.info.pnl,
@@ -576,7 +577,7 @@ export class RLTrainingPipeline extends EventEmitter {
     }
 
     this.isTraining = true;
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const trainingConfig = { ...this.config, ...config };
 
     console.log('[RLTrainingPipeline] Starting PPO training...');
@@ -694,7 +695,7 @@ export class RLTrainingPipeline extends EventEmitter {
         validationReward = await this.validateAgent(this.ppoAgent, validationStates, env);
       }
 
-      const trainingTime = Date.now() - startTime;
+      const trainingTime = getActiveClock().now() - startTime;
       const finalStepResult = env.step({ type: 'hold' });
       const finalInfo = {
         totalPnL: finalStepResult.info.pnl,

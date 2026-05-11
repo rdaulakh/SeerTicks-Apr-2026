@@ -6,6 +6,7 @@
  */
 
 import { getDb } from '../db';
+import { getActiveClock } from '../_core/clock';
 import { agentSignals, positions, winningPatterns } from '../../drizzle/schema';
 import { eq, and, gte, lte, sql, desc } from 'drizzle-orm';
 
@@ -73,7 +74,7 @@ export class StrategyAccuracyTracker {
     startTime?: number,
     endTime?: number
   ): Promise<AccuracyMetrics> {
-    const cacheKey = `${symbol || 'all'}_${startTime || 0}_${endTime || Date.now()}`;
+    const cacheKey = `${symbol || 'all'}_${startTime || 0}_${endTime || getActiveClock().now()}`;
     
     // Check cache
     const cached = this.accuracyCache.get(cacheKey);

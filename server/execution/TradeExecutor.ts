@@ -13,6 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { PaperTradingEngine, PaperTradingConfig } from './PaperTradingEngine';
 import { RealTradingEngine, RealTradingConfig } from './RealTradingEngine';
 import { StrategyRouter, DetectedStrategy } from './StrategyRouter';
@@ -593,7 +594,7 @@ export class TradeExecutor extends EventEmitter {
             pnl: data.pnl,
             pnlPercent: data.pnlPercent,
             stopLoss: data.position?.stopLoss,
-            entryTime: data.position?.entryTime || Date.now(),
+            entryTime: data.position?.entryTime || getActiveClock().now(),
             strategy: data.position?.strategy || 'unknown',
           });
           executionLogger.info('Regime performance recorded', { symbol, regime: ctx.regime, pnl: data.pnl });
@@ -608,7 +609,7 @@ export class TradeExecutor extends EventEmitter {
             pnl: data.pnl,
             pnlPercent: data.pnlPercent,
             stopLoss: data.position?.stopLoss,
-            entryTime: data.position?.entryTime || Date.now(),
+            entryTime: data.position?.entryTime || getActiveClock().now(),
             strategy: data.position?.strategy || 'unknown',
           });
         });

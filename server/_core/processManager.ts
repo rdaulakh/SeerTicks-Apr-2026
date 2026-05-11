@@ -1,3 +1,4 @@
+import { getActiveClock } from "./clock";
 /**
  * Enterprise-Grade Process Manager
  * 
@@ -33,7 +34,7 @@ class ProcessManager {
   private recentErrors: ErrorLogEntry[] = [];
   private readonly MAX_ERROR_LOG = 100;
   private errorCountSinceStart = 0;
-  private processStartTime = Date.now();
+  private processStartTime = getActiveClock().now();
 
   constructor() {
     this.setupSignalHandlers();
@@ -55,7 +56,7 @@ class ProcessManager {
   getErrorStats() {
     return {
       processStartTime: this.processStartTime,
-      processUptimeMs: Date.now() - this.processStartTime,
+      processUptimeMs: getActiveClock().now() - this.processStartTime,
       totalErrors: this.errorCountSinceStart,
       recentErrors: this.recentErrors.slice(-20), // Last 20 errors
       isShuttingDown: this.isShuttingDown,
@@ -128,7 +129,7 @@ class ProcessManager {
       
       // Track for monitoring
       this.trackError({
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         type: 'uncaughtException',
         message: errorMessage,
         stack: error?.stack,
@@ -156,7 +157,7 @@ class ProcessManager {
 
       // Track for monitoring
       this.trackError({
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         type: 'unhandledRejection',
         message,
         stack: reason?.stack,

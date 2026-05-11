@@ -36,6 +36,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface FundingSample {
   timestamp: number;
@@ -104,7 +105,7 @@ export class FundingRateFlipAgent extends AgentBase {
       if (!isFinite(rate)) return;
 
       const hist = this.history.get(binSym) || [];
-      hist.push({ timestamp: Date.now(), rate });
+      hist.push({ timestamp: getActiveClock().now(), rate });
       if (hist.length > HISTORY_KEEP) hist.shift();
       this.history.set(binSym, hist);
     } catch { /* swallow — next poll retries */ }
@@ -115,7 +116,7 @@ export class FundingRateFlipAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     if (!this.trackedSymbols.includes(binSym)) {
@@ -184,7 +185,7 @@ export class FundingRateFlipAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: magFactor,
@@ -201,8 +202,8 @@ export class FundingRateFlipAgent extends AgentBase {
         source: 'binance-fapi-premiumIndex',
       },
       qualityScore: 0.70,
-      processingTime: Date.now() - startTime,
-      dataFreshness: Date.now() - now.timestamp,
+      processingTime: getActiveClock().now() - startTime,
+      dataFreshness: getActiveClock().now() - now.timestamp,
       executionScore: Math.round(40 + freshnessFactor * 25 + magFactor * 15),
     };
   }
@@ -211,14 +212,14 @@ export class FundingRateFlipAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: { historyLength: this.history.get(this.toBinanceSymbol(symbol))?.length || 0 },
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

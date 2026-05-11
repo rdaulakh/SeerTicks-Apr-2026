@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { getActiveClock } from '../../_core/clock';
 import {
   evaluateHardExitRules,
   createHardExitPosition,
@@ -58,11 +59,11 @@ describe('HardExitRules', () => {
         quantity: 0.1,
         remainingQuantity: 0.1,
         unrealizedPnlPercent: 0.5,
-        entryTime: Date.now() - 1000 * 60 * 30, // 30 minutes ago
+        entryTime: getActiveClock().now() - 1000 * 60 * 30, // 30 minutes ago
         entryDirection: 'bullish',
         entryCombinedScore: 0.75,
         peakCombinedScore: 0.80,
-        peakCombinedScoreTime: Date.now() - 1000 * 60 * 10,
+        peakCombinedScoreTime: getActiveClock().now() - 1000 * 60 * 10,
         currentCombinedScore: 0.70,
         currentDirection: 'bearish', // FLIPPED!
       };
@@ -85,11 +86,11 @@ describe('HardExitRules', () => {
         quantity: 1,
         remainingQuantity: 1,
         unrealizedPnlPercent: 1.67,
-        entryTime: Date.now() - 1000 * 60 * 60, // 1 hour ago
+        entryTime: getActiveClock().now() - 1000 * 60 * 60, // 1 hour ago
         entryDirection: 'bearish',
         entryCombinedScore: 0.72,
         peakCombinedScore: 0.78,
-        peakCombinedScoreTime: Date.now() - 1000 * 60 * 20,
+        peakCombinedScoreTime: getActiveClock().now() - 1000 * 60 * 20,
         currentCombinedScore: 0.65,
         currentDirection: 'bullish', // FLIPPED!
       };
@@ -110,11 +111,11 @@ describe('HardExitRules', () => {
         quantity: 0.1,
         remainingQuantity: 0.1,
         unrealizedPnlPercent: 1.0,
-        entryTime: Date.now() - 1000 * 60 * 30,
+        entryTime: getActiveClock().now() - 1000 * 60 * 30,
         entryDirection: 'bullish',
         entryCombinedScore: 0.75,
         peakCombinedScore: 0.80,
-        peakCombinedScoreTime: Date.now() - 1000 * 60 * 5,
+        peakCombinedScoreTime: getActiveClock().now() - 1000 * 60 * 5,
         currentCombinedScore: 0.78,
         currentDirection: 'bullish', // Same direction
       };
@@ -137,11 +138,11 @@ describe('HardExitRules', () => {
         quantity: 0.1,
         remainingQuantity: 0.1,
         unrealizedPnlPercent: 0.2,
-        entryTime: Date.now() - 1000 * 60 * 60,
+        entryTime: getActiveClock().now() - 1000 * 60 * 60,
         entryDirection: 'bullish',
         entryCombinedScore: 0.70,
         peakCombinedScore: 0.80, // Peak was 80%
-        peakCombinedScoreTime: Date.now() - 1000 * 60 * 30,
+        peakCombinedScoreTime: getActiveClock().now() - 1000 * 60 * 30,
         currentCombinedScore: 0.30, // Current is 30% - below 80% * (1 - 0.60) = 32%
         currentDirection: 'bullish',
       };
@@ -163,11 +164,11 @@ describe('HardExitRules', () => {
         quantity: 0.1,
         remainingQuantity: 0.1,
         unrealizedPnlPercent: 0.5,
-        entryTime: Date.now() - 1000 * 60 * 60,
+        entryTime: getActiveClock().now() - 1000 * 60 * 60,
         entryDirection: 'bullish',
         entryCombinedScore: 0.70,
         peakCombinedScore: 0.80, // Peak was 80%
-        peakCombinedScoreTime: Date.now() - 1000 * 60 * 10,
+        peakCombinedScoreTime: getActiveClock().now() - 1000 * 60 * 10,
         currentCombinedScore: 0.35, // Current is 35% - above 80% * (1 - 0.60) = 32%
         currentDirection: 'bullish',
       };
@@ -181,7 +182,7 @@ describe('HardExitRules', () => {
 
   describe('Rule 3: Capital Rotation', () => {
     it('should trigger exit when position is old AND no new peak', () => {
-      const now = Date.now();
+      const now = getActiveClock().now();
       const position: HardExitPosition = {
         id: 'pos-6',
         symbol: 'BTC-USD',
@@ -208,7 +209,7 @@ describe('HardExitRules', () => {
     });
 
     it('should NOT trigger capital rotation if position is young', () => {
-      const now = Date.now();
+      const now = getActiveClock().now();
       const position: HardExitPosition = {
         id: 'pos-7',
         symbol: 'BTC-USD',
@@ -234,7 +235,7 @@ describe('HardExitRules', () => {
     });
 
     it('should NOT trigger capital rotation if recent peak exists', () => {
-      const now = Date.now();
+      const now = getActiveClock().now();
       const position: HardExitPosition = {
         id: 'pos-8',
         symbol: 'BTC-USD',
@@ -271,11 +272,11 @@ describe('HardExitRules', () => {
         quantity: 0.1,
         remainingQuantity: 0.1,
         unrealizedPnlPercent: -4.6,
-        entryTime: Date.now() - 1000 * 60 * 30,
+        entryTime: getActiveClock().now() - 1000 * 60 * 30,
         entryDirection: 'bullish',
         entryCombinedScore: 0.75,
         peakCombinedScore: 0.78,
-        peakCombinedScoreTime: Date.now() - 1000 * 60 * 20,
+        peakCombinedScoreTime: getActiveClock().now() - 1000 * 60 * 20,
         currentCombinedScore: 0.60, // Still above decay threshold
         currentDirection: 'bullish', // Direction hasn't flipped
       };
@@ -297,11 +298,11 @@ describe('HardExitRules', () => {
         quantity: 0.1,
         remainingQuantity: 0.1,
         unrealizedPnlPercent: -4.0,
-        entryTime: Date.now() - 1000 * 60 * 30,
+        entryTime: getActiveClock().now() - 1000 * 60 * 30,
         entryDirection: 'bullish',
         entryCombinedScore: 0.75,
         peakCombinedScore: 0.78,
-        peakCombinedScoreTime: Date.now() - 1000 * 60 * 10,
+        peakCombinedScoreTime: getActiveClock().now() - 1000 * 60 * 10,
         currentCombinedScore: 0.60,
         currentDirection: 'bullish',
       };
@@ -315,7 +316,7 @@ describe('HardExitRules', () => {
 
   describe('Rule Priority', () => {
     it('should prioritize direction flip over other rules', () => {
-      const now = Date.now();
+      const now = getActiveClock().now();
       const position: HardExitPosition = {
         id: 'pos-11',
         symbol: 'BTC-USD',
@@ -342,7 +343,7 @@ describe('HardExitRules', () => {
     });
 
     it('should prioritize combined score decay over capital rotation', () => {
-      const now = Date.now();
+      const now = getActiveClock().now();
       const position: HardExitPosition = {
         id: 'pos-12',
         symbol: 'BTC-USD',
@@ -371,7 +372,7 @@ describe('HardExitRules', () => {
 
   describe('Metrics', () => {
     it('should return correct metrics in decision', () => {
-      const now = Date.now();
+      const now = getActiveClock().now();
       const entryTime = now - 1000 * 60 * 60 * 2; // 2 hours ago
       const peakTime = now - 1000 * 60 * 30; // 30 minutes ago
       

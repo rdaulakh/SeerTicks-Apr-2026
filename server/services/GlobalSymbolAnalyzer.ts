@@ -24,6 +24,7 @@ async function _getAuditLoggerModule() {
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { AgentManager } from '../agents/AgentBase';
 import { coinbasePublicWebSocket } from './CoinbasePublicWebSocket';
 import { getCandleCache } from '../WebSocketCandleCache';
@@ -164,7 +165,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
     this.isRunning = true;
     this.lastSlowAgentUpdate = new Date();
-    this.nextSlowAgentUpdate = new Date(Date.now() + this.SLOW_AGENT_INTERVAL_MS);
+    this.nextSlowAgentUpdate = new Date(getActiveClock().now() + this.SLOW_AGENT_INTERVAL_MS);
 
     // Subscribe to Coinbase public WebSocket
     // Handler registration is synchronous; candle seeding runs in background (non-blocking)
@@ -515,7 +516,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
           volume: parseFloat(event.volume_24_h || '0'),
           high: parseFloat(event.high_24_h || '0'),
           low: parseFloat(event.low_24_h || '0'),
-          timestamp: event.timestamp ? new Date(event.timestamp).getTime() : Date.now(),
+          timestamp: event.timestamp ? new Date(event.timestamp).getTime() : getActiveClock().now(),
         };
         this.handleTick(normalizedEvent);
       }
@@ -606,7 +607,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
       // Feed tick into TickToCandleAggregator (global singleton)
       import('./TickToCandleAggregator').then(({ getTickToCandleAggregator }) => {
-        getTickToCandleAggregator().processTick(this.symbol, event.price, event.volume || 0, event.timestamp || Date.now());
+        getTickToCandleAggregator().processTick(this.symbol, event.price, event.volume || 0, event.timestamp || getActiveClock().now());
       }).catch(() => { /* non-critical */ });
 
       // Update priceFeedService
@@ -615,7 +616,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
       });
 
       // Feed ticks to fast agents for tick-level confidence
-      const tickData = { price: event.price, timestamp: event.timestamp || Date.now(), symbol: this.symbol };
+      const tickData = { price: event.price, timestamp: event.timestamp || getActiveClock().now(), symbol: this.symbol };
       for (const agentName of ['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst', 'OrderbookImbalanceAgent']) {
         const agent = this.agentManager.getAgent(agentName);
         if (agent && typeof agent.onTick === 'function') {
@@ -686,10 +687,10 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
             const agent = this.agentManager.getAgent(agentName);
             if (agent) {
               try {
-                const startMs = Date.now();
+                const startMs = getActiveClock().now();
                 // Phase 30: Pass MarketContext to agent instead of empty {}
                 const signal = await agent.generateSignal(this.symbol, agentContext);
-                const execTimeMs = Date.now() - startMs;
+                const execTimeMs = getActiveClock().now() - startMs;
                 if (signal) {
                   signals.push({
                     agentName,
@@ -699,7 +700,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
                     reasoning: signal.reasoning || '',
                     qualityScore: signal.qualityScore || 0,
                     evidence: signal.evidence,
-                    timestamp: Date.now(),
+                    timestamp: getActiveClock().now(),
                   });
                   // Phase 22: Log every fast agent signal to DB
                   try {
@@ -751,7 +752,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
           // Update cache
           this.latestSignals = allSignals;
-          this.lastSignalUpdateMs = Date.now();
+          this.lastSignalUpdateMs = getActiveClock().now();
 
           // Emit signals for all UserTradingSessions to consume
           // Phase 30: Include market context in emission for downstream consumers
@@ -775,7 +776,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
     this.updateInterval = setInterval(() => {
       if (!this.isRunning) return;
 
-      const timeSinceLastSlowUpdate = Date.now() - this.lastSlowAgentUpdate.getTime();
+      const timeSinceLastSlowUpdate = getActiveClock().now() - this.lastSlowAgentUpdate.getTime();
       if (timeSinceLastSlowUpdate >= this.SLOW_AGENT_INTERVAL_MS) {
         this.runSlowAgents().catch(err => {
           console.error(`[GlobalSymbolAnalyzer] Slow agent update error for ${this.symbol}:`, (err as Error)?.message);
@@ -826,7 +827,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
       const agent = this.agentManager.getAgent(agentName);
       if (!agent) continue;
 
-      const agentStartMs = Date.now();
+      const agentStartMs = getActiveClock().now();
       try {
         // Wrap each agent call with a timeout to prevent a single hanging agent
         // from blocking the entire slow agent cycle
@@ -838,7 +839,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
             setTimeout(() => reject(new Error(`Agent ${agentName} timed out after ${SLOW_AGENT_TIMEOUT_MS}ms`)), SLOW_AGENT_TIMEOUT_MS)
           ),
         ]);
-        const agentExecMs = Date.now() - agentStartMs;
+        const agentExecMs = getActiveClock().now() - agentStartMs;
         if (signal) {
           signals.push({
             agentName,
@@ -848,7 +849,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
             reasoning: signal.reasoning || '',
             qualityScore: signal.qualityScore || 0,
             evidence: signal.evidence,
-            timestamp: Date.now(),
+            timestamp: getActiveClock().now(),
           });
           successCount++;
 
@@ -877,7 +878,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
           } catch { /* audit logger not ready */ }
         }
       } catch (err) {
-        const agentExecMs = Date.now() - agentStartMs;
+        const agentExecMs = getActiveClock().now() - agentStartMs;
         failCount++;
         console.warn(`[GlobalSymbolAnalyzer] ${this.symbol} - Slow agent ${agentName} failed:`, (err as Error)?.message);
 
@@ -900,14 +901,14 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
 
     this.cachedSlowSignals = signals;
     this.lastSlowAgentUpdate = new Date();
-    this.nextSlowAgentUpdate = new Date(Date.now() + this.SLOW_AGENT_INTERVAL_MS);
+    this.nextSlowAgentUpdate = new Date(getActiveClock().now() + this.SLOW_AGENT_INTERVAL_MS);
 
     console.log(`[GlobalSymbolAnalyzer] ${this.symbol} - Slow agent update: ${successCount} succeeded, ${failCount} failed, ${skippedCount} skipped (regime: ${currentRegime || 'unknown'}), ${signals.length} signals cached. Next: ${this.nextSlowAgentUpdate.toISOString()}`);
 
     // Emit updated signals (fast + slow combined)
     const allSignals = [...this.getFastAgentSignals(), ...signals];
     this.latestSignals = allSignals;
-    this.lastSignalUpdateMs = Date.now();
+    this.lastSignalUpdateMs = getActiveClock().now();
     this.emit('signals_updated', this.symbol, allSignals, this.currentMarketContext);
   }
 

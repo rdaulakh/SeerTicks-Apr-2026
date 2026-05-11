@@ -9,6 +9,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from './AgentBase';
+import { getActiveClock } from '../_core/clock';
 import { EnsemblePredictor, EnsemblePrediction } from '../ml/nn/EnsemblePredictor';
 import { getDb } from '../db';
 import { sql } from 'drizzle-orm';
@@ -129,7 +130,7 @@ export class MLPredictionAgent extends AgentBase {
    * Analyze market data and generate ML-based signal
    */
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Get or create candle buffer for this symbol
@@ -323,7 +324,7 @@ export class MLPredictionAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength,
@@ -339,7 +340,7 @@ export class MLPredictionAgent extends AgentBase {
         momentumAnalysis: true
       },
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0
     };
   }
@@ -354,14 +355,14 @@ export class MLPredictionAgent extends AgentBase {
     startTime: number,
     context?: any
   ): AgentSignal {
-    const processingTime = Date.now() - startTime;
+    const processingTime = getActiveClock().now() - startTime;
 
     // Check confidence threshold
     if (prediction.calibratedConfidence < this.mlConfig.minConfidenceThreshold) {
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal: 'neutral',
         confidence: prediction.calibratedConfidence,
         strength: 0,
@@ -379,7 +380,7 @@ export class MLPredictionAgent extends AgentBase {
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal: 'neutral',
         confidence: prediction.calibratedConfidence,
         strength: Math.abs(prediction.priceChange) / this.mlConfig.priceChangeThreshold,
@@ -446,7 +447,7 @@ export class MLPredictionAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence: finalConfidence,
       strength: Math.min(1, Math.abs(prediction.priceChange) / 5), // Normalize to 0-1

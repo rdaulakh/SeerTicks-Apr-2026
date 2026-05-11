@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../../_core/clock';
 
 export interface Trade {
   symbol: string;
@@ -104,7 +105,7 @@ export class TapeReader extends EventEmitter {
     const window = this.tradeWindows.get(symbol);
     if (!window) return;
     
-    const cutoff = Date.now() - this.config.windowSize;
+    const cutoff = getActiveClock().now() - this.config.windowSize;
     const oldTrades = window.trades.filter(t => t.timestamp < cutoff);
     
     for (const trade of oldTrades) {
@@ -125,7 +126,7 @@ export class TapeReader extends EventEmitter {
   
   private calculateMetrics(symbol: string): TapeMetrics {
     const window = this.tradeWindows.get(symbol)!;
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     const vwap = window.totalQuantity > 0 ? window.totalValue / window.totalQuantity : 0;
     const buySellRatio = window.sellVolume > 0 ? window.buyVolume / window.sellVolume : window.buyVolume > 0 ? Infinity : 1;

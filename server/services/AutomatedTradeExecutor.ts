@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { getActiveClock } from '../_core/clock';
 import type { ProcessedSignal } from "./AutomatedSignalProcessor";
 import type { PaperTradingEngine } from "../execution/PaperTradingEngine";
 import type { ITradingEngine } from "../execution/ITradingEngine";
@@ -150,7 +151,7 @@ export class AutomatedTradeExecutor extends EventEmitter {
       return;
     }
 
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const { symbol, recommendation, metrics } = signal;
     
     // Start latency tracking
@@ -419,7 +420,7 @@ export class AutomatedTradeExecutor extends EventEmitter {
             remainingQuantity: quantity,
             unrealizedPnl: 0,
             unrealizedPnlPercent: 0,
-            entryTime: Date.now(),
+            entryTime: getActiveClock().now(),
             marketRegime: regime,
             originalConsensus: recommendation.confidence,
             atr: positionAtr || atr, // Use calculated ATR or the one from earlier
@@ -435,7 +436,7 @@ export class AutomatedTradeExecutor extends EventEmitter {
         console.warn(`[AutomatedTradeExecutor] ⚠️ IntelligentExitManager not available - position ${order.id} will NOT be monitored for exits!`);
       }
 
-      const executionTime = Date.now() - startTime;
+      const executionTime = getActiveClock().now() - startTime;
       
       // Record order filled for latency tracking
       await latencyLogger.recordOrderFilled(latencyContextId, order.filledPrice || currentPrice, 'executed');
@@ -474,7 +475,7 @@ export class AutomatedTradeExecutor extends EventEmitter {
       });
 
     } catch (error) {
-      const executionTime = Date.now() - startTime;
+      const executionTime = getActiveClock().now() - startTime;
       
       // Record failed execution for latency tracking
       await latencyLogger.recordOrderFilled(latencyContextId, undefined, 'failed');

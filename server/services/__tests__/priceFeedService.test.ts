@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { getActiveClock } from '../../_core/clock';
 import { priceFeedService } from '../priceFeedService';
 
 describe('PriceFeedService', () => {
@@ -76,9 +77,9 @@ describe('PriceFeedService', () => {
     });
 
     it('should include timestamp', () => {
-      const beforeUpdate = Date.now();
+      const beforeUpdate = getActiveClock().now();
       priceFeedService.updatePrice('BTC-USD', 50000, 'websocket');
-      const afterUpdate = Date.now();
+      const afterUpdate = getActiveClock().now();
       
       const cached = priceFeedService.getLatestPrice('BTC-USD');
       expect(cached?.timestamp).toBeGreaterThanOrEqual(beforeUpdate);

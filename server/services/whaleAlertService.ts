@@ -1,4 +1,5 @@
 import { ENV } from "../_core/env";
+import { getActiveClock } from '../_core/clock';
 import { rateLimitedFetch, retryWithBackoff, RateLimitError } from "./ExternalAPIRateLimiter";
 
 /**
@@ -80,7 +81,7 @@ export async function fetchWhaleAlerts(
   // Check cache first
   const cacheKey = getCacheKey(filters);
   const cached = alertCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+  if (cached && getActiveClock().now() - cached.timestamp < CACHE_TTL) {
     console.log(`[WhaleAlertService] Returning cached data for ${cacheKey}`);
     return cached.data;
   }
@@ -90,7 +91,7 @@ export async function fetchWhaleAlerts(
   params.append("api_key", apiKey);
   
   // Default to last hour if no time range specified
-  const now = Math.floor(Date.now() / 1000);
+  const now = Math.floor(getActiveClock().now() / 1000);
   const startTime = filters.startTime || now - 3600; // 1 hour ago
   params.append("start", startTime.toString());
   
@@ -144,7 +145,7 @@ export async function fetchWhaleAlerts(
     const result = data as WhaleAlertResponse;
     
     // Cache successful response
-    alertCache.set(cacheKey, { data: result, timestamp: Date.now() });
+    alertCache.set(cacheKey, { data: result, timestamp: getActiveClock().now() });
     console.log(`[WhaleAlertService] Fetched ${result.count} transactions, cached for ${CACHE_TTL / 1000}s`);
     
     return result;
@@ -183,7 +184,7 @@ export async function getWhaleAlertStatus(): Promise<{
     // Use a minimal request to check API status
     const params = new URLSearchParams();
     params.append("api_key", apiKey);
-    params.append("start", (Math.floor(Date.now() / 1000) - 60).toString());
+    params.append("start", (Math.floor(getActiveClock().now() / 1000) - 60).toString());
     params.append("min_value", "100000000"); // Very high to get minimal results
     params.append("limit", "1");
 

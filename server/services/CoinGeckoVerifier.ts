@@ -18,6 +18,7 @@
  */
 
 import { getPriceFabric } from './PriceFabric';
+import { getActiveClock } from '../_core/clock';
 
 // CoinGecko symbol mapping: SEER canonical → CoinGecko ID
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
@@ -119,7 +120,7 @@ class CoinGeckoVerifierService {
       }
 
       const data = await response.json() as Record<string, { usd: number }>;
-      const now = Date.now();
+      const now = getActiveClock().now();
       this.totalPolls++;
       this.lastPollTime = now;
 

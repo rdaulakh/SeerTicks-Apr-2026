@@ -9,6 +9,7 @@
  */
 
 import { KellyCriterion, PositionSizeResult } from './KellyCriterion';
+import { getActiveClock } from '../_core/clock';
 import { PositionManager } from '../PositionManager';
 import { getDb } from '../db';
 import { rebalancingHistory, positions } from '../../drizzle/schema';
@@ -93,7 +94,7 @@ export class PortfolioRebalancer {
     }
 
     // Time-based trigger
-    const timeSinceLastRebalance = Date.now() - this.lastRebalanceTime;
+    const timeSinceLastRebalance = getActiveClock().now() - this.lastRebalanceTime;
     const rebalanceIntervalMs = this.config.rebalanceIntervalMinutes * 60 * 1000;
     if (timeSinceLastRebalance >= rebalanceIntervalMs) {
       return { shouldRebalance: true, trigger: 'time' };
@@ -154,7 +155,7 @@ export class PortfolioRebalancer {
     }
 
     this.isRebalancing = true;
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       console.log(`[PortfolioRebalancer] Starting rebalancing (trigger: ${trigger})...`);
@@ -254,7 +255,7 @@ export class PortfolioRebalancer {
       });
 
       // Update last rebalance time
-      this.lastRebalanceTime = Date.now();
+      this.lastRebalanceTime = getActiveClock().now();
 
       // Save to database
       await this.saveRebalancingHistory({

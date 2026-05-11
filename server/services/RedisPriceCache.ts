@@ -13,6 +13,7 @@
  */
 
 import Redis from 'ioredis';
+import { getActiveClock } from '../_core/clock';
 import { EventEmitter } from 'events';
 
 // ============================================================================
@@ -65,7 +66,7 @@ class L1Cache {
     const entry = this.cache.get(key);
     if (!entry) return null;
     
-    if (Date.now() > entry.expiry) {
+    if (getActiveClock().now() > entry.expiry) {
       this.cache.delete(key);
       return null;
     }
@@ -76,7 +77,7 @@ class L1Cache {
   set(key: string, price: CachedPrice): void {
     this.cache.set(key, {
       price,
-      expiry: Date.now() + this.ttlMs,
+      expiry: getActiveClock().now() + this.ttlMs,
     });
   }
 
@@ -94,7 +95,7 @@ class L1Cache {
 
   // Cleanup expired entries
   cleanup(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     for (const [key, entry] of this.cache.entries()) {
       if (now > entry.expiry) {
         this.cache.delete(key);
@@ -507,7 +508,7 @@ export class RedisPriceCache extends EventEmitter {
   // ============================================================================
 
   private checkStaleness(price: CachedPrice): CachedPrice | null {
-    const age = Date.now() - price.timestamp;
+    const age = getActiveClock().now() - price.timestamp;
     
     if (age > this.config.stalenessThresholdMs) {
       this.stats.staleCount++;

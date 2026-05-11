@@ -347,7 +347,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
     }
 
     // Check 3: Daily trade count limit
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getActiveClock().date().toISOString().slice(0, 10);
     if (this.dailyTradeCountResetDate !== today) {
       this.dailyTradeCount = 0;
       this.dailyTradeCountResetDate = today;
@@ -1613,7 +1613,7 @@ export class EnhancedTradeExecutor extends EventEmitter {
     }
 
     // Track daily P&L
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getActiveClock().date().toISOString().slice(0, 10);
     if (this.dailyPnLResetDate !== today) {
       this.dailyPnL = 0;
       this.dailyPnLResetDate = today;

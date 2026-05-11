@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { getActiveClock } from '../_core/clock';
 import { notifyOwner } from "../_core/notification";
 
 /**
@@ -280,7 +281,7 @@ ${data.reasoning}
    */
   private shouldSendAlert(alertKey: string): boolean {
     const lastTime = this.lastAlertTime.get(alertKey) || 0;
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     if (now - lastTime < this.ALERT_THROTTLE_MS) {
       return false; // Throttled
@@ -293,7 +294,7 @@ ${data.reasoning}
    * Mark an alert as sent
    */
   private markAlertSent(alertKey: string): void {
-    this.lastAlertTime.set(alertKey, Date.now());
+    this.lastAlertTime.set(alertKey, getActiveClock().now());
   }
 
   /**
@@ -301,7 +302,7 @@ ${data.reasoning}
    */
   private scheduleDailySummaries(): void {
     setInterval(() => {
-      const now = Date.now();
+      const now = getActiveClock().now();
       if (now - this.lastDailySummaryTime >= this.DAILY_SUMMARY_INTERVAL_MS) {
         this.emit('daily_summary_due');
         this.lastDailySummaryTime = now;

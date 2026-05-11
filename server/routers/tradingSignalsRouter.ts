@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod";
+import { getActiveClock } from '../_core/clock';
 import { protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getCandleCache } from "../WebSocketCandleCache";
@@ -189,7 +190,7 @@ export const tradingSignalsRouter = router({
 
       return {
         symbol: input.symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         rsi,
         macd,
         stochastic: {

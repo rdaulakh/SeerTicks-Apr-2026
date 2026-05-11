@@ -17,6 +17,7 @@
  */
 
 import EventEmitter from 'eventemitter3';
+import { getActiveClock } from '../_core/clock';
 import { multiProviderPriceFeed, MultiProviderPriceFeed, PriceUpdate } from './MultiProviderPriceFeed';
 import { priceFeedService } from './priceFeedService';
 
@@ -65,7 +66,7 @@ export class WebSocketFallbackManager extends EventEmitter {
     // This helps us track when the primary WebSocket is sending data
     priceFeedService.on('price_update', (priceData) => {
       if (priceData.source === 'websocket') {
-        this.lastPrimaryMessage = Date.now();
+        this.lastPrimaryMessage = getActiveClock().now();
         this.primaryConnected = true;
         this.totalPriceUpdates++;
       }
@@ -73,7 +74,7 @@ export class WebSocketFallbackManager extends EventEmitter {
 
     // Set up event listeners for fallback provider
     multiProviderPriceFeed.on('price', (update: PriceUpdate) => {
-      this.lastFallbackMessage = Date.now();
+      this.lastFallbackMessage = getActiveClock().now();
       this.totalPriceUpdates++;
       
       // If fallback is active, emit the price update
@@ -131,7 +132,7 @@ export class WebSocketFallbackManager extends EventEmitter {
    * Check primary WebSocket health and activate/deactivate fallback
    */
   private checkPrimaryHealth(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     // Check if primary is stale
     if (this.lastPrimaryMessage) {
@@ -175,7 +176,7 @@ export class WebSocketFallbackManager extends EventEmitter {
 
     this.emit('fallback_activated', {
       reason: 'Primary WebSocket stale or disconnected',
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
     });
   }
 
@@ -191,7 +192,7 @@ export class WebSocketFallbackManager extends EventEmitter {
 
     this.emit('fallback_deactivated', {
       reason: 'Primary WebSocket recovered',
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
     });
   }
 
@@ -216,7 +217,7 @@ export class WebSocketFallbackManager extends EventEmitter {
    * Called by CoinbaseWebSocketManager or SymbolOrchestrator
    */
   reportPrimaryMessage(): void {
-    this.lastPrimaryMessage = Date.now();
+    this.lastPrimaryMessage = getActiveClock().now();
     this.primaryConnected = true;
   }
 
@@ -236,7 +237,7 @@ export class WebSocketFallbackManager extends EventEmitter {
    */
   reportPrimaryConnected(): void {
     console.log('[WebSocketFallbackManager] Primary WebSocket reported connected');
-    this.lastPrimaryMessage = Date.now();
+    this.lastPrimaryMessage = getActiveClock().now();
     this.primaryConnected = true;
     
     // Deactivate fallback when primary reconnects

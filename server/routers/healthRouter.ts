@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import { getActiveClock } from '../_core/clock';
 import { publicProcedure, protectedProcedure, router } from '../_core/trpc';
 import { monitoringService } from '../services/MonitoringService';
 import { externalAPIRateLimiter } from '../services/ExternalAPIRateLimiter';
@@ -11,7 +12,7 @@ import { wsHealthMonitor } from '../monitoring/WebSocketHealthMonitor';
 import { priceFeedService } from '../services/priceFeedService';
 
 // Track server start time
-const serverStartTime = Date.now();
+const serverStartTime = getActiveClock().now();
 
 // Global health state (updated by services)
 export const healthState = {
@@ -89,7 +90,7 @@ export const healthRouter = router({
     return {
       status: 'ok',
       timestamp: formatToIST(new Date()),
-      uptime: formatUptime(Date.now() - serverStartTime),
+      uptime: formatUptime(getActiveClock().now() - serverStartTime),
     };
   }),
 
@@ -97,7 +98,7 @@ export const healthRouter = router({
    * Get comprehensive service status (public)
    */
   getServiceStatus: publicProcedure.query(() => {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const uptime = now - serverStartTime;
     
     // Determine overall status
@@ -467,7 +468,7 @@ export const healthRouter = router({
    */
   getRateLimitStatus: publicProcedure.query(() => {
     const status = externalAPIRateLimiter.getStatus();
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     // Format for display
     const formatted: Record<string, {
@@ -733,7 +734,7 @@ export const healthRouter = router({
     const wsStatus = wsHealthMonitor.getStatus();
     const allPrices = priceFeedService.getAllPrices();
     const priceCount = Object.keys(allPrices).length;
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     // Coinbase WebSocket status
     const coinbaseWs = wsStatus['CoinbaseWS'];
@@ -1014,7 +1015,7 @@ export const healthRouter = router({
         totalCircuitOpens: 0,
         lastFailureTime: null,
         lastSuccessTime: null,
-        lastStateChange: Date.now(),
+        lastStateChange: getActiveClock().now(),
         cooldownRemaining: 0,
         primaryProvider: 'Forge/Gemini',
         fallbackProvider: null,
@@ -1046,8 +1047,8 @@ export const healthRouter = router({
       uptimeMs,
       uptimeSeconds: Math.floor(uptimeSeconds),
       uptimeFormatted: formatUptime(uptimeMs),
-      serverStartTime: new Date(Date.now() - uptimeMs).toISOString(),
-      serverStartTimeIST: formatToIST(new Date(Date.now() - uptimeMs)),
+      serverStartTime: new Date(getActiveClock().now() - uptimeMs).toISOString(),
+      serverStartTimeIST: formatToIST(new Date(getActiveClock().now() - uptimeMs)),
       memory: {
         heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
         heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
@@ -1133,7 +1134,7 @@ export const healthRouter = router({
         lastGCTime: 0,
         registeredClearables: 0,
         uptimeMin: 0,
-        startTime: Date.now(),
+        startTime: getActiveClock().now(),
       };
     }
     return guard.getStatus();

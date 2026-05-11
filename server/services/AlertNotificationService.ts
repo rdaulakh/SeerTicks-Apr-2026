@@ -17,6 +17,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import os from 'os';
 
 export interface AlertConfig {
@@ -262,7 +263,7 @@ class AlertNotificationService extends EventEmitter {
   }): Promise<void> {
     // Check cooldown
     const lastAlert = this.lastAlertTime.get(params.type);
-    const now = Date.now();
+    const now = getActiveClock().now();
     const cooldownMs = this.config.cooldownMinutes * 60 * 1000;
 
     if (lastAlert && (now - lastAlert) < cooldownMs) {
@@ -452,7 +453,7 @@ class AlertNotificationService extends EventEmitter {
    * Clear old alerts (older than 24 hours)
    */
   clearOldAlerts(): void {
-    const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+    const oneDayAgo = getActiveClock().now() - (24 * 60 * 60 * 1000);
     
     for (const [id, alert] of this.alerts.entries()) {
       if (alert.timestamp.getTime() < oneDayAgo) {

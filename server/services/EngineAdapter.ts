@@ -11,6 +11,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import type { UserTradingSession } from './UserTradingSession';
 import { AGENT_CATEGORIES } from './AgentWeightManager';
 
@@ -134,7 +135,7 @@ export class EngineAdapter extends EventEmitter {
       winningTrades,
       losingTrades,
       totalPnL,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
     });
 
     // 3. Emit agent_signals — real signals from GlobalMarketEngine
@@ -149,7 +150,7 @@ export class EngineAdapter extends EventEmitter {
           allSignals.push({
             ...signal,
             symbol,
-            timestamp: signal.timestamp || Date.now(),
+            timestamp: signal.timestamp || getActiveClock().now(),
           });
         }
       }
@@ -276,7 +277,7 @@ export class EngineAdapter extends EventEmitter {
       if (results.length > 0) {
         this.emit('tick', {
           tickCount: results.length,
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
           results,
           status: { running: status.isRunning },
         });
@@ -450,7 +451,7 @@ export class EngineAdapter extends EventEmitter {
         lastPrice: 0,
         currentPrice: 0,
         priceChange24h: 0,
-        lastUpdate: Date.now(),
+        lastUpdate: getActiveClock().now(),
         signals: [],
         recommendation: null,
         decision: null,
@@ -589,7 +590,7 @@ export class EngineAdapter extends EventEmitter {
         history.push({
           ...signal,
           symbol,
-          timestamp: signal.timestamp || Date.now(),
+          timestamp: signal.timestamp || getActiveClock().now(),
         });
       }
     }

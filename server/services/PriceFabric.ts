@@ -26,6 +26,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { priceFeedService } from './priceFeedService';
 
 // =========================================================================
@@ -161,7 +162,7 @@ class PriceFabricService extends EventEmitter {
   start(): void {
     if (this.isRunning) return;
     this.isRunning = true;
-    this.startedAt = Date.now();
+    this.startedAt = getActiveClock().now();
 
     console.log('[PriceFabric] 🏭 Starting multi-source price fabric');
     console.log(`[PriceFabric] Dedup window: ${DEDUP_WINDOW_MS}ms | Gap threshold: ${GAP_THRESHOLD_MS}ms`);
@@ -224,8 +225,8 @@ class PriceFabricService extends EventEmitter {
     if (!tick.symbol || !tick.price || tick.price <= 0 || isNaN(tick.price)) {
       return;
     }
-    if (!tick.timestampMs) tick.timestampMs = Date.now();
-    if (!tick.receivedAtMs) tick.receivedAtMs = Date.now();
+    if (!tick.timestampMs) tick.timestampMs = getActiveClock().now();
+    if (!tick.receivedAtMs) tick.receivedAtMs = getActiveClock().now();
 
     // Track symbol
     this.trackedSymbols.add(tick.symbol);
@@ -342,7 +343,7 @@ class PriceFabricService extends EventEmitter {
   }
 
   private checkSourceHealth(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     for (const [name, health] of this.sourceHealth) {
       if (health.lastTickMs === 0) continue; // Never received a tick
@@ -575,7 +576,7 @@ class PriceFabricService extends EventEmitter {
       totalGapsDetected: this.totalGapsDetected,
       pendingDbWrites: this.tickWriteBuffer.length,
       symbols: Array.from(this.trackedSymbols),
-      uptimeMs: this.isRunning ? Date.now() - this.startedAt : 0,
+      uptimeMs: this.isRunning ? getActiveClock().now() - this.startedAt : 0,
     };
   }
 

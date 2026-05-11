@@ -12,6 +12,7 @@
  */
 
 import { getDb } from '../db';
+import { getActiveClock } from '../_core/clock';
 import { exchanges, tradingModeConfig, tradingSymbols, apiKeys, engineState } from '../../drizzle/schema';
 import { eq, and, isNotNull } from 'drizzle-orm';
 
@@ -106,7 +107,7 @@ function shouldSkipDueToBackoff(userId: number): boolean {
   if (!failure || failure.count === 0) return false;
 
   const backoffMs = Math.min(CHECK_INTERVAL * Math.pow(2, failure.count - 1), MAX_BACKOFF_MS);
-  const elapsed = Date.now() - failure.lastAttemptMs;
+  const elapsed = getActiveClock().now() - failure.lastAttemptMs;
 
   if (elapsed < backoffMs) {
     return true;
@@ -119,7 +120,7 @@ function shouldSkipDueToBackoff(userId: number): boolean {
  */
 function recordFailure(userId: number): void {
   const existing = userFailureCounts.get(userId) || { count: 0, lastAttemptMs: 0 };
-  userFailureCounts.set(userId, { count: existing.count + 1, lastAttemptMs: Date.now() });
+  userFailureCounts.set(userId, { count: existing.count + 1, lastAttemptMs: getActiveClock().now() });
 }
 
 /**

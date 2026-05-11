@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 import {
   ExchangeInterface,
   NormalizedTick,
@@ -230,7 +231,7 @@ export class CoinbaseAdapter extends ExchangeInterface {
       this.orderBookCache.set(product_id, {
         bids: bids.sort((a, b) => b.price - a.price), // Descending
         asks: asks.sort((a, b) => a.price - b.price), // Ascending
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
       });
     } else if (type === 'update') {
       // Update existing order book
@@ -266,7 +267,7 @@ export class CoinbaseAdapter extends ExchangeInterface {
         }
       }
 
-      orderBook.timestamp = Date.now();
+      orderBook.timestamp = getActiveClock().now();
     }
   }
 
@@ -303,7 +304,7 @@ export class CoinbaseAdapter extends ExchangeInterface {
           price: parseFloat(ask.price),
           quantity: parseFloat(ask.size),
         })),
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
       };
     } catch (error) {
       console.error("[CoinbaseAdapter] Failed to get order book:", error);
@@ -398,7 +399,7 @@ export class CoinbaseAdapter extends ExchangeInterface {
         symbol: params.symbol,
         status: 'new',
         executedQty: 0,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
       };
     } catch (error) {
       console.error('[CoinbaseAdapter] Failed to place order:', error);
@@ -498,7 +499,7 @@ export class CoinbaseAdapter extends ExchangeInterface {
     const granularity = granularityMap[interval] || "ONE_HOUR";
 
     try {
-      const end = Math.floor(Date.now() / 1000);
+      const end = Math.floor(getActiveClock().now() / 1000);
       const start = end - limit * this.getIntervalSeconds(interval);
 
       const response = await this.makeRequest(

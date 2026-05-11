@@ -11,6 +11,7 @@
  */
 
 import { getDb } from "../db";
+import { getActiveClock } from '../_core/clock';
 import { websocketHealthLog } from "../../drizzle/schema";
 
 interface WebSocketState {
@@ -146,7 +147,7 @@ class WebSocketHealthMonitorService {
     minutesSinceLastMessage: number | null;
   }> {
     const result: Record<string, any> = {};
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     for (const [name, ws] of this.webSockets) {
       result[name] = {

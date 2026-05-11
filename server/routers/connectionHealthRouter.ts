@@ -6,6 +6,7 @@
  */
 
 import { router, publicProcedure, protectedProcedure } from '../_core/trpc';
+import { getActiveClock } from '../_core/clock';
 import { z } from 'zod';
 import { connectionResilienceManager } from '../services/ConnectionResilienceManager';
 import { tickStalenessMonitor } from '../services/TickStalenessMonitor';
@@ -23,7 +24,7 @@ export const connectionHealthRouter = router({
     const poolStats = getPoolStats();
 
     return {
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       overall: systemHealth.overall,
       connections: systemHealth.connections.map(conn => ({
         name: conn.name,

@@ -12,6 +12,7 @@
  */
 
 import { getDb } from '../db';
+import { getActiveClock } from '../_core/clock';
 import { getMLSystem, MLFeatures, TrainingDataPoint } from './MLSystem';
 import { TradeRecommendation } from '../orchestrator/StrategyOrchestrator';
 import { mlTrainingData, winningPatterns } from '../../drizzle/schema';
@@ -131,7 +132,7 @@ export class LearningSystem {
     // 2. Timing quality (30 points)
     // Based on how quickly profit was achieved
     const entryTime = outcome.entryTime || 0;
-    const exitTime = outcome.exitTime || Date.now();
+    const exitTime = outcome.exitTime || getActiveClock().now();
     const durationHours = entryTime > 0 ? (exitTime - entryTime) / (1000 * 60 * 60) : 1;
     const wasSuccessful = outcome.wasSuccessful ?? outcome.pnl > 0;
     let timingScore = 20; // Base score
@@ -358,7 +359,7 @@ export class LearningSystem {
       const winRate = pattern.winningTrades / pattern.totalTrades;
 
       // Calculate alpha decay (30-day half-life)
-      const daysSinceLastUse = pattern.lastUsed ? (Date.now() - pattern.lastUsed.getTime()) / (24 * 60 * 60 * 1000) : 0;
+      const daysSinceLastUse = pattern.lastUsed ? (getActiveClock().now() - pattern.lastUsed.getTime()) / (24 * 60 * 60 * 1000) : 0;
       const decayFactor = Math.exp(-daysSinceLastUse / 30);
       const alphaScore = winRate * decayFactor;
 
@@ -597,7 +598,7 @@ export class LearningSystem {
     });
 
     // Return the ID (simplified - actual implementation would use result metadata)
-    return Date.now();
+    return getActiveClock().now();
   }
 }
 

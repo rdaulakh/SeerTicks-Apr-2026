@@ -11,6 +11,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // ============================================================================
 // Types & Interfaces
@@ -194,7 +195,7 @@ export class SmartOrderRouter extends EventEmitter {
     order.status = 'active';
     this.emit('order_active', order);
 
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     let retryCount = 0;
 
     while (retryCount < order.config.maxRetries && order.remainingQuantity > 0) {
@@ -257,11 +258,11 @@ export class SmartOrderRouter extends EventEmitter {
     order.status = 'active';
     this.emit('order_active', order);
 
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const checkInterval = 1000; // Check every second
     
     const intervalId = setInterval(async () => {
-      if (Date.now() - startTime > order.config.timeoutMs) {
+      if (getActiveClock().now() - startTime > order.config.timeoutMs) {
         clearInterval(intervalId);
         this.orderIntervals.delete(order.id);
         
@@ -318,7 +319,7 @@ export class SmartOrderRouter extends EventEmitter {
     order.status = 'active';
     this.emit('order_active', order);
 
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const durationMs = (order.config.twapDurationMinutes || 5) * 60 * 1000;
     const intervalMs = (order.config.twapIntervalSeconds || 30) * 1000;
     const numSlices = Math.ceil(durationMs / intervalMs);
@@ -388,7 +389,7 @@ export class SmartOrderRouter extends EventEmitter {
     order.status = 'active';
     this.emit('order_active', order);
 
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const participationRate = (order.config.vwapParticipationRate || 10) / 100;
     const maxDeviation = order.config.vwapMaxDeviation || 1;
     const checkInterval = 5000; // Check every 5 seconds
@@ -397,7 +398,7 @@ export class SmartOrderRouter extends EventEmitter {
     let cumulativePriceVolume = 0;
 
     const intervalId = setInterval(async () => {
-      if (Date.now() - startTime > order.config.timeoutMs) {
+      if (getActiveClock().now() - startTime > order.config.timeoutMs) {
         clearInterval(intervalId);
         this.orderIntervals.delete(order.id);
         
@@ -478,13 +479,13 @@ export class SmartOrderRouter extends EventEmitter {
     order.status = 'active';
     this.emit('order_active', order);
 
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const visiblePercent = (order.config.icebergVisiblePercent || 20) / 100;
     const baseSliceSize = order.totalQuantity * visiblePercent;
     const checkInterval = 2000; // Check every 2 seconds
 
     const intervalId = setInterval(async () => {
-      if (Date.now() - startTime > order.config.timeoutMs) {
+      if (getActiveClock().now() - startTime > order.config.timeoutMs) {
         clearInterval(intervalId);
         this.orderIntervals.delete(order.id);
         
@@ -588,7 +589,7 @@ export class SmartOrderRouter extends EventEmitter {
   // ============================================================================
 
   private generateOrderId(): string {
-    return `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `ord_${getActiveClock().now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
   private createFill(
@@ -600,12 +601,12 @@ export class SmartOrderRouter extends EventEmitter {
     const slippage = ((fillPrice - marketPrice) / marketPrice) * 100;
     
     return {
-      fillId: `fill_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      fillId: `fill_${getActiveClock().now()}_${Math.random().toString(36).substr(2, 6)}`,
       quantity,
       price: fillPrice,
       timestamp: new Date(),
       slippage: Math.abs(slippage),
-      latencyMs: Date.now() - startTime,
+      latencyMs: getActiveClock().now() - startTime,
     };
   }
 
@@ -615,7 +616,7 @@ export class SmartOrderRouter extends EventEmitter {
 
     const totalSlippage = fills.reduce((sum, f) => sum + f.slippage * f.quantity, 0);
     const avgSlippage = totalSlippage / order.filledQuantity;
-    const executionTime = Date.now() - startTime;
+    const executionTime = getActiveClock().now() - startTime;
     const avgFillSize = order.filledQuantity / fills.length;
 
     // Calculate price improvement (for limit orders)

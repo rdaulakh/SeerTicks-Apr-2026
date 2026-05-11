@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { getActiveClock } from '../_core/clock';
 import { router, protectedProcedure } from '../_core/trpc';
 import { getEngineAdapter } from '../services/EngineAdapter';
 import { getDb } from '../db';
@@ -92,7 +93,7 @@ export const positionConsensusRouter = router({
       }
       
       // Get recent agent signals for this symbol (last 5 minutes)
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const fiveMinutesAgo = new Date(getActiveClock().now() - 5 * 60 * 1000);
       const recentSignals = await db
         .select()
         .from(agentSignals)
@@ -247,7 +248,7 @@ export const positionConsensusRouter = router({
         agentsVotingAdd: addVotes,
         exitThreshold: 60,
         ...bayesianFields,
-        lastUpdated: Date.now(),
+        lastUpdated: getActiveClock().now(),
       };
     }),
 
@@ -273,7 +274,7 @@ export const positionConsensusRouter = router({
       }
       
       // Get recent agent signals (last 5 minutes)
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const fiveMinutesAgo = new Date(getActiveClock().now() - 5 * 60 * 1000);
       const recentSignals = await db
         .select()
         .from(agentSignals)
@@ -399,7 +400,7 @@ export const positionConsensusRouter = router({
           agentsVotingHold: holdVotes,
           agentsVotingAdd: addVotes,
           exitThreshold: 60,
-          lastUpdated: Date.now(),
+          lastUpdated: getActiveClock().now(),
         });
       }
       
@@ -535,7 +536,7 @@ export const positionConsensusRouter = router({
       
       // Create an order record for the manual exit in paper orders
       try {
-        const orderId = `manual_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        const orderId = `manual_${getActiveClock().now()}_${Math.random().toString(36).substring(7)}`;
         await db.insert(paperOrders).values({
           userId: ctx.user.id,
           orderId,

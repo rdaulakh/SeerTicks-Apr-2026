@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { getActiveClock } from '../_core/clock';
 // Initialize log buffer FIRST — before any other imports that might log
 import { initializeLogBuffer } from '../services/ServerLogBuffer';
 initializeLogBuffer();
@@ -194,12 +195,12 @@ async function startServer() {
   // Direct REST endpoint for positions with live prices
   // CRITICAL: This endpoint must be fast and non-blocking to prevent 504 timeouts
   app.get('/api/positions/live', async (req, res) => {
-    const requestStart = Date.now();
+    const requestStart = getActiveClock().now();
     
     // Set a timeout for this request (15s - increased to handle slow DB connections)
     const timeout = setTimeout(() => {
       if (!res.headersSent) {
-        console.error('[REST Positions] Request timeout after', Date.now() - requestStart, 'ms');
+        console.error('[REST Positions] Request timeout after', getActiveClock().now() - requestStart, 'ms');
         res.status(504).json({ error: 'Request timeout', positions: [] });
       }
     }, 15000);
@@ -229,7 +230,7 @@ async function startServer() {
       
       // Check cache first for faster response
       const cached = positionCache.get(decoded.userId);
-      if (cached && Date.now() - cached.timestamp < POSITION_CACHE_TTL) {
+      if (cached && getActiveClock().now() - cached.timestamp < POSITION_CACHE_TTL) {
         console.log('[REST Positions] Serving from cache for userId:', decoded.userId);
         clearTimeout(timeout);
         // Update prices from price feed service
@@ -260,9 +261,9 @@ async function startServer() {
       }
       
       console.log('[REST Positions] Getting database connection...');
-      const dbStart = Date.now();
+      const dbStart = getActiveClock().now();
       const db = await getDb();
-      console.log('[REST Positions] Got database in', Date.now() - dbStart, 'ms');
+      console.log('[REST Positions] Got database in', getActiveClock().now() - dbStart, 'ms');
       if (!db) {
         clearTimeout(timeout);
         return res.status(500).json({ error: 'Database not available' });
@@ -272,15 +273,15 @@ async function startServer() {
       console.log('[REST Positions] Fetching positions for userId:', decoded.userId);
       
       // Execute query directly without Promise.race (connection pool handles timeouts)
-      const queryStart = Date.now();
+      const queryStart = getActiveClock().now();
       const openPositions = await db
         .select()
         .from(paperPositions)
         .where(and(eq(paperPositions.userId, decoded.userId), eq(paperPositions.status, 'open')));
-      console.log('[REST Positions] Query completed in', Date.now() - queryStart, 'ms');
+      console.log('[REST Positions] Query completed in', getActiveClock().now() - queryStart, 'ms');
       
       // Store in cache
-      positionCache.set(decoded.userId, { positions: openPositions, timestamp: Date.now() });
+      positionCache.set(decoded.userId, { positions: openPositions, timestamp: getActiveClock().now() });
       
       console.log('[REST Positions] Found', openPositions.length, 'open positions');
       
@@ -415,7 +416,7 @@ async function startServer() {
       const { getDynamicCorrelationTracker } = await import('../services/DynamicCorrelationTracker');
       const corrTracker = getDynamicCorrelationTracker();
       priceFeedService.on('price_update', (data: { symbol: string; price: number; timestamp: number }) => {
-        corrTracker.recordPrice(data.symbol, data.price, data.timestamp || Date.now());
+        corrTracker.recordPrice(data.symbol, data.price, data.timestamp || getActiveClock().now());
       });
     } catch { /* Correlation tracker may not be ready yet — that's OK */ }
 
@@ -467,7 +468,7 @@ async function startServer() {
             askPrice: isFinite(ask) ? ask : mid,
             midPrice: mid,
             tradePrice: isFinite(price) ? price : mid,
-            receivedAt: Date.now(),
+            receivedAt: getActiveClock().now(),
           };
         }
       });
@@ -545,7 +546,7 @@ async function startServer() {
           price: trade.price,
           volume: trade.quantity,
           timestampMs: trade.timestamp,
-          receivedAtMs: Date.now(),
+          receivedAtMs: getActiveClock().now(),
           source: 'binance',
         });
       });
@@ -598,7 +599,7 @@ async function startServer() {
           price: agg.price,
           volume: agg.quantity,
           timestampMs: agg.timestamp,
-          receivedAtMs: Date.now(),
+          receivedAtMs: getActiveClock().now(),
           source: 'binance',
         });
         // Phase 53.7 — symmetric to perp: stash spot taker fills in a ring
@@ -750,7 +751,7 @@ async function startServer() {
               asks: askLevels,
               eventTime: data.E,
               tradeTime: data.T,
-              receivedAt: Date.now(),
+              receivedAt: getActiveClock().now(),
             };
           }
         } catch {/* swallow malformed */}
@@ -765,7 +766,7 @@ async function startServer() {
       setInterval(() => {
         const book = (global as any).__binanceFuturesBook || {};
         const liq = (global as any).__lastLiquidations || [];
-        const recentLiq = liq.filter((l: any) => Date.now() - l.timestamp < 60_000).length;
+        const recentLiq = liq.filter((l: any) => getActiveClock().now() - l.timestamp < 60_000).length;
         const perpSpotDeltas: string[] = [];
         for (const sym of Object.keys(book)) {
           const perp = book[sym].midPrice;
@@ -824,7 +825,7 @@ async function startServer() {
       
       // Update health state for database
       import('../routers/healthRouter').then(({ updateHealthState }) => {
-        updateHealthState('database', { connected: true, lastQuery: Date.now() });
+        updateHealthState('database', { connected: true, lastQuery: getActiveClock().now() });
         console.log(`[${new Date().toLocaleTimeString()}] ✅ Database health state updated`);
       }).catch(() => {});
       
@@ -843,7 +844,7 @@ async function startServer() {
             .from(paperPositions)
             .where(and(eq(paperPositions.userId, userId), eq(paperPositions.status, 'open')));
           
-          positionCache.set(userId, { positions: openPositions, timestamp: Date.now() });
+          positionCache.set(userId, { positions: openPositions, timestamp: getActiveClock().now() });
           console.log(`[${new Date().toLocaleTimeString()}] ✅ Cached ${openPositions.length} positions for user ${userId}`);
         }
         console.log(`[${new Date().toLocaleTimeString()}] ✅ Position cache pre-populated for ${usersWithPositions.length} users`);

@@ -19,6 +19,7 @@
  */
 
 import type { ScenarioProjection } from './ScenarioEngine';
+import { getActiveClock } from '../_core/clock';
 
 export interface MonteCarloConfig {
   numSimulations: number;    // Number of random walks (default 500)
@@ -208,7 +209,7 @@ export class MonteCarloSimulator {
     }
 
     const params = { ...(REGIME_PARAMS[regime] || DEFAULT_PARAMS) };
-    const rng = mulberry32(seed || Date.now());
+    const rng = mulberry32(seed || getActiveClock().now());
     const dirMult = direction === 'long' ? 1 : -1;
 
     // Calibrate volatility to actual ATR if provided

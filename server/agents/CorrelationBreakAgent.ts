@@ -28,6 +28,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface PriceSample { price: number; timestamp: number; }
 interface BookSnapshot { midPrice: number; eventTime: number; }
@@ -78,7 +79,7 @@ export class CorrelationBreakAgent extends AgentBase {
 
   /** Sample all 3 perp prices into our rings each call (cheap; idempotent). */
   private sampleAll(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const futures = (global as any).__binanceFuturesBook || {};
     for (const sym of ['BTCUSDT', 'ETHUSDT', 'SOLUSDT']) {
       const book = futures[sym] as BookSnapshot | undefined;
@@ -108,7 +109,7 @@ export class CorrelationBreakAgent extends AgentBase {
   private moveBps(binSym: string): number | null {
     const ring = this.samples.get(binSym);
     if (!ring || ring.length < 5) return null;
-    const now = Date.now();
+    const now = getActiveClock().now();
     const ref = this.sampleAt(ring, now - WINDOW_MS);
     const last = ring[ring.length - 1];
     if (!ref || !last || ref.price <= 0) return null;
@@ -117,7 +118,7 @@ export class CorrelationBreakAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = toBinanceSymbol(symbol);
 
     // Always sample fresh on every analyze call so the rings stay populated
@@ -176,7 +177,7 @@ export class CorrelationBreakAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: lagFactor,
@@ -192,7 +193,7 @@ export class CorrelationBreakAgent extends AgentBase {
         source: 'binance-perp-cross-asset-corr',
       },
       qualityScore: 0.74,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: Math.round(45 + btcMagFactor * 20 + lagFactor * 15),
     };
@@ -202,7 +203,7 @@ export class CorrelationBreakAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
@@ -213,7 +214,7 @@ export class CorrelationBreakAgent extends AgentBase {
         solRingSize: this.samples.get('SOLUSDT')?.length || 0,
       },
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

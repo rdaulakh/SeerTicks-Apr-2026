@@ -13,6 +13,7 @@
  */
 
 import { getDb } from "../db";
+import { getActiveClock } from '../_core/clock';
 import { systemHeartbeat } from "../../drizzle/schema";
 import os from "os";
 
@@ -134,7 +135,7 @@ class SystemHeartbeatService {
   } {
     return {
       isRunning: this.interval !== null,
-      uptimeSeconds: Math.floor((Date.now() - this.startTime.getTime()) / 1000),
+      uptimeSeconds: Math.floor((getActiveClock().now() - this.startTime.getTime()) / 1000),
       ticksThisMinute: this.ticksThisMinute,
       positionsCheckedThisMinute: this.positionsCheckedThisMinute,
       lastTickTime: this.lastTickTime,

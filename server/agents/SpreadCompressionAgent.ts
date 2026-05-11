@@ -35,6 +35,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface BookSnapshot {
   bidPrice: number;
@@ -94,13 +95,13 @@ export class SpreadCompressionAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     const book = ((global as any).__binanceFuturesBook || {})[binSym] as BookSnapshot | undefined;
     if (!book) return this.neutralSignal(symbol, startTime, `No futures book for ${binSym}`);
 
-    const age = Date.now() - book.eventTime;
+    const age = getActiveClock().now() - book.eventTime;
     if (age > STALE_MS) return this.neutralSignal(symbol, startTime, `Book stale (${age}ms)`);
     if (!isFinite(book.bidPrice) || !isFinite(book.askPrice) || book.midPrice <= 0) {
       return this.neutralSignal(symbol, startTime, `Invalid book prices`);
@@ -177,7 +178,7 @@ export class SpreadCompressionAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: Math.min(compressionFactor + directionFactor * 0.5, 1),
@@ -197,7 +198,7 @@ export class SpreadCompressionAgent extends AgentBase {
         source: 'binance-perp-bookTicker + depth5',
       },
       qualityScore: 0.72,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: age,
       executionScore: Math.round(45 + compressionFactor * 25 + directionFactor * 15),
     };
@@ -207,14 +208,14 @@ export class SpreadCompressionAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: { ringSize: this.spreadRings.get(symbol)?.length || 0 },
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

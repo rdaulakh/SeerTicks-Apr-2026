@@ -11,6 +11,7 @@
  */
 
 import { EventEmitter } from "events";
+import { getActiveClock } from '../_core/clock';
 import type { ExchangeInterface } from "../exchanges/ExchangeInterface";
 
 export interface SpreadData {
@@ -186,7 +187,7 @@ export class MarketMicrostructureAnalyzer extends EventEmitter {
       
       const spreadData: SpreadData = {
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         bid,
         ask,
         spread,
@@ -311,7 +312,7 @@ export class MarketMicrostructureAnalyzer extends EventEmitter {
     
     return {
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       spreadCondition,

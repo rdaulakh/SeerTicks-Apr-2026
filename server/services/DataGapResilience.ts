@@ -26,6 +26,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { priceFeedService } from './priceFeedService';
 
 // ─── Configuration ───────────────────────────────────────────────────────────
@@ -155,14 +156,14 @@ class DataGapResilienceService extends EventEmitter {
   private startGapDetection(): void {
     // Initialize last tick times
     for (const symbol of this.symbols) {
-      this.lastTickTime.set(symbol, Date.now());
+      this.lastTickTime.set(symbol, getActiveClock().now());
     }
 
     // Listen for price updates
     priceFeedService.on('price_update', (data: { symbol: string; timestamp: number }) => {
       const sym = data.symbol;
       if (this.symbols.includes(sym)) {
-        this.lastTickTime.set(sym, Date.now());
+        this.lastTickTime.set(sym, getActiveClock().now());
 
         // If we were REST polling and WS is back, stop polling
         if (this.isRESTPolling) {
@@ -182,7 +183,7 @@ class DataGapResilienceService extends EventEmitter {
   }
 
   private detectGaps(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     let anyStale = false;
 
     for (const symbol of this.symbols) {
@@ -237,7 +238,7 @@ class DataGapResilienceService extends EventEmitter {
 
     this.isRESTPolling = true;
     this.stats.isRESTPolling = true;
-    this.lastDisconnectTime = Date.now();
+    this.lastDisconnectTime = getActiveClock().now();
 
     console.log('[DataGapResilience] 🔄 REST fallback poller started');
     this.emit('rest_poller_started');
@@ -271,7 +272,7 @@ class DataGapResilienceService extends EventEmitter {
   }
 
   private checkIfWSRecovered(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     let allFresh = true;
 
     for (const symbol of this.symbols) {
@@ -301,8 +302,8 @@ class DataGapResilienceService extends EventEmitter {
           // Feed into priceFeedService as 'rest' source
           priceFeedService.updatePrice(symbol, price, 'rest');
           this.stats.restPollCount++;
-          this.stats.lastRESTPrice[symbol] = { price, timestamp: Date.now() };
-          this.lastTickTime.set(symbol, Date.now());
+          this.stats.lastRESTPrice[symbol] = { price, timestamp: getActiveClock().now() };
+          this.lastTickTime.set(symbol, getActiveClock().now());
         }
       } catch (err) {
         this.stats.restPollErrors++;
@@ -361,13 +362,13 @@ class DataGapResilienceService extends EventEmitter {
     import('./CoinbasePublicWebSocket').then(({ coinbasePublicWebSocket }) => {
       // Track disconnect time
       coinbasePublicWebSocket.on('disconnected', () => {
-        this.lastDisconnectTime = Date.now();
+        this.lastDisconnectTime = getActiveClock().now();
         console.log('[DataGapResilience] WebSocket disconnected — tracking gap window');
       });
 
       // On reconnect, backfill the gap
       coinbasePublicWebSocket.on('connected', () => {
-        const now = Date.now();
+        const now = getActiveClock().now();
         const gapDuration = now - this.lastDisconnectTime;
 
         if (this.lastDisconnectTime > 0 && gapDuration > 3_000 && gapDuration < BACKFILL_MAX_WINDOW_MS) {
@@ -408,7 +409,7 @@ class DataGapResilienceService extends EventEmitter {
 
     this.stats.backfillCount++;
     this.stats.backfillTicksRecovered += totalRecovered;
-    this.stats.lastBackfillAt = Date.now();
+    this.stats.lastBackfillAt = getActiveClock().now();
     this.isBackfilling = false;
 
     console.log(`[DataGapResilience] ✅ Backfill complete: ${totalRecovered} ticks recovered`);
@@ -527,7 +528,7 @@ class DataGapResilienceService extends EventEmitter {
    * Runs every 5 minutes (vs the old 24-hour DataGapRecoveryService cycle).
    */
   private async runRapidGapScan(): Promise<void> {
-    this.stats.lastGapScanAt = Date.now();
+    this.stats.lastGapScanAt = getActiveClock().now();
 
     try {
       const { getDb } = await import('../db');

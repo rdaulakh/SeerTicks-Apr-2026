@@ -2,6 +2,7 @@
  * OrderBlockIdentifier - Identifies institutional entry zones
  */
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../../_core/clock';
 
 export interface OrderBlock { price: number; high: number; low: number; type: 'bullish' | 'bearish'; timestamp: number; strength: number; status: 'fresh' | 'tested' | 'broken'; }
 export interface OrderBlockMetrics { symbol: string; timestamp: number; blocks: OrderBlock[]; nearestBullish: OrderBlock | null; nearestBearish: OrderBlock | null; }
@@ -66,7 +67,7 @@ export class OrderBlockIdentifier extends EventEmitter {
     const currentPrice = candleList.length > 0 ? candleList[candleList.length - 1].close : 0;
     const bullishBlocks = activeBlocks.filter(b => b.type === 'bullish' && b.price < currentPrice).sort((a, b) => b.price - a.price);
     const bearishBlocks = activeBlocks.filter(b => b.type === 'bearish' && b.price > currentPrice).sort((a, b) => a.price - b.price);
-    return { symbol, timestamp: Date.now(), blocks: activeBlocks, nearestBullish: bullishBlocks[0] || null, nearestBearish: bearishBlocks[0] || null };
+    return { symbol, timestamp: getActiveClock().now(), blocks: activeBlocks, nearestBullish: bullishBlocks[0] || null, nearestBearish: bearishBlocks[0] || null };
   }
   
   getMetrics(symbol: string): OrderBlockMetrics | null { return this.lastMetrics.get(symbol) || null; }

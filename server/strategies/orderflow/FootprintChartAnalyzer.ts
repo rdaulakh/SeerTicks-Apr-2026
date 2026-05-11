@@ -3,6 +3,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../../_core/clock';
 
 export interface FootprintLevel {
   price: number;
@@ -88,7 +89,7 @@ export class FootprintChartAnalyzer extends EventEmitter {
       if (accumulatedVolume >= targetVolume) break;
     }
     
-    return { symbol, timestamp: Date.now(), levels: levelArray, poc, valueAreaHigh, valueAreaLow, totalBuyVolume, totalSellVolume };
+    return { symbol, timestamp: getActiveClock().now(), levels: levelArray, poc, valueAreaHigh, valueAreaLow, totalBuyVolume, totalSellVolume };
   }
   
   getFootprint(symbol: string): FootprintData | null { return this.lastFootprint.get(symbol) || null; }

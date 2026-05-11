@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import { getActiveClock } from '../_core/clock';
 import { adminProcedure, router } from '../_core/trpc';
 import { monitoringService } from '../services/MonitoringService';
 import { databaseCleanupService } from '../services/DatabaseCleanupService';
@@ -601,7 +602,7 @@ export const monitoringRouter = router({
     const db = await getDb();
     if (!db) return null;
 
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const oneHourAgo = new Date(getActiveClock().now() - 60 * 60 * 1000);
 
     const [heartbeatCount] = await db.select({ count: sql<number>`count(*)` })
       .from(systemHeartbeat)
@@ -690,7 +691,7 @@ export const monitoringRouter = router({
     const db = await getDb();
     if (!db) return { summary: [] };
 
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const oneDayAgo = new Date(getActiveClock().now() - 24 * 60 * 60 * 1000);
     const summary = await db.select({
       eventType: tradingPipelineLog.eventType,
       count: sql<number>`count(*)`,
@@ -714,7 +715,7 @@ export const monitoringRouter = router({
       const db = await getDb();
       if (!db) return { consensus: [], approved: [], rejected: [], hourly: [], agentBreakdown: [] };
       const hours = input?.hours ?? 24;
-      const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+      const since = new Date(getActiveClock().now() - hours * 60 * 60 * 1000);
 
       // Consensus direction distribution
       const consensus = await db.select({

@@ -1142,13 +1142,13 @@ export class UserTradingSession extends EventEmitter {
               await db.update(paperPositions).set({
                 status: 'closed',
                 exitPrice: currentPrice.toString(),
-                exitTime: new Date(),
+                exitTime: getActiveClock().date(),
                 realizedPnl: unrealizedPnL.toFixed(8),  // FIX: was 'realizedPnL' (wrong case)
                 currentPrice: currentPrice.toString(),
                 unrealizedPnL: '0',
                 unrealizedPnLPercent: '0',
                 exitReason: closeReason,
-                updatedAt: new Date(),
+                updatedAt: getActiveClock().date(),
               }).where(eq(paperPositions.id, pos.id));
               console.log(`[UserTradingSession] 🚨 SAFETY EXIT #${pos.id} ${pos.symbol} ${pos.side}: ${closeReason} | PnL=$${unrealizedPnL.toFixed(4)}`);
 
@@ -1202,7 +1202,7 @@ export class UserTradingSession extends EventEmitter {
               currentPrice: currentPrice.toString(),
               unrealizedPnL: unrealizedPnL.toString(),
               unrealizedPnLPercent: unrealizedPnLPercent.toString(),
-              updatedAt: new Date(),
+              updatedAt: getActiveClock().date(),
             }).where(eq(paperPositions.id, pos.id));
           }
         } catch (err) {
@@ -1705,10 +1705,10 @@ export class UserTradingSession extends EventEmitter {
         .set({
           status: 'closed',
           exitPrice: exitPrice.toString(),
-          exitTime: new Date(),
+          exitTime: getActiveClock().date(),
           exitReason: exitReason.slice(0, 64),
           realizedPnl: realizedPnL.toFixed(8),
-          updatedAt: new Date(),
+          updatedAt: getActiveClock().date(),
         })
         .where(and(
           eq(paperPositions.id, numericId),

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { getActiveClock } from '../_core/clock';
 import { protectedProcedure, router } from '../_core/trpc';
 import { getHighFrequencyOrchestrator } from '../services/HighFrequencyOrchestrator';
 
@@ -118,7 +119,7 @@ export const highFrequencyRouter = router({
       return {
         symbol: input.symbol,
         price,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
       };
     }),
 

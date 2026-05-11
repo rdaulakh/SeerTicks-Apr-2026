@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { AgentSignal } from '../agents/AgentBase';
 
 export interface AgentInsight {
@@ -78,8 +79,8 @@ export class SharedAgentMemory extends EventEmitter {
   writeInsight(insight: Omit<AgentInsight, 'timestamp' | 'expiresAt'> & { ttlMs?: number }): void {
     const fullInsight: AgentInsight = {
       ...insight,
-      timestamp: Date.now(),
-      expiresAt: Date.now() + (insight.ttlMs || this.config.insightTTLMs),
+      timestamp: getActiveClock().now(),
+      expiresAt: getActiveClock().now() + (insight.ttlMs || this.config.insightTTLMs),
     };
     if (!this.insights.has(insight.symbol)) this.insights.set(insight.symbol, new Map());
     const symbolInsights = this.insights.get(insight.symbol)!;
@@ -94,7 +95,7 @@ export class SharedAgentMemory extends EventEmitter {
     const symbolInsights = this.insights.get(symbol);
     if (!symbolInsights) return [];
     const typeInsights = symbolInsights.get(insightType) || [];
-    return typeInsights.filter(i => i.expiresAt > Date.now());
+    return typeInsights.filter(i => i.expiresAt > getActiveClock().now());
   }
 
   readLatestInsight(symbol: string, insightType: InsightType): AgentInsight | null {
@@ -112,7 +113,7 @@ export class SharedAgentMemory extends EventEmitter {
   private calculateCorrelation(symbol: string): void {
     const symbolSignals = this.recentSignals.get(symbol);
     if (!symbolSignals) return;
-    const windowStart = Date.now() - this.config.correlationWindowMs;
+    const windowStart = getActiveClock().now() - this.config.correlationWindowMs;
     const recentSignals: { agentName: string; signal: 'bullish' | 'bearish' | 'neutral'; confidence: number }[] = [];
     for (const [agentName, signal] of symbolSignals) {
       if (signal.timestamp >= windowStart) {
@@ -129,7 +130,7 @@ export class SharedAgentMemory extends EventEmitter {
     const agreementScore = totalWeight > 0 ? (bullishWeight - bearishWeight) / totalWeight : 0;
     const signalTypes = new Set(recentSignals.map(s => s.signal));
     const conflictScore = signalTypes.size > 1 ? (signalTypes.size - 1) / 2 : 0;
-    const correlation: SignalCorrelation = { symbol, timestamp: Date.now(), signals: recentSignals, agreementScore, conflictScore };
+    const correlation: SignalCorrelation = { symbol, timestamp: getActiveClock().now(), signals: recentSignals, agreementScore, conflictScore };
     if (!this.signalCorrelations.has(symbol)) this.signalCorrelations.set(symbol, []);
     const correlations = this.signalCorrelations.get(symbol)!;
     correlations.push(correlation);
@@ -145,11 +146,11 @@ export class SharedAgentMemory extends EventEmitter {
   updateRegimeConsensus(symbol: string, agentName: string, regime: MarketRegimeConsensus['regime'], confidence: number): void {
     const existing = this.regimeConsensus.get(symbol);
     if (!existing) {
-      this.regimeConsensus.set(symbol, { symbol, regime, confidence, contributors: [agentName], timestamp: Date.now() });
+      this.regimeConsensus.set(symbol, { symbol, regime, confidence, contributors: [agentName], timestamp: getActiveClock().now() });
     } else {
       if (!existing.contributors.includes(agentName)) existing.contributors.push(agentName);
       if (confidence > existing.confidence) { existing.regime = regime; existing.confidence = confidence; }
-      existing.timestamp = Date.now();
+      existing.timestamp = getActiveClock().now();
     }
   }
 
@@ -158,7 +159,7 @@ export class SharedAgentMemory extends EventEmitter {
   }
 
   activateVeto(reason: string, triggeredBy: string, affectedSymbols: string[] = []): void {
-    this.vetoState = { active: true, reason, triggeredBy, timestamp: Date.now(), expiresAt: Date.now() + this.config.vetoTTLMs, affectedSymbols };
+    this.vetoState = { active: true, reason, triggeredBy, timestamp: getActiveClock().now(), expiresAt: getActiveClock().now() + this.config.vetoTTLMs, affectedSymbols };
     console.log(`[SharedAgentMemory] 🚨 VETO ACTIVATED by ${triggeredBy}: ${reason}`);
     this.emit('veto_activated', this.vetoState);
   }
@@ -173,7 +174,7 @@ export class SharedAgentMemory extends EventEmitter {
 
   isVetoActive(symbol?: string): boolean {
     if (!this.vetoState.active) return false;
-    if (Date.now() > this.vetoState.expiresAt) { this.deactivateVeto(); return false; }
+    if (getActiveClock().now() > this.vetoState.expiresAt) { this.deactivateVeto(); return false; }
     if (!symbol || this.vetoState.affectedSymbols.length === 0) return true;
     return this.vetoState.affectedSymbols.includes(symbol);
   }
@@ -185,7 +186,7 @@ export class SharedAgentMemory extends EventEmitter {
     const insightsByType: Record<string, number> = {};
     for (const symbolInsights of this.insights.values()) {
       for (const [type, insights] of symbolInsights) {
-        const validCount = insights.filter(i => i.expiresAt > Date.now()).length;
+        const validCount = insights.filter(i => i.expiresAt > getActiveClock().now()).length;
         totalInsights += validCount;
         insightsByType[type] = (insightsByType[type] || 0) + validCount;
       }
@@ -196,7 +197,7 @@ export class SharedAgentMemory extends EventEmitter {
   }
 
   private cleanup(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     for (const symbolInsights of this.insights.values()) {
       for (const [type, insights] of symbolInsights) {
         const valid = insights.filter(i => i.expiresAt > now);

@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import { getActiveClock } from '../_core/clock';
 import { protectedProcedure, publicProcedure, router } from '../_core/trpc';
 import { getEngineAdapter, getExistingAdapter } from '../services/EngineAdapter';
 import { getPerformanceMonitor } from '../services/PerformanceMonitor';
@@ -42,7 +43,7 @@ export const seerMultiRouter = router({
       return {
         running: true,
         isRunning: true,
-        startedAt: globalStatus ? new Date(Date.now() - globalStatus.uptimeMs).toISOString() : new Date().toISOString(),
+        startedAt: globalStatus ? new Date(getActiveClock().now() - globalStatus.uptimeMs).toISOString() : new Date().toISOString(),
         pairs: status.symbols.map((s: string) => ({ symbol: s, exchange: 'coinbase' })),
         exchanges: ['coinbase'],
         health: {
@@ -66,7 +67,7 @@ export const seerMultiRouter = router({
         return {
           running: true,
           isRunning: true,
-          startedAt: new Date(Date.now() - globalStatus.uptimeMs).toISOString(),
+          startedAt: new Date(getActiveClock().now() - globalStatus.uptimeMs).toISOString(),
           pairs: globalStatus.symbols.map(s => ({ symbol: s, exchange: 'coinbase' })),
           exchanges: ['coinbase'],
           health: {
@@ -322,7 +323,7 @@ export const seerMultiRouter = router({
       });
       
       // Record order
-      const orderId = `paper_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const orderId = `paper_${getActiveClock().now()}_${Math.random().toString(36).substr(2, 9)}`;
       await insertPaperOrder({
         userId: ctx.user.id,
         orderId,
@@ -544,7 +545,7 @@ export const seerMultiRouter = router({
                   evidence: cached.evidence || {},
                   qualityScore: cached.qualityScore || 0,
                   processingTime: 0,
-                  dataFreshness: (Date.now() - cached.timestamp) / 1000,
+                  dataFreshness: (getActiveClock().now() - cached.timestamp) / 1000,
                   executionScore: cached.evidence?.executionScore || 50,
                 };
               }
@@ -702,14 +703,14 @@ export const seerMultiRouter = router({
           isRunning: status.isRunning,
           uptime: uptimeMs,
           uptimeFormatted: formatUptime(uptimeMs),
-          startedAt: globalStatus ? new Date(Date.now() - globalStatus.uptimeMs).toISOString() : null,
+          startedAt: globalStatus ? new Date(getActiveClock().now() - globalStatus.uptimeMs).toISOString() : null,
         },
         signals: {
           totalGenerated: status.totalTradesExecuted + status.totalTradesRejected,
           ratePerMinute: Math.round(signalRate * 10) / 10,
           lastSignalAt: status.lastSignalProcessed,
           minutesSinceLastSignal: status.lastSignalProcessed > 0
-            ? Math.floor((Date.now() - status.lastSignalProcessed) / 60000)
+            ? Math.floor((getActiveClock().now() - status.lastSignalProcessed) / 60000)
             : 0,
         },
         agents: {
@@ -753,7 +754,7 @@ export const seerMultiRouter = router({
     try {
       const adapter = await getEngineAdapter(ctx.user.id);
       const agents = await adapter.getAllAgentsStatus();
-      const now = Date.now();
+      const now = getActiveClock().now();
 
       return agents.map((agent: any) => {
         const lastUpdateTime = agent.lastUpdate ? new Date(agent.lastUpdate).getTime() : 0;
@@ -873,7 +874,7 @@ export const seerMultiRouter = router({
       if (!db) return [];
       
       const hours = input?.hours || 24;
-      const cutoffTime = new Date(Date.now() - hours * 60 * 60 * 1000);
+      const cutoffTime = new Date(getActiveClock().now() - hours * 60 * 60 * 1000);
       
       const metrics = await db
         .select()

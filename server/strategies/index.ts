@@ -2,6 +2,7 @@
  * Phase 3 Strategies - Unified Index
  */
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 export * from './orderflow';
 export * from './smartmoney';
@@ -68,7 +69,7 @@ export class UnifiedStrategyManager extends EventEmitter {
     if (statSignal.direction === direction) agreementCount++;
     
     return {
-      symbol, timestamp: Date.now(), direction, strength: Math.round(strength), confidence: direction !== 'neutral' ? Math.round((agreementCount / 3) * 100) : 0,
+      symbol, timestamp: getActiveClock().now(), direction, strength: Math.round(strength), confidence: direction !== 'neutral' ? Math.round((agreementCount / 3) * 100) : 0,
       sources: {
         orderFlow: ofSignal.direction !== 'neutral' ? { direction: ofSignal.direction, strength: ofSignal.strength } : null,
         smartMoney: smSignal.direction !== 'neutral' ? { direction: smSignal.direction, strength: smSignal.strength, trend: smSignal.trend } : null,

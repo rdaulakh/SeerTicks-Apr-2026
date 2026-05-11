@@ -20,6 +20,7 @@
  */
 
 import { getTradingConfig } from '../config/TradingConfig';
+import { getActiveClock } from '../_core/clock';
 
 export interface ConfidenceTrackingState {
   positionId: string;
@@ -133,7 +134,7 @@ export class ConfidenceDecayTracker {
    * Register a new position for confidence tracking
    */
   registerPosition(positionId: string, symbol: string, entryConfidence: number): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     const state: ConfidenceTrackingState = {
       positionId,
@@ -179,7 +180,7 @@ export class ConfidenceDecayTracker {
       };
     }
     
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     // Update current confidence
     state.currentConfidence = currentConfidence;
@@ -211,7 +212,7 @@ export class ConfidenceDecayTracker {
    * Implements the proportional decay model with all institutional-grade features
    */
   private evaluateExit(state: ConfidenceTrackingState, pnlPercent: number): DecayExitDecision {
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     // Phase 15C FIX: Enable confidence decay for ALL positions including losers.
     // Previously disabled for losers (Phase 5), causing them to bleed to -5% emergency exit
@@ -374,7 +375,7 @@ export class ConfidenceDecayTracker {
    * Returns < 1.0 for rapid drops (tighter threshold), 1.0 for normal
    */
   private calculateMomentumFactor(state: ConfidenceTrackingState): number {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const windowStart = now - this.config.momentumWindowMs;
     
     // Get recent history within momentum window
@@ -554,7 +555,7 @@ export class ConfidenceDecayTracker {
       currentConfidence: state.currentConfidence,
       exitThreshold: state.exitThreshold,
       decayRatio: state.decayRatio,
-      holdTimeMs: Date.now() - state.entryTimestamp,
+      holdTimeMs: getActiveClock().now() - state.entryTimestamp,
     };
   }
 }

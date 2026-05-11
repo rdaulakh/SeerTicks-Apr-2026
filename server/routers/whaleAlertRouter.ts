@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getActiveClock } from '../_core/clock';
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import {
   fetchWhaleAlerts,
@@ -44,7 +45,7 @@ export const whaleAlertRouter = router({
       })
     )
     .query(async ({ input }) => {
-      const now = Math.floor(Date.now() / 1000);
+      const now = Math.floor(getActiveClock().now() / 1000);
       const startTime = now - input.hoursBack * 3600;
 
       try {
@@ -93,7 +94,7 @@ export const whaleAlertRouter = router({
         throw new Error("Database not available");
       }
 
-      const now = Math.floor(Date.now() / 1000);
+      const now = Math.floor(getActiveClock().now() / 1000);
       const startTime = now - input.hoursBack * 3600;
 
       try {
@@ -221,7 +222,7 @@ export const whaleAlertRouter = router({
         return null;
       }
 
-      const cutoff = new Date(Date.now() - input.hoursBack * 3600 * 1000);
+      const cutoff = new Date(getActiveClock().now() - input.hoursBack * 3600 * 1000);
 
       try {
         // Total volume by blockchain

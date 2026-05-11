@@ -3,6 +3,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../../_core/clock';
 
 export interface VolumeDeltaMetrics {
   symbol: string;
@@ -78,7 +79,7 @@ export class VolumeDeltaAnalyzer extends EventEmitter {
       else if (priceChange > this.config.divergenceThreshold && data.cumulativeDelta < 0) divergence = 'bearish';
     }
     
-    return { symbol, timestamp: Date.now(), cumulativeDelta: data.cumulativeDelta, deltaSMA, deltaEMA, divergence, strength: Math.min(100, Math.abs(data.cumulativeDelta) / 10) };
+    return { symbol, timestamp: getActiveClock().now(), cumulativeDelta: data.cumulativeDelta, deltaSMA, deltaEMA, divergence, strength: Math.min(100, Math.abs(data.cumulativeDelta) / 10) };
   }
   
   getMetrics(symbol: string): VolumeDeltaMetrics | null { return this.lastMetrics.get(symbol) || null; }

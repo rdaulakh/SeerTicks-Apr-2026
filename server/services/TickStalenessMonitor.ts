@@ -15,6 +15,7 @@
  */
 
 import EventEmitter from 'eventemitter3';
+import { getActiveClock } from '../_core/clock';
 import { priceFeedService } from './priceFeedService';
 
 export interface TickSource {
@@ -136,7 +137,7 @@ export class TickStalenessMonitor extends EventEmitter {
     }
 
     this.isRunning = true;
-    this.startTime = Date.now();
+    this.startTime = getActiveClock().now();
     
     console.log('[TickStalenessMonitor] 🚀 Starting tick staleness monitoring');
     console.log(`[TickStalenessMonitor] Staleness threshold: ${this.config.stalenessThresholdMs}ms`);
@@ -151,7 +152,7 @@ export class TickStalenessMonitor extends EventEmitter {
       this.checkHealth();
     }, this.config.healthCheckIntervalMs);
 
-    this.emit('started', { timestamp: Date.now() });
+    this.emit('started', { timestamp: getActiveClock().now() });
   }
 
   /**
@@ -168,7 +169,7 @@ export class TickStalenessMonitor extends EventEmitter {
     }
 
     console.log('[TickStalenessMonitor] Stopped');
-    this.emit('stopped', { timestamp: Date.now() });
+    this.emit('stopped', { timestamp: getActiveClock().now() });
   }
 
   /**
@@ -177,7 +178,7 @@ export class TickStalenessMonitor extends EventEmitter {
   private subscribeToPriceFeed(): void {
     // Track ticks from the central price feed service
     priceFeedService.on('price_update', (data: { symbol: string; price: number; source?: string; timestamp?: number }) => {
-      const now = Date.now();
+      const now = getActiveClock().now();
       const source = data.source || 'websocket';
       
       // Determine which source this tick came from
@@ -243,7 +244,7 @@ export class TickStalenessMonitor extends EventEmitter {
    * Check health of all tick sources
    */
   private checkHealth(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     // Calculate tick rate
     if (now - this.lastTickCountTime >= 1000) {
@@ -340,7 +341,7 @@ export class TickStalenessMonitor extends EventEmitter {
     }
     
     source.reconnectCount++;
-    source.lastReconnectTime = Date.now();
+    source.lastReconnectTime = getActiveClock().now();
     
     console.log(`[TickStalenessMonitor] 🔄 Triggering reconnect for ${source.name} (attempt ${source.reconnectCount}/${this.config.maxReconnectAttempts})`);
     
@@ -388,7 +389,7 @@ export class TickStalenessMonitor extends EventEmitter {
    * Used when integrating with existing WebSocket handlers
    */
   reportTick(sourceName: string, symbol: string, price: number, timestamp?: number): void {
-    const now = timestamp || Date.now();
+    const now = timestamp || getActiveClock().now();
     
     if (sourceName === 'Coinbase' || sourceName === 'coinbase' || sourceName === 'CoinAPI' || sourceName === 'coinapi' || sourceName === 'primary') {
       this.recordTick(this.primarySource, now, symbol, price);
@@ -430,7 +431,7 @@ export class TickStalenessMonitor extends EventEmitter {
    * Get current status
    */
   getStatus(): TickStalenessStatus {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const primaryStaleDuration = this.primarySource.lastTickTime > 0 
       ? now - this.primarySource.lastTickTime 
       : 0;

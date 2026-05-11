@@ -35,6 +35,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { getAgentWeightMultiplier } from './RegimeCalibration';
 
 // ============================================================
@@ -132,7 +133,7 @@ export class MarketRegimeAI extends EventEmitter {
   async getMarketContext(symbol: string): Promise<MarketContext> {
     // Check cache
     const cached = this.cache.get(symbol);
-    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+    if (cached && (getActiveClock().now() - cached.timestamp) < CACHE_TTL_MS) {
       return cached.context;
     }
 
@@ -140,7 +141,7 @@ export class MarketRegimeAI extends EventEmitter {
     const context = await this.buildMarketContext(symbol);
     
     // Cache it
-    this.cache.set(symbol, { context, timestamp: Date.now() });
+    this.cache.set(symbol, { context, timestamp: getActiveClock().now() });
     
     // Track regime history for transition detection
     this.trackRegimeHistory(symbol, context.regime);
@@ -161,7 +162,7 @@ export class MarketRegimeAI extends EventEmitter {
           from: prev.regime,
           to: context.regime,
           confidence: context.regimeConfidence,
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
         });
       }
     }
@@ -251,7 +252,7 @@ export class MarketRegimeAI extends EventEmitter {
     // Get previous regime
     const history = this.regimeHistory.get(symbol) || [];
     const previousRegime = history.length > 0 ? history[history.length - 1].regime : null;
-    const regimeAge = history.length > 0 ? Date.now() - history[history.length - 1].timestamp : 0;
+    const regimeAge = history.length > 0 ? getActiveClock().now() - history[history.length - 1].timestamp : 0;
 
     // Generate agent guidance based on regime
     const agentGuidance = this.generateAgentGuidance(regime, volatilityClass, trendStrength, trendDirection);
@@ -276,7 +277,7 @@ export class MarketRegimeAI extends EventEmitter {
       rsi,
       keyDrivers: drivers,
       agentGuidance,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       dataQuality: candles.length >= IDEAL_CANDLES ? 'full' : candles.length >= MIN_CANDLES ? 'partial' : 'minimal',
       candleCount: candles.length,
     };
@@ -882,7 +883,7 @@ export class MarketRegimeAI extends EventEmitter {
       rsi: 50,
       keyDrivers: ['Insufficient data for regime detection'],
       agentGuidance: this.generateAgentGuidance('range_bound', 'medium', 0, 'flat'),
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       dataQuality: 'minimal',
       candleCount: candles.length,
     };
@@ -896,7 +897,7 @@ export class MarketRegimeAI extends EventEmitter {
     
     // Only add if regime changed or first entry
     if (history.length === 0 || history[history.length - 1].regime !== regime) {
-      history.push({ regime, timestamp: Date.now() });
+      history.push({ regime, timestamp: getActiveClock().now() });
       // Keep last 50 regime transitions
       if (history.length > 50) {
         history.shift();

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { getHighFrequencyTickProcessor, type Tick } from './HighFrequencyTickProcessor';
 import { getScalpingStrategyEngine, type ScalpingSignal, type ScalpingConfig } from './ScalpingStrategyEngine';
 import { getBinanceWebSocketManager } from '../exchanges/BinanceWebSocketManager';
@@ -107,7 +108,7 @@ export class HighFrequencyOrchestrator extends EventEmitter {
     console.log('[HighFrequencyOrchestrator] Starting HFT for symbols:', this.config.symbols);
 
     this.isRunning = true;
-    this.startTime = Date.now();
+    this.startTime = getActiveClock().now();
 
     // Subscribe to WebSocket streams for each symbol
     for (const symbol of this.config.symbols) {
@@ -176,7 +177,7 @@ export class HighFrequencyOrchestrator extends EventEmitter {
     this.emit('stopped', {
       ticksProcessed: this.ticksProcessed,
       signalsGenerated: this.signalsGenerated,
-      runtime: Date.now() - this.startTime,
+      runtime: getActiveClock().now() - this.startTime,
     });
   }
 
@@ -224,7 +225,7 @@ export class HighFrequencyOrchestrator extends EventEmitter {
       symbols: this.config.symbols,
       ticksProcessed: this.ticksProcessed,
       signalsGenerated: this.signalsGenerated,
-      runtime: this.isRunning ? Date.now() - this.startTime : 0,
+      runtime: this.isRunning ? getActiveClock().now() - this.startTime : 0,
       tickProcessorLatency: this.tickProcessor.getAverageLatency(),
       strategyEngineStats: this.strategyEngine.getStats(),
     };
@@ -250,7 +251,7 @@ export class HighFrequencyOrchestrator extends EventEmitter {
   resetStats(): void {
     this.ticksProcessed = 0;
     this.signalsGenerated = 0;
-    this.startTime = Date.now();
+    this.startTime = getActiveClock().now();
     this.strategyEngine.resetStats();
   }
 }

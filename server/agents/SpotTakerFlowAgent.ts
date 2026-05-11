@@ -24,6 +24,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface TakerFill {
   side: 'buy' | 'sell';
@@ -78,7 +79,7 @@ export class SpotTakerFlowAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     const ring = ((global as any).__binanceSpotTakerFlow || {})[binSym] as TakerFill[] | undefined;
@@ -86,7 +87,7 @@ export class SpotTakerFlowAgent extends AgentBase {
       return this.neutralSignal(symbol, startTime, `No spot taker flow for ${binSym}`);
     }
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     const cutoff = now - LOOKBACK_MS;
     const recent = ring.filter(f => f.timestamp >= cutoff);
     if (recent.length === 0) {
@@ -141,7 +142,7 @@ export class SpotTakerFlowAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: Math.abs(imbalance),
@@ -160,7 +161,7 @@ export class SpotTakerFlowAgent extends AgentBase {
         source: 'binance-spot-aggTrade-ws',
       },
       qualityScore: 0.72,    // spot CVD slightly noisier than perp CVD
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: now - Math.max(...recent.map(f => f.timestamp)),
       executionScore: Math.round(45 + magFactor * 25 + sizeFactor * 15),
     };
@@ -170,14 +171,14 @@ export class SpotTakerFlowAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: {},
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

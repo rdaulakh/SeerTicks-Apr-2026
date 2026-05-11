@@ -1,4 +1,5 @@
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 import { agentLogger } from "../utils/logger";
 
 /**
@@ -214,7 +215,7 @@ export class OrderbookImbalanceAgent extends AgentBase {
     const book: OrderBook = {
       bids: { levels: new Map() },
       asks: { levels: new Map() },
-      lastUpdate: Date.now(),
+      lastUpdate: getActiveClock().now(),
     };
     for (const [price, size] of bids) {
       if (size > 0) book.bids.levels.set(price, size);
@@ -240,7 +241,7 @@ export class OrderbookImbalanceAgent extends AgentBase {
       book = {
         bids: { levels: new Map() },
         asks: { levels: new Map() },
-        lastUpdate: Date.now(),
+        lastUpdate: getActiveClock().now(),
       };
       this.books.set(symbol, book);
     }
@@ -252,7 +253,7 @@ export class OrderbookImbalanceAgent extends AgentBase {
         target.set(price, size);
       }
     }
-    book.lastUpdate = Date.now();
+    book.lastUpdate = getActiveClock().now();
     this.trimToTopLevels(book);
   }
 
@@ -293,7 +294,7 @@ export class OrderbookImbalanceAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const book = this.books.get(symbol);
 
     if (!book) {
@@ -303,7 +304,7 @@ export class OrderbookImbalanceAgent extends AgentBase {
       );
     }
 
-    const dataFreshness = (Date.now() - book.lastUpdate) / 1000;
+    const dataFreshness = (getActiveClock().now() - book.lastUpdate) / 1000;
     if (dataFreshness * 1000 > STALE_BOOK_MS) {
       return this.createNeutralSignal(
         symbol,
@@ -372,7 +373,7 @@ export class OrderbookImbalanceAgent extends AgentBase {
     const persistenceScore = (confidence / 0.9) * 50;
     const executionScore = Math.round(spreadScore + persistenceScore);
 
-    const processingTime = Date.now() - startTime;
+    const processingTime = getActiveClock().now() - startTime;
 
     this.log.debug("Imbalance signal computed", {
       symbol,
@@ -388,7 +389,7 @@ export class OrderbookImbalanceAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength,

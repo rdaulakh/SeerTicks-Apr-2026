@@ -32,6 +32,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface DepthLevel { price: number; qty: number; }
 interface DepthSnapshot {
@@ -89,7 +90,7 @@ export class PerpDepthImbalanceAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     const depth = ((global as any).__binancePerpDepth5 || {})[binSym] as DepthSnapshot | undefined;
@@ -97,7 +98,7 @@ export class PerpDepthImbalanceAgent extends AgentBase {
       return this.neutralSignal(symbol, startTime, `No perp depth5 for ${binSym}`);
     }
 
-    const age = Date.now() - depth.receivedAt;
+    const age = getActiveClock().now() - depth.receivedAt;
     if (age > STALE_MS) {
       return this.neutralSignal(symbol, startTime, `Perp depth5 stale (${age}ms > ${STALE_MS}ms)`);
     }
@@ -172,7 +173,7 @@ export class PerpDepthImbalanceAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: Math.min(Math.abs(avgImbalance), 1),
@@ -192,7 +193,7 @@ export class PerpDepthImbalanceAgent extends AgentBase {
         source: 'binance-perp-depth5-100ms-ws',
       },
       qualityScore: 0.78,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: age,
       executionScore: Math.round(45 + magFactor * 25 + persistFactor * 15),
     };
@@ -202,14 +203,14 @@ export class PerpDepthImbalanceAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: { ringSize: this.imbalanceRings.get(symbol)?.length || 0 },
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

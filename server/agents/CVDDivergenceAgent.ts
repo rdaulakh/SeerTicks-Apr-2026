@@ -39,6 +39,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface TakerFill {
   side: 'buy' | 'sell';
@@ -107,7 +108,7 @@ export class CVDDivergenceAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     const perpRing = ((global as any).__binancePerpTakerFlow || {})[binSym] as TakerFill[] | undefined;
@@ -117,7 +118,7 @@ export class CVDDivergenceAgent extends AgentBase {
       return this.neutralSignal(symbol, startTime, `Missing ring(s): perp=${!!perpRing}, spot=${!!spotRing}`);
     }
 
-    const cutoff = Date.now() - LOOKBACK_MS;
+    const cutoff = getActiveClock().now() - LOOKBACK_MS;
     const perp = imbalanceFor(perpRing, cutoff);
     const spot = imbalanceFor(spotRing, cutoff);
 
@@ -166,7 +167,7 @@ export class CVDDivergenceAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: Math.min(Math.abs(signedDiff), 1),
@@ -187,10 +188,10 @@ export class CVDDivergenceAgent extends AgentBase {
         source: 'binance-perp+spot-aggTrade-divergence',
       },
       qualityScore: 0.78,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: Math.min(
-        Date.now() - Math.max(...perp.recent.map(f => f.timestamp), 0),
-        Date.now() - Math.max(...spot.recent.map(f => f.timestamp), 0),
+        getActiveClock().now() - Math.max(...perp.recent.map(f => f.timestamp), 0),
+        getActiveClock().now() - Math.max(...spot.recent.map(f => f.timestamp), 0),
       ),
       executionScore: Math.round(50 + divFactor * 25 + sizeFactor * 15),
     };
@@ -200,14 +201,14 @@ export class CVDDivergenceAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: {},
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

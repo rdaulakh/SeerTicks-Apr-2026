@@ -10,6 +10,7 @@
  */
 
 import WebSocket from 'ws';
+import { getActiveClock } from '../_core/clock';
 import { EventEmitter } from 'events';
 import { ENV } from '../_core/env';
 import { priceFeedService } from './priceFeedService';
@@ -227,7 +228,7 @@ export class CoinAPIWebSocket extends EventEmitter {
           
           // Update health state using dynamic import (ESM compatible)
           import('../routers/healthRouter').then(({ updateHealthState }) => {
-            updateHealthState('websocket', { connected: true, lastPing: Date.now(), provider: 'CoinAPI' });
+            updateHealthState('websocket', { connected: true, lastPing: getActiveClock().now(), provider: 'CoinAPI' });
             updateHealthState('priceFeed', { connected: true });
             console.log('[CoinAPIWebSocket] Health state updated successfully');
           }).catch((e: any) => {
@@ -369,7 +370,7 @@ export class CoinAPIWebSocket extends EventEmitter {
   private handleMessage(data: WebSocket.Data): void {
     try {
       const message: CoinAPIMessage = JSON.parse(data.toString());
-      this.stats.lastMessageTime = Date.now();
+      this.stats.lastMessageTime = getActiveClock().now();
       this.stats.messagesReceived++;
       
       // === MONITORING: Record WS message for health tracking ===
@@ -381,7 +382,7 @@ export class CoinAPIWebSocket extends EventEmitter {
           const { updateHealthState } = require('../routers/healthRouter');
           updateHealthState('priceFeed', { 
             tickCount: this.stats.messagesReceived, 
-            lastTick: Date.now() 
+            lastTick: getActiveClock().now() 
           });
         } catch (e) { /* Health router not loaded yet */ }
       }
@@ -426,7 +427,7 @@ export class CoinAPIWebSocket extends EventEmitter {
         symbol: trade.symbol_id,
         expectedSeq: lastSeq + 1,
         receivedSeq: trade.sequence,
-        timestamp: Date.now()
+        timestamp: getActiveClock().now()
       });
       console.warn(`[CoinAPIWebSocket] ⚠️ DATA GAP DETECTED: ${symbol} - Expected seq ${lastSeq + 1}, got ${trade.sequence} (missed ${missedCount} ticks)`);
       
@@ -543,7 +544,7 @@ export class CoinAPIWebSocket extends EventEmitter {
    * Persist completed OHLCV candles to database
    */
   private async persistOHLCVToDatabase(): Promise<void> {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const currentMinute = Math.floor(now / 60000) * 60000;
     const candlesBySymbol: Map<string, Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume: number }>> = new Map();
     

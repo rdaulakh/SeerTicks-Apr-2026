@@ -13,6 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { getCandleCache, type Candle } from '../WebSocketCandleCache';
 
 interface ActiveCandle {
@@ -74,7 +75,7 @@ export class TickToCandleAggregator extends EventEmitter {
   /**
    * Process a price tick from WebSocket
    */
-  processTick(symbol: string, price: number, volume: number = 0, timestamp: number = Date.now()): void {
+  processTick(symbol: string, price: number, volume: number = 0, timestamp: number = getActiveClock().now()): void {
     if (!this.isRunning) return;
     
     // Update last tick time
@@ -183,7 +184,7 @@ export class TickToCandleAggregator extends EventEmitter {
       clearTimeout(existingTimer);
     }
     
-    const delay = Math.max(0, closeTime - Date.now());
+    const delay = Math.max(0, closeTime - getActiveClock().now());
     
     const timer = setTimeout(() => {
       this.forceCloseCandle(symbol, interval);
@@ -207,7 +208,7 @@ export class TickToCandleAggregator extends EventEmitter {
     // Start a new candle with the last known price
     const lastPrice = candle.close;
     const tf = TIMEFRAMES.find(t => t.interval === interval)!;
-    const newCandleStart = this.alignTimestamp(Date.now(), tf.durationMs);
+    const newCandleStart = this.alignTimestamp(getActiveClock().now(), tf.durationMs);
     
     symbolCandles.set(interval, {
       timestamp: newCandleStart,

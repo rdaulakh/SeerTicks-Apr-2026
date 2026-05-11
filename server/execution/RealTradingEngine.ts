@@ -485,7 +485,7 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
             entryPrice: ex.entryPrice.toString(),
             currentPrice: ex.currentPrice.toString(),
             quantity: ex.quantity.toString(),
-            entryTime: new Date(),
+            entryTime: getActiveClock().date(),
             unrealizedPnL: ex.unrealizedPnl.toString(),
             unrealizedPnLPercent: '0',
             commission: '0',
@@ -503,7 +503,7 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
             entryPrice: ex.entryPrice,
             currentPrice: ex.currentPrice,
             quantity: ex.quantity,
-            entryTime: new Date(),
+            entryTime: getActiveClock().date(),
             unrealizedPnL: ex.unrealizedPnl,
             unrealizedPnLPercent: 0,
             commission: 0,
@@ -634,7 +634,7 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
     // ========================================
     // SAFETY GUARDRAIL #2: Daily loss circuit breaker
     // ========================================
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getActiveClock().date().toISOString().slice(0, 10);
     if (this.dailyPnLResetDate !== today) {
       this.dailyRealizedPnL = 0;
       this.dailyPnLResetDate = today;
@@ -718,7 +718,7 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
       stopLoss: params.stopLoss,
       takeProfit: params.takeProfit,
       status: 'pending',
-      createdAt: new Date(),
+      createdAt: getActiveClock().date(),
       strategy: params.strategy || 'unknown',
     };
     // Phase 67 — attach traceId so the SmartExecutor block + FILL log event
@@ -735,7 +735,7 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
       order.status = 'filled';
       order.filledPrice = params.price || 0;
       order.filledQuantity = params.quantity;
-      order.filledAt = new Date();
+      order.filledAt = getActiveClock().date();
       order.commission = (params.price || 0) * params.quantity * 0.001; // 0.1% commission
 
       this.wallet.totalCommission += order.commission || 0;
@@ -850,7 +850,7 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
       order.exchangeOrderId = exchangeResult.orderId || exchangeResult.id;
       order.filledPrice = exchangeResult.filledPrice || exchangeResult.avgPrice || order.price || 0;
       order.filledQuantity = exchangeResult.filledQuantity || exchangeResult.executedQty || order.quantity;
-      order.filledAt = new Date();
+      order.filledAt = getActiveClock().date();
       order.commission = exchangeResult.commission || ((order.filledPrice || 0) * order.quantity * 0.001); // 0.1% default commission
 
       executionLogger.info('REAL ORDER FILLED', { exchangeOrderId: order.exchangeOrderId, filledPrice: order.filledPrice?.toFixed(2) });
@@ -932,7 +932,7 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
         entryPrice: order.filledPrice!,
         currentPrice: order.filledPrice!,
         quantity: order.filledQuantity!,
-        entryTime: new Date(),
+        entryTime: getActiveClock().date(),
         unrealizedPnL: 0,
         unrealizedPnLPercent: 0,
         stopLoss: order.stopLoss,
@@ -1042,7 +1042,7 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
       quantity: order.filledQuantity!,
       pnl,
       commission: order.commission!,
-      timestamp: new Date(),
+      timestamp: getActiveClock().date(),
       strategy: order.strategy,
     });
 
@@ -1114,7 +1114,7 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
                 currentPrice: currentPrice.toString(),
                 unrealizedPnL: position.unrealizedPnL.toString(),
                 unrealizedPnLPercent: position.unrealizedPnLPercent.toString(),
-                updatedAt: new Date(),
+                updatedAt: getActiveClock().date(),
               })
               .where(eq(paperPositions.id, position.dbPositionId));
           } catch (error) {

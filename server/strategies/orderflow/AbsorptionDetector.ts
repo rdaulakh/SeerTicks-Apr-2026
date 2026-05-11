@@ -3,6 +3,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../../_core/clock';
 
 export interface AbsorptionMetrics {
   symbol: string;
@@ -50,14 +51,14 @@ export class AbsorptionDetector extends EventEmitter {
   private cleanOldTrades(symbol: string): void {
     const data = this.tradeData.get(symbol);
     if (!data) return;
-    const cutoff = Date.now() - this.config.windowSize;
+    const cutoff = getActiveClock().now() - this.config.windowSize;
     data.trades = data.trades.filter((t: any) => t.timestamp >= cutoff);
   }
   
   private calculateMetrics(symbol: string): AbsorptionMetrics {
     const data = this.tradeData.get(symbol)!;
     if (data.trades.length < 5) {
-      return { symbol, timestamp: Date.now(), priceLevel: data.lastPrice, absorbedVolume: 0, priceMovement: 0, absorptionRatio: 0, type: 'none', strength: 0 };
+      return { symbol, timestamp: getActiveClock().now(), priceLevel: data.lastPrice, absorbedVolume: 0, priceMovement: 0, absorptionRatio: 0, type: 'none', strength: 0 };
     }
     const prices = data.trades.map((t: any) => t.price);
     const volumes = data.trades.map((t: any) => t.quantity);
@@ -72,7 +73,7 @@ export class AbsorptionDetector extends EventEmitter {
       const sellVolume = data.trades.filter((t: any) => t.side === 'sell').reduce((sum: number, t: any) => sum + t.quantity, 0);
       type = buyVolume > sellVolume ? 'support' : 'resistance';
     }
-    return { symbol, timestamp: Date.now(), priceLevel: avgPrice, absorbedVolume: totalVolume, priceMovement: priceMovementPercent, absorptionRatio, type, strength: Math.min(100, absorptionRatio * 10) };
+    return { symbol, timestamp: getActiveClock().now(), priceLevel: avgPrice, absorbedVolume: totalVolume, priceMovement: priceMovementPercent, absorptionRatio, type, strength: Math.min(100, absorptionRatio * 10) };
   }
   
   getMetrics(symbol: string): AbsorptionMetrics | null { return this.lastMetrics.get(symbol) || null; }

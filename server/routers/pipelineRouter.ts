@@ -9,6 +9,7 @@
  */
 
 import { protectedProcedure, router } from "../_core/trpc";
+import { getActiveClock } from '../_core/clock';
 import { z } from "zod";
 
 export const pipelineRouter = router({
@@ -40,7 +41,7 @@ export const pipelineRouter = router({
           volatilityClass: 'medium' as const,
           keyDrivers: [],
           agentGuidance: {},
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
           error: (error as Error)?.message,
         };
       }
@@ -97,7 +98,7 @@ export const pipelineRouter = router({
     .query(async ({ input }) => {
       const symbol = input?.symbol || 'BTC-USD';
       const status: Record<string, unknown> = {
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         symbol,
       };
 
@@ -311,17 +312,17 @@ export const pipelineRouter = router({
           transitionState: transitionState ? {
             from: transitionState.fromRegime,
             to: transitionState.toRegime,
-            elapsed: Date.now() - transitionState.transitionStartMs,
+            elapsed: getActiveClock().now() - transitionState.transitionStartMs,
             gracePeriodMs: transitionState.gracePeriodMs,
-            progress: Math.min(1, (Date.now() - transitionState.transitionStartMs) / transitionState.gracePeriodMs),
+            progress: Math.min(1, (getActiveClock().now() - transitionState.transitionStartMs) / transitionState.gracePeriodMs),
           } : null,
           allTransitions: allTransitions.map(t => ({
             symbol: t.symbol,
             from: t.fromRegime,
             to: t.toRegime,
-            elapsed: Date.now() - t.transitionStartMs,
+            elapsed: getActiveClock().now() - t.transitionStartMs,
             gracePeriodMs: t.gracePeriodMs,
-            progress: Math.min(1, (Date.now() - t.transitionStartMs) / t.gracePeriodMs),
+            progress: Math.min(1, (getActiveClock().now() - t.transitionStartMs) / t.gracePeriodMs),
           })),
           activeAgents,
           skipAgents,

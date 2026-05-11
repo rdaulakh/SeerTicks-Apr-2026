@@ -12,6 +12,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // Types
 export type MarketRegime = 'trending_up' | 'trending_down' | 'ranging' | 'volatile' | 'choppy';
@@ -436,7 +437,7 @@ export class BacktestEngineAPlusPlusV3 extends EventEmitter {
     this.capital -= fee;
     
     const trade: Trade = {
-      id: `trade_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `trade_${getActiveClock().now()}_${Math.random().toString(36).substr(2, 9)}`,
       symbol,
       direction: decision.direction,
       strategy: decision.strategy,
@@ -607,7 +608,7 @@ export class BacktestEngineAPlusPlusV3 extends EventEmitter {
     
     // Update trade record
     trade.exitPrice = exitPrice;
-    trade.exitTime = this.currentCandle?.timestamp || Date.now();
+    trade.exitTime = this.currentCandle?.timestamp || getActiveClock().now();
     trade.pnl = totalPnl;
     trade.pnlPercent = totalPnlPercent;
     trade.exitReason = reason;

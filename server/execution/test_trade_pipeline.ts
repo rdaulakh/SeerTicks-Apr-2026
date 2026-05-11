@@ -5,6 +5,7 @@
  */
 
 import { TradeExecutor, TradeRecommendation } from './TradeExecutor';
+import { getActiveClock } from '../_core/clock';
 
 interface TestResult {
   testName: string;
@@ -65,7 +66,7 @@ async function runTests(): Promise<void> {
 }
 
 async function testPaperTradingSlippage(): Promise<TestResult> {
-  const start = Date.now();
+  const start = getActiveClock().now();
   const errors: string[] = [];
   
   try {
@@ -131,7 +132,7 @@ async function testPaperTradingSlippage(): Promise<TestResult> {
       errors.push('Order was not filled');
     }
 
-    const duration = Date.now() - start;
+    const duration = getActiveClock().now() - start;
     return {
       testName: 'Paper Trading with Realistic Slippage',
       passed: errors.length === 0,
@@ -141,7 +142,7 @@ async function testPaperTradingSlippage(): Promise<TestResult> {
     };
 
   } catch (error) {
-    const duration = Date.now() - start;
+    const duration = getActiveClock().now() - start;
     return {
       testName: 'Paper Trading with Realistic Slippage',
       passed: false,
@@ -153,7 +154,7 @@ async function testPaperTradingSlippage(): Promise<TestResult> {
 }
 
 async function testPositionMonitoring(): Promise<TestResult> {
-  const start = Date.now();
+  const start = getActiveClock().now();
   const errors: string[] = [];
   
   try {
@@ -170,7 +171,7 @@ async function testPositionMonitoring(): Promise<TestResult> {
     console.log('  - Trailing stop logic (1.5x ATR)');
     console.log('  - Partial profit taking (33%/33%/34%)');
 
-    const duration = Date.now() - start;
+    const duration = getActiveClock().now() - start;
     return {
       testName: 'Position Monitoring (Stop-Loss/Take-Profit)',
       passed: true,
@@ -179,7 +180,7 @@ async function testPositionMonitoring(): Promise<TestResult> {
     };
 
   } catch (error) {
-    const duration = Date.now() - start;
+    const duration = getActiveClock().now() - start;
     return {
       testName: 'Position Monitoring (Stop-Loss/Take-Profit)',
       passed: false,
@@ -191,7 +192,7 @@ async function testPositionMonitoring(): Promise<TestResult> {
 }
 
 async function testMultiStrategyDetection(): Promise<TestResult> {
-  const start = Date.now();
+  const start = getActiveClock().now();
   const errors: string[] = [];
   
   try {
@@ -251,7 +252,7 @@ async function testMultiStrategyDetection(): Promise<TestResult> {
       }
     }
 
-    const duration = Date.now() - start;
+    const duration = getActiveClock().now() - start;
     return {
       testName: 'Multi-Strategy Detection (21 Strategies)',
       passed: errors.length === 0,
@@ -261,7 +262,7 @@ async function testMultiStrategyDetection(): Promise<TestResult> {
     };
 
   } catch (error) {
-    const duration = Date.now() - start;
+    const duration = getActiveClock().now() - start;
     return {
       testName: 'Multi-Strategy Detection (21 Strategies)',
       passed: false,
@@ -273,7 +274,7 @@ async function testMultiStrategyDetection(): Promise<TestResult> {
 }
 
 async function testPnLAccuracy(): Promise<TestResult> {
-  const start = Date.now();
+  const start = getActiveClock().now();
   const errors: string[] = [];
   
   try {
@@ -324,7 +325,7 @@ async function testPnLAccuracy(): Promise<TestResult> {
     console.log('  - Per-position P&L');
     console.log('  - Daily P&L aggregation');
 
-    const duration = Date.now() - start;
+    const duration = getActiveClock().now() - start;
     return {
       testName: 'P&L Calculation Accuracy',
       passed: true,
@@ -333,7 +334,7 @@ async function testPnLAccuracy(): Promise<TestResult> {
     };
 
   } catch (error) {
-    const duration = Date.now() - start;
+    const duration = getActiveClock().now() - start;
     return {
       testName: 'P&L Calculation Accuracy',
       passed: false,
@@ -345,7 +346,7 @@ async function testPnLAccuracy(): Promise<TestResult> {
 }
 
 async function testCircuitBreaker(): Promise<TestResult> {
-  const start = Date.now();
+  const start = getActiveClock().now();
   const errors: string[] = [];
   
   try {
@@ -380,7 +381,7 @@ async function testCircuitBreaker(): Promise<TestResult> {
     console.log('  - Automatic trading halt on breach');
     console.log('  - Resets at start of new trading day');
 
-    const duration = Date.now() - start;
+    const duration = getActiveClock().now() - start;
     return {
       testName: 'Circuit Breaker (Daily Loss Limit)',
       passed: true,
@@ -389,7 +390,7 @@ async function testCircuitBreaker(): Promise<TestResult> {
     };
 
   } catch (error) {
-    const duration = Date.now() - start;
+    const duration = getActiveClock().now() - start;
     return {
       testName: 'Circuit Breaker (Daily Loss Limit)',
       passed: false,
@@ -401,7 +402,7 @@ async function testCircuitBreaker(): Promise<TestResult> {
 }
 
 async function testConcurrentPositionLimits(): Promise<TestResult> {
-  const start = Date.now();
+  const start = getActiveClock().now();
   const errors: string[] = [];
   
   try {
@@ -464,7 +465,7 @@ async function testConcurrentPositionLimits(): Promise<TestResult> {
     console.log(`  - Max positions: 3`);
     console.log(`  - Rejected: ${rejectedCount} (expected: 2)`);
 
-    const duration = Date.now() - start;
+    const duration = getActiveClock().now() - start;
     return {
       testName: 'Concurrent Position Limits',
       passed: true, // Pass if logic exists, even if we can't fully test it
@@ -473,7 +474,7 @@ async function testConcurrentPositionLimits(): Promise<TestResult> {
     };
 
   } catch (error) {
-    const duration = Date.now() - start;
+    const duration = getActiveClock().now() - start;
     return {
       testName: 'Concurrent Position Limits',
       passed: false,

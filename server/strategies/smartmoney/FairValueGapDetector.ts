@@ -2,6 +2,7 @@
  * FairValueGapDetector - Identifies imbalance zones (FVGs)
  */
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../../_core/clock';
 
 export interface FairValueGap { high: number; low: number; type: 'bullish' | 'bearish'; timestamp: number; filled: boolean; fillPercent: number; }
 export interface FVGMetrics { symbol: string; timestamp: number; fvgs: FairValueGap[]; nearestBullish: FairValueGap | null; nearestBearish: FairValueGap | null; }
@@ -96,7 +97,7 @@ export class FairValueGapDetector extends EventEmitter {
     const currentPrice = candleList.length > 0 ? candleList[candleList.length - 1].close : 0;
     const bullishFVGs = activeFVGs.filter(f => f.type === 'bullish' && f.high < currentPrice).sort((a, b) => b.high - a.high);
     const bearishFVGs = activeFVGs.filter(f => f.type === 'bearish' && f.low > currentPrice).sort((a, b) => a.low - b.low);
-    return { symbol, timestamp: Date.now(), fvgs: activeFVGs, nearestBullish: bullishFVGs[0] || null, nearestBearish: bearishFVGs[0] || null };
+    return { symbol, timestamp: getActiveClock().now(), fvgs: activeFVGs, nearestBullish: bullishFVGs[0] || null, nearestBearish: bearishFVGs[0] || null };
   }
   
   getFVGs(symbol: string): FairValueGap[] | null { return this.fvgs.get(symbol) || null; }

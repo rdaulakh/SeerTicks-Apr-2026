@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * Multi-Source On-Chain Flow Service
  * 
@@ -86,7 +87,7 @@ async function fetchFromCoinGlass(symbol: string): Promise<OnChainFlowData | nul
       netFlow: totalInflow - totalOutflow,
       exchangeReserve: totalReserve,
       reserveChange24h,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       confidence: 0.8,
     };
   } catch (error) {
@@ -181,7 +182,7 @@ function estimateFromPriceVolume(
     netFlow,
     exchangeReserve: 0, // Unknown from this source
     reserveChange24h,
-    timestamp: Date.now(),
+    timestamp: getActiveClock().now(),
     confidence: 0.5,
   };
 }
@@ -227,7 +228,7 @@ function estimateFromOrderBook(
     netFlow: exchangeInflow - exchangeOutflow,
     exchangeReserve: 0,
     reserveChange24h: 0,
-    timestamp: Date.now(),
+    timestamp: getActiveClock().now(),
     confidence: 0.45,
   };
 }

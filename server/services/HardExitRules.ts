@@ -18,6 +18,7 @@
  */
 
 import { getLatestConsensusDirection, getLatestConsensus } from './AutomatedSignalProcessor';
+import { getActiveClock } from '../_core/clock';
 
 export interface HardExitPosition {
   id: string;
@@ -112,7 +113,7 @@ export function evaluateHardExitRules(
   position: HardExitPosition,
   config: HardExitConfig = DEFAULT_CONFIG
 ): HardExitDecision {
-  const now = Date.now();
+  const now = getActiveClock().now();
   const positionAgeHours = (now - position.entryTime) / (1000 * 60 * 60);
   const positionAgeMinutes = positionAgeHours * 60;
   const positionAgeSeconds = positionAgeMinutes * 60;
@@ -233,7 +234,7 @@ export function updatePositionState(
   currentCombinedScore: number,
   currentDirection: 'bullish' | 'bearish' | null
 ): void {
-  const now = Date.now();
+  const now = getActiveClock().now();
   
   // Update price and P&L
   position.currentPrice = currentPrice;
@@ -267,7 +268,7 @@ export function createHardExitPosition(
   entryCombinedScore: number,
   entryDirection: 'bullish' | 'bearish'
 ): HardExitPosition {
-  const now = Date.now();
+  const now = getActiveClock().now();
   
   return {
     id,

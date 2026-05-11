@@ -14,6 +14,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import type { AggregatedSignal } from './SignalAggregator';
 import type { AgentSignal } from '../agents/AgentBase';
 
@@ -192,7 +193,7 @@ export class DecisionEvaluator extends EventEmitter {
     const confidenceAdjustment = (score - 0.5) * 0.2; // -0.1 to +0.1
 
     // Record this decision
-    this.recentDecisions.push({ score, timestamp: Date.now() });
+    this.recentDecisions.push({ score, timestamp: getActiveClock().now() });
     if (this.recentDecisions.length > this.MAX_RECENT_DECISIONS) {
       this.recentDecisions.shift();
     }
@@ -235,7 +236,7 @@ export class DecisionEvaluator extends EventEmitter {
     this.pendingTrades.set(symbol, {
       symbol,
       direction,
-      entryTime: Date.now(),
+      entryTime: getActiveClock().now(),
       entryPrice,
       consensus,
       agentSignals: agentSignals.map(s => ({
@@ -301,7 +302,7 @@ export class DecisionEvaluator extends EventEmitter {
     this.performanceWindow.profitFactor = this.performanceWindow.avgLoss > 0
       ? (this.performanceWindow.avgWin * this.performanceWindow.winningTrades) / (this.performanceWindow.avgLoss * this.performanceWindow.losingTrades)
       : 1.0;
-    this.performanceWindow.lastUpdated = Date.now();
+    this.performanceWindow.lastUpdated = getActiveClock().now();
 
     // Update recent decisions with outcome
     const recentDecision = this.recentDecisions.find(d => !d.outcome && d.timestamp >= trade.entryTime - 5000);
@@ -337,7 +338,7 @@ export class DecisionEvaluator extends EventEmitter {
       exitPrice,
       exitReason,
       entryPrice: trade.entryPrice,
-      holdTime: Date.now() - trade.entryTime,
+      holdTime: getActiveClock().now() - trade.entryTime,
       regime: trade.regime,
       evaluationScore: trade.evaluationScore,
       agentSignals: trade.agentSignals,
@@ -481,7 +482,7 @@ export class DecisionEvaluator extends EventEmitter {
       avgLoss: 0,
       winRate: 0.5,
       profitFactor: 1.0,
-      lastUpdated: Date.now(),
+      lastUpdated: getActiveClock().now(),
     };
   }
 }

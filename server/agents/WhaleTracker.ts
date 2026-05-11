@@ -1,4 +1,5 @@
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 import { fetchWhaleAlerts, WhaleTransaction } from "../services/whaleAlertService";
 import { fallbackManager, MarketDataInput } from "./DeterministicFallback";
 import { getAggregatedWhaleData, getWhaleSignalFromAggregated } from "../services/MultiSourceWhaleService";
@@ -84,7 +85,7 @@ export class WhaleTracker extends AgentBase {
   }
 
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // ========================================
@@ -100,7 +101,7 @@ export class WhaleTracker extends AgentBase {
           price: t.price || t.p || 0,
           size: t.size || t.amount || t.qty || t.q || 0,
           side: (t.side || t.type || 'buy').toLowerCase() as 'buy' | 'sell',
-          timestamp: t.timestamp || t.time || t.ts || Date.now(),
+          timestamp: t.timestamp || t.time || t.ts || getActiveClock().now(),
         }));
         
         icebergPattern = this.icebergDetector.detectIcebergPattern(symbol, trades);
@@ -188,7 +189,7 @@ export class WhaleTracker extends AgentBase {
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal: combinedSignal,
         confidence: combinedConfidence,
         strength: aggregatedData.signalStrength,
@@ -211,7 +212,7 @@ export class WhaleTracker extends AgentBase {
         qualityScore: icebergPattern?.detected 
           ? Math.min(0.95, aggregatedData.overallConfidence + 0.1) 
           : aggregatedData.overallConfidence,
-        processingTime: Date.now() - startTime,
+        processingTime: getActiveClock().now() - startTime,
         dataFreshness: 0,
         executionScore: icebergPattern?.detected 
           ? Math.min(100, signalResult.executionScore + 10) 
@@ -238,7 +239,7 @@ export class WhaleTracker extends AgentBase {
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal: fallbackResult.signal,
         confidence: fallbackResult.confidence,
         strength: fallbackResult.strength,
@@ -249,7 +250,7 @@ export class WhaleTracker extends AgentBase {
           originalError: error instanceof Error ? error.message : "Unknown error",
         },
         qualityScore: 0.5,
-        processingTime: Date.now() - startTime,
+        processingTime: getActiveClock().now() - startTime,
         dataFreshness: 0,
         executionScore: 40,
       };
@@ -405,7 +406,7 @@ export class WhaleTracker extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength,
@@ -420,7 +421,7 @@ export class WhaleTracker extends AgentBase {
         largeTransactions: analysis.largeTransactions,
       },
       qualityScore: this.calculateQualityScore(analysis),
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore,
     };
@@ -551,12 +552,12 @@ export class WhaleTracker extends AgentBase {
         const whaleData = await fetchWhaleAlerts({
           symbol,
           minValue: 500000,
-          startTime: Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000),
+          startTime: Math.floor((getActiveClock().now() - 24 * 60 * 60 * 1000) / 1000),
           limit: 50,
         });
         if (whaleData.transactions && whaleData.transactions.length > 0) {
           const analysis = this.analyzeTransactions(whaleData.transactions, symbol);
-          this.analysisCache.set(symbol, { data: analysis, timestamp: Date.now() });
+          this.analysisCache.set(symbol, { data: analysis, timestamp: getActiveClock().now() });
         }
       } catch (error) {
         console.error(`[${this.config.name}] Periodic update failed for ${symbol}:`, error);
@@ -606,7 +607,7 @@ export class WhaleTracker extends AgentBase {
     if (!signal) return false;
     
     // Consider iceberg active if detected within last 5 minutes
-    const ageMs = Date.now() - signal.timestamp;
+    const ageMs = getActiveClock().now() - signal.timestamp;
     return ageMs < 300000;
   }
   
@@ -621,7 +622,7 @@ export class WhaleTracker extends AgentBase {
         symbol,
         direction: signal.direction,
         confidence: signal.confidence,
-        age: Date.now() - signal.timestamp,
+        age: getActiveClock().now() - signal.timestamp,
       });
     }
     

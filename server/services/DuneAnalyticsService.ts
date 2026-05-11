@@ -11,6 +11,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // Dune API types
 interface DuneQueryResult {
@@ -162,7 +163,7 @@ export class DuneAnalyticsService extends EventEmitter {
       // Cache the result
       this.queryCache.set(cacheKey, {
         data: fullResult,
-        expiry: new Date(Date.now() + this.cacheTTL),
+        expiry: new Date(getActiveClock().now() + this.cacheTTL),
       });
 
       return fullResult;
@@ -204,7 +205,7 @@ export class DuneAnalyticsService extends EventEmitter {
 
     this.queryCache.set(cacheKey, {
       data: result,
-      expiry: new Date(Date.now() + this.cacheTTL),
+      expiry: new Date(getActiveClock().now() + this.cacheTTL),
     });
 
     return result;
@@ -251,7 +252,7 @@ export class DuneAnalyticsService extends EventEmitter {
         to: String(row.to_address || ''),
         value: Number(row.value || 0),
         token,
-        timestamp: new Date(String(row.block_time || Date.now())),
+        timestamp: new Date(String(row.block_time || getActiveClock().now())),
         isExchangeInflow: Boolean(row.is_exchange_inflow),
         isExchangeOutflow: Boolean(row.is_exchange_outflow),
       }));
@@ -283,7 +284,7 @@ export class DuneAnalyticsService extends EventEmitter {
         inflow: Number(row.inflow || 0),
         outflow: Number(row.outflow || 0),
         netFlow: Number(row.net_flow || 0),
-        timestamp: new Date(String(row.date || Date.now())),
+        timestamp: new Date(String(row.date || getActiveClock().now())),
       }));
     } catch (error) {
       console.error('[DuneAnalytics] Error fetching exchange flows:', error);
@@ -319,7 +320,7 @@ export class DuneAnalyticsService extends EventEmitter {
     
     // Check rate limit
     if (this.rateLimitRemaining <= 0 && this.rateLimitReset && this.rateLimitReset > new Date()) {
-      const waitTime = this.rateLimitReset.getTime() - Date.now();
+      const waitTime = this.rateLimitReset.getTime() - getActiveClock().now();
       console.warn(`[DuneAnalytics] Rate limited. Waiting ${waitTime}ms`);
       await this.sleep(waitTime);
     }

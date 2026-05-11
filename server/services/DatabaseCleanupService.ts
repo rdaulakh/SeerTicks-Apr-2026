@@ -12,6 +12,7 @@
  */
 
 import { getDb } from '../db';
+import { getActiveClock } from '../_core/clock';
 import { sql } from 'drizzle-orm';
 
 interface CleanupConfig {
@@ -131,7 +132,7 @@ class DatabaseCleanupService {
 
     this.isRunning = true;
     const stats: CleanupStats[] = [];
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     
     console.log('[DatabaseCleanup] ========================================');
     console.log('[DatabaseCleanup] Starting cleanup run at', new Date().toISOString());
@@ -188,7 +189,7 @@ class DatabaseCleanupService {
 
       // Log summary
       const totalDeleted = stats.reduce((sum, s) => sum + s.deletedRows, 0);
-      const totalDuration = Date.now() - startTime;
+      const totalDuration = getActiveClock().now() - startTime;
       const successCount = stats.filter(s => !s.error).length;
       const failCount = stats.filter(s => s.error).length;
 
@@ -285,7 +286,7 @@ class DatabaseCleanupService {
    * CRITICAL FIX: Uses 'timestampMs' (bigint milliseconds) instead of 'timestamp'
    */
   private async cleanupTicks(): Promise<CleanupStats> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const db = await getDb();
     
     if (!db) {
@@ -295,7 +296,7 @@ class DatabaseCleanupService {
 
     try {
       // Calculate cutoff time in milliseconds (timestampMs is bigint milliseconds)
-      const cutoffTimeMs = Date.now() - (this.config.ticksRetentionHours * 60 * 60 * 1000);
+      const cutoffTimeMs = getActiveClock().now() - (this.config.ticksRetentionHours * 60 * 60 * 1000);
       
       console.log(`[DatabaseCleanup] Ticks: Deleting rows older than ${this.config.ticksRetentionHours}h`);
       console.log(`[DatabaseCleanup] Ticks: Cutoff timestampMs = ${cutoffTimeMs} (${new Date(cutoffTimeMs).toISOString()})`);
@@ -317,7 +318,7 @@ class DatabaseCleanupService {
         return { 
           tableName: 'ticks', 
           deletedRows: 0, 
-          durationMs: Date.now() - startTime, 
+          durationMs: getActiveClock().now() - startTime, 
           timestamp: new Date(),
           rowsBeforeCleanup: rowsBefore,
           rowsAfterCleanup: rowsBefore,
@@ -331,7 +332,7 @@ class DatabaseCleanupService {
       
       while (true) {
         batchCount++;
-        const batchStart = Date.now();
+        const batchStart = getActiveClock().now();
         
         const result = await db.execute(sql`
           DELETE FROM ticks 
@@ -342,7 +343,7 @@ class DatabaseCleanupService {
         const deleted = (result as any)[0]?.affectedRows || 0;
         totalDeleted += deleted;
         
-        const batchDuration = Date.now() - batchStart;
+        const batchDuration = getActiveClock().now() - batchStart;
         console.log(`[DatabaseCleanup] Ticks: Batch ${batchCount} deleted ${deleted.toLocaleString()} rows in ${batchDuration}ms`);
         
         if (deleted < batchSize) {
@@ -357,7 +358,7 @@ class DatabaseCleanupService {
       const [countAfter] = await db.execute(sql`SELECT COUNT(*) as count FROM ticks`) as any;
       const rowsAfter = parseInt(countAfter[0]?.count || 0);
 
-      const durationMs = Date.now() - startTime;
+      const durationMs = getActiveClock().now() - startTime;
       console.log(`[DatabaseCleanup] Ticks: ✅ Deleted ${totalDeleted.toLocaleString()} rows in ${durationMs}ms`);
       console.log(`[DatabaseCleanup] Ticks: Row count: ${rowsBefore.toLocaleString()} → ${rowsAfter.toLocaleString()}`);
       
@@ -375,7 +376,7 @@ class DatabaseCleanupService {
       return { 
         tableName: 'ticks', 
         deletedRows: 0, 
-        durationMs: Date.now() - startTime, 
+        durationMs: getActiveClock().now() - startTime, 
         timestamp: new Date(),
         error: errorMsg,
       };
@@ -387,7 +388,7 @@ class DatabaseCleanupService {
    * CRITICAL FIX: Uses 'timestamp' column (not 'createdAt')
    */
   private async cleanupAgentSignals(): Promise<CleanupStats> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const db = await getDb();
     
     if (!db) {
@@ -396,7 +397,7 @@ class DatabaseCleanupService {
     }
 
     try {
-      const cutoffTime = new Date(Date.now() - this.config.agentSignalsRetentionDays * 24 * 60 * 60 * 1000);
+      const cutoffTime = new Date(getActiveClock().now() - this.config.agentSignalsRetentionDays * 24 * 60 * 60 * 1000);
       
       console.log(`[DatabaseCleanup] AgentSignals: Deleting rows older than ${this.config.agentSignalsRetentionDays} days`);
       console.log(`[DatabaseCleanup] AgentSignals: Cutoff timestamp = ${cutoffTime.toISOString()}`);
@@ -418,7 +419,7 @@ class DatabaseCleanupService {
         return { 
           tableName: 'agentSignals', 
           deletedRows: 0, 
-          durationMs: Date.now() - startTime, 
+          durationMs: getActiveClock().now() - startTime, 
           timestamp: new Date(),
           rowsBeforeCleanup: rowsBefore,
           rowsAfterCleanup: rowsBefore,
@@ -434,7 +435,7 @@ class DatabaseCleanupService {
       
       while (true) {
         batchCount++;
-        const batchStart = Date.now();
+        const batchStart = getActiveClock().now();
         
         const result = await db.execute(sql`
           DELETE FROM agentSignals 
@@ -445,7 +446,7 @@ class DatabaseCleanupService {
         const deleted = (result as any)[0]?.affectedRows || 0;
         totalDeleted += deleted;
         
-        const batchDuration = Date.now() - batchStart;
+        const batchDuration = getActiveClock().now() - batchStart;
         console.log(`[DatabaseCleanup] AgentSignals: Batch ${batchCount} deleted ${deleted.toLocaleString()} rows in ${batchDuration}ms`);
         
         if (deleted < batchSize) {
@@ -459,7 +460,7 @@ class DatabaseCleanupService {
       const [countAfter] = await db.execute(sql`SELECT COUNT(*) as count FROM agentSignals`) as any;
       const rowsAfter = parseInt(countAfter[0]?.count || 0);
 
-      const durationMs = Date.now() - startTime;
+      const durationMs = getActiveClock().now() - startTime;
       console.log(`[DatabaseCleanup] AgentSignals: ✅ Deleted ${totalDeleted.toLocaleString()} rows in ${durationMs}ms`);
       console.log(`[DatabaseCleanup] AgentSignals: Row count: ${rowsBefore.toLocaleString()} → ${rowsAfter.toLocaleString()}`);
       
@@ -477,7 +478,7 @@ class DatabaseCleanupService {
       return { 
         tableName: 'agentSignals', 
         deletedRows: 0, 
-        durationMs: Date.now() - startTime, 
+        durationMs: getActiveClock().now() - startTime, 
         timestamp: new Date(),
         error: errorMsg,
       };
@@ -488,7 +489,7 @@ class DatabaseCleanupService {
    * Clean up old service health history (keep 7 days)
    */
   private async cleanupServiceHealthHistory(): Promise<CleanupStats> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const db = await getDb();
     
     if (!db) {
@@ -496,7 +497,7 @@ class DatabaseCleanupService {
     }
 
     try {
-      const cutoffTime = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const cutoffTime = new Date(getActiveClock().now() - 7 * 24 * 60 * 60 * 1000);
       
       console.log(`[DatabaseCleanup] ServiceHealthHistory: Deleting rows older than 7 days`);
       
@@ -517,14 +518,14 @@ class DatabaseCleanupService {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
-      const durationMs = Date.now() - startTime;
+      const durationMs = getActiveClock().now() - startTime;
       console.log(`[DatabaseCleanup] ServiceHealthHistory: ✅ Deleted ${totalDeleted.toLocaleString()} rows in ${durationMs}ms`);
       
       return { tableName: 'serviceHealthHistory', deletedRows: totalDeleted, durationMs, timestamp: new Date() };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[DatabaseCleanup] ServiceHealthHistory: ❌ Failed:', errorMsg);
-      return { tableName: 'serviceHealthHistory', deletedRows: 0, durationMs: Date.now() - startTime, timestamp: new Date(), error: errorMsg };
+      return { tableName: 'serviceHealthHistory', deletedRows: 0, durationMs: getActiveClock().now() - startTime, timestamp: new Date(), error: errorMsg };
     }
   }
 
@@ -532,7 +533,7 @@ class DatabaseCleanupService {
    * Clean up old consensus history (keep 14 days)
    */
   private async cleanupConsensusHistory(): Promise<CleanupStats> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const db = await getDb();
     
     if (!db) {
@@ -542,7 +543,7 @@ class DatabaseCleanupService {
     try {
       const { consensusHistory } = await import('../../drizzle/schema');
       const { lt } = await import('drizzle-orm');
-      const cutoffTime = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+      const cutoffTime = new Date(getActiveClock().now() - 14 * 24 * 60 * 60 * 1000);
       
       console.log(`[DatabaseCleanup] ConsensusHistory: Deleting rows older than 14 days`);
       
@@ -564,14 +565,14 @@ class DatabaseCleanupService {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
-      const durationMs = Date.now() - startTime;
+      const durationMs = getActiveClock().now() - startTime;
       console.log(`[DatabaseCleanup] ConsensusHistory: ✅ Deleted ${totalDeleted.toLocaleString()} rows in ${durationMs}ms`);
       
       return { tableName: 'consensusHistory', deletedRows: totalDeleted, durationMs, timestamp: new Date() };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[DatabaseCleanup] ConsensusHistory: ❌ Failed:', errorMsg);
-      return { tableName: 'consensusHistory', deletedRows: 0, durationMs: Date.now() - startTime, timestamp: new Date(), error: errorMsg };
+      return { tableName: 'consensusHistory', deletedRows: 0, durationMs: getActiveClock().now() - startTime, timestamp: new Date(), error: errorMsg };
     }
   }
 
@@ -579,7 +580,7 @@ class DatabaseCleanupService {
    * Clean up old execution latency logs (keep 30 days)
    */
   private async cleanupLatencyLogs(): Promise<CleanupStats> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const db = await getDb();
     
     if (!db) {
@@ -587,7 +588,7 @@ class DatabaseCleanupService {
     }
 
     try {
-      const cutoffTime = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const cutoffTime = new Date(getActiveClock().now() - 30 * 24 * 60 * 60 * 1000);
       
       console.log(`[DatabaseCleanup] ExecutionLatencyLogs: Deleting rows older than 30 days`);
       
@@ -608,14 +609,14 @@ class DatabaseCleanupService {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
-      const durationMs = Date.now() - startTime;
+      const durationMs = getActiveClock().now() - startTime;
       console.log(`[DatabaseCleanup] ExecutionLatencyLogs: ✅ Deleted ${totalDeleted.toLocaleString()} rows in ${durationMs}ms`);
       
       return { tableName: 'executionLatencyLogs', deletedRows: totalDeleted, durationMs, timestamp: new Date() };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[DatabaseCleanup] ExecutionLatencyLogs: ❌ Failed:', errorMsg);
-      return { tableName: 'executionLatencyLogs', deletedRows: 0, durationMs: Date.now() - startTime, timestamp: new Date(), error: errorMsg };
+      return { tableName: 'executionLatencyLogs', deletedRows: 0, durationMs: getActiveClock().now() - startTime, timestamp: new Date(), error: errorMsg };
     }
   }
 
@@ -623,7 +624,7 @@ class DatabaseCleanupService {
    * Clean up old trade decision logs (keep 90 days)
    */
   private async cleanupTradeDecisionLogs(): Promise<CleanupStats> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const db = await getDb();
     
     if (!db) {
@@ -631,7 +632,7 @@ class DatabaseCleanupService {
     }
 
     try {
-      const cutoffTime = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      const cutoffTime = new Date(getActiveClock().now() - 90 * 24 * 60 * 60 * 1000);
       
       console.log(`[DatabaseCleanup] TradeDecisionLogs: Deleting rows older than 90 days`);
       
@@ -652,14 +653,14 @@ class DatabaseCleanupService {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
-      const durationMs = Date.now() - startTime;
+      const durationMs = getActiveClock().now() - startTime;
       console.log(`[DatabaseCleanup] TradeDecisionLogs: ✅ Deleted ${totalDeleted.toLocaleString()} rows in ${durationMs}ms`);
       
       return { tableName: 'tradeDecisionLogs', deletedRows: totalDeleted, durationMs, timestamp: new Date() };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[DatabaseCleanup] TradeDecisionLogs: ❌ Failed:', errorMsg);
-      return { tableName: 'tradeDecisionLogs', deletedRows: 0, durationMs: Date.now() - startTime, timestamp: new Date(), error: errorMsg };
+      return { tableName: 'tradeDecisionLogs', deletedRows: 0, durationMs: getActiveClock().now() - startTime, timestamp: new Date(), error: errorMsg };
     }
   }
 

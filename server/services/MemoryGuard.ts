@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * MemoryGuard — Aggressive Memory Management for 100% Uptime
  * 
@@ -73,7 +74,7 @@ class MemoryGuard {
   private historyInterval: NodeJS.Timeout | null = null;
   private cleanupCount = 0;
   private startRSS = 0;
-  private startTime = Date.now();
+  private startTime = getActiveClock().now();
   private peakRSS = 0;
 
   // Time-series data for dashboard
@@ -187,7 +188,7 @@ class MemoryGuard {
     if (rssMB > this.peakRSS) this.peakRSS = rssMB;
 
     const snapshot: MemorySnapshot = {
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       rssMB,
       heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
       heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
@@ -205,7 +206,7 @@ class MemoryGuard {
 
   private recordCleanupEvent(level: CleanupEvent['level'], beforeMB: number, afterMB: number): void {
     this.cleanupEvents.push({
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       level,
       beforeMB,
       afterMB,
@@ -237,7 +238,7 @@ class MemoryGuard {
     }
 
     // Log status every 5 minutes
-    const uptimeMin = Math.round((Date.now() - this.startTime) / 60000);
+    const uptimeMin = Math.round((getActiveClock().now() - this.startTime) / 60000);
     if (uptimeMin > 0 && uptimeMin % 5 === 0) {
       const growth = rssMB - this.startRSS;
       console.log(
@@ -291,7 +292,7 @@ class MemoryGuard {
 
       global.gc();
       this.gcCount++;
-      this.lastGCTime = Date.now();
+      this.lastGCTime = getActiveClock().now();
 
       const afterMem = process.memoryUsage();
       const afterRSS = Math.round(afterMem.rss / 1024 / 1024);
@@ -323,7 +324,7 @@ class MemoryGuard {
 
     this.cleanupCount++;
     this.clearRegisteredCaches();
-    if (typeof global.gc === 'function') { global.gc(); this.gcCount++; this.lastGCTime = Date.now(); }
+    if (typeof global.gc === 'function') { global.gc(); this.gcCount++; this.lastGCTime = getActiveClock().now(); }
 
     const afterMem = process.memoryUsage();
     const afterRSS = Math.round(afterMem.rss / 1024 / 1024);
@@ -336,7 +337,7 @@ class MemoryGuard {
 
     this.cleanupCount++;
     this.clearRegisteredCaches();
-    if (typeof global.gc === 'function') { global.gc(); global.gc(); this.gcCount += 2; this.lastGCTime = Date.now(); }
+    if (typeof global.gc === 'function') { global.gc(); global.gc(); this.gcCount += 2; this.lastGCTime = getActiveClock().now(); }
 
     const afterMem = process.memoryUsage();
     const afterRSS = Math.round(afterMem.rss / 1024 / 1024);
@@ -349,7 +350,7 @@ class MemoryGuard {
 
     this.cleanupCount++;
     this.clearRegisteredCaches();
-    if (typeof global.gc === 'function') { global.gc(); global.gc(); global.gc(); this.gcCount += 3; this.lastGCTime = Date.now(); }
+    if (typeof global.gc === 'function') { global.gc(); global.gc(); global.gc(); this.gcCount += 3; this.lastGCTime = getActiveClock().now(); }
     console.error('[MemoryGuard] Emergency cleanup done. If memory doesn\'t drop, OOM kill imminent.');
 
     const afterMem = process.memoryUsage();
@@ -374,14 +375,14 @@ class MemoryGuard {
       gcCount: this.gcCount,
       lastGCTime: this.lastGCTime,
       registeredClearables: cacheClearers.size,
-      uptimeMin: Math.round((Date.now() - this.startTime) / 60000),
+      uptimeMin: Math.round((getActiveClock().now() - this.startTime) / 60000),
       startTime: this.startTime,
     };
   }
 
   getHistory(minutes?: number): MemorySnapshot[] {
     if (!minutes) return [...this.memoryHistory];
-    const cutoff = Date.now() - minutes * 60_000;
+    const cutoff = getActiveClock().now() - minutes * 60_000;
     return this.memoryHistory.filter(s => s.timestamp >= cutoff);
   }
 

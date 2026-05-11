@@ -60,6 +60,7 @@ interface BlockchainStats {
 }
 
 import { rateLimitedFetch, retryWithBackoff, RateLimitError } from '../services/ExternalAPIRateLimiter';
+import { getActiveClock } from '../_core/clock';
 
 export class FreeOnChainDataProvider {
   private cache: Map<string, { data: any; timestamp: number }> = new Map();
@@ -476,7 +477,7 @@ export class FreeOnChainDataProvider {
             txHash: tx.txid || 'unknown',
             amount: totalOutput,
             amountUsd: totalOutput * marketData.currentPrice,
-            timestamp: tx.status?.block_time || Math.floor(Date.now() / 1000),
+            timestamp: tx.status?.block_time || Math.floor(getActiveClock().now() / 1000),
             fromType,
             toType,
           });
@@ -546,7 +547,7 @@ export class FreeOnChainDataProvider {
     const cached = this.cache.get(key);
     if (!cached) return null;
 
-    const age = Date.now() - cached.timestamp;
+    const age = getActiveClock().now() - cached.timestamp;
     if (age > this.CACHE_TTL) {
       this.cache.delete(key);
       return null;
@@ -556,7 +557,7 @@ export class FreeOnChainDataProvider {
   }
 
   private setCache(key: string, data: any): void {
-    this.cache.set(key, { data, timestamp: Date.now() });
+    this.cache.set(key, { data, timestamp: getActiveClock().now() });
   }
 
   /**

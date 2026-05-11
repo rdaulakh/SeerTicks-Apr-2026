@@ -13,6 +13,7 @@
  */
 
 import { getDb } from "../db";
+import { getActiveClock } from '../_core/clock';
 import { trades, learnedParameters } from "../../drizzle/schema";
 import { eq, and, gte, desc } from "drizzle-orm";
 import { parameterLearning } from "./ParameterLearning";
@@ -464,7 +465,7 @@ export class ParameterLearningScheduler {
    */
   private daysSinceLastRun(): number {
     if (!this.lastRun) return Infinity;
-    return (Date.now() - this.lastRun.getTime()) / (24 * 60 * 60 * 1000);
+    return (getActiveClock().now() - this.lastRun.getTime()) / (24 * 60 * 60 * 1000);
   }
   
   /**

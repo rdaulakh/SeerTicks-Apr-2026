@@ -3,6 +3,7 @@
  * Target: +13 points improvement for Phase 3
  */
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../../_core/clock';
 
 export interface StrategyScore { strategyName: string; category: 'orderflow' | 'smartmoney' | 'statistical' | 'grid'; accuracy: number; profitFactor: number; sharpeRatio: number; maxDrawdown: number; winRate: number; avgWin: number; avgLoss: number; totalTrades: number; score: number; lastUpdate: number; }
 export interface CompetenceReport { timestamp: number; overallScore: number; targetScore: number; improvement: number; categoryScores: { category: string; score: number; weight: number }[]; strategyScores: StrategyScore[]; recommendations: string[]; }
@@ -22,7 +23,7 @@ export class StrategyCompetenceTracker extends EventEmitter {
   
   recordTrade(strategyName: string, category: 'orderflow' | 'smartmoney' | 'statistical' | 'grid', result: { profit: number; prediction: 'bullish' | 'bearish' | 'neutral'; actual: 'bullish' | 'bearish' | 'neutral' }): void {
     const history = this.tradeHistory.get(strategyName) || [];
-    history.push({ profit: result.profit, timestamp: Date.now() });
+    history.push({ profit: result.profit, timestamp: getActiveClock().now() });
     if (history.length > 1000) history.shift();
     this.tradeHistory.set(strategyName, history);
     this.updateStrategyScore(strategyName, category);
@@ -44,7 +45,7 @@ export class StrategyCompetenceTracker extends EventEmitter {
     for (const profit of profits) { cumulative += profit; if (cumulative > peak) peak = cumulative; const drawdown = peak > 0 ? (peak - cumulative) / peak * 100 : 0; if (drawdown > maxDrawdown) maxDrawdown = drawdown; }
     const accuracy = winRate;
     const score = this.calculateScore({ accuracy, profitFactor, sharpeRatio, maxDrawdown, winRate });
-    const strategyScore: StrategyScore = { strategyName, category, accuracy, profitFactor, sharpeRatio, maxDrawdown, winRate, avgWin, avgLoss, totalTrades: profits.length, score, lastUpdate: Date.now() };
+    const strategyScore: StrategyScore = { strategyName, category, accuracy, profitFactor, sharpeRatio, maxDrawdown, winRate, avgWin, avgLoss, totalTrades: profits.length, score, lastUpdate: getActiveClock().now() };
     this.strategyScores.set(strategyName, strategyScore);
     this.emit('scoreUpdated', strategyScore);
   }
@@ -71,7 +72,7 @@ export class StrategyCompetenceTracker extends EventEmitter {
       const weakestCategory = categoryScores.reduce((min, c) => c.score < min.score ? c : min);
       recommendations.push(`Focus on ${weakestCategory.category} strategies (score: ${weakestCategory.score.toFixed(1)})`);
     } else { recommendations.push('Target improvement achieved!'); }
-    return { timestamp: Date.now(), overallScore, targetScore: this.baselineScore + this.config.targetImprovement, improvement, categoryScores, strategyScores: strategies, recommendations };
+    return { timestamp: getActiveClock().now(), overallScore, targetScore: this.baselineScore + this.config.targetImprovement, improvement, categoryScores, strategyScores: strategies, recommendations };
   }
   
   getStrategyScore(strategyName: string): StrategyScore | undefined { return this.strategyScores.get(strategyName); }

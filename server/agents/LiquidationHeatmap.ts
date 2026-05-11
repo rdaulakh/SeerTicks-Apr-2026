@@ -1,4 +1,5 @@
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 import { fallbackManager, MarketDataInput } from "./DeterministicFallback";
 import { multiExchangeLiquidationService, AggregatedLiquidationData } from "../services/MultiExchangeLiquidationService";
 
@@ -98,7 +99,7 @@ export class LiquidationHeatmap extends AgentBase {
   }
 
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     // Phase 53.2 — FAST PATH: real-time Binance perp liquidation cascades.
     // The Phase 52 futures WS subscription stashes liquidation events on
@@ -125,7 +126,7 @@ export class LiquidationHeatmap extends AgentBase {
       
       // Check cache first
       const cached = this.analysisCache.get(futuresSymbol);
-      if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      if (cached && getActiveClock().now() - cached.timestamp < this.CACHE_TTL) {
         return this.generateSignalFromAnalysis(symbol, cached.data, startTime);
       }
 
@@ -153,7 +154,7 @@ export class LiquidationHeatmap extends AgentBase {
         return {
           agentName: this.config.name,
           symbol,
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
           signal: fallbackResult.signal,
           confidence: fallbackResult.confidence,
           strength: fallbackResult.strength,
@@ -163,7 +164,7 @@ export class LiquidationHeatmap extends AgentBase {
             isDeterministic: true,
           },
           qualityScore: 0.45,
-          processingTime: Date.now() - startTime,
+          processingTime: getActiveClock().now() - startTime,
           dataFreshness: 0,
           executionScore: 35,
         };
@@ -178,7 +179,7 @@ export class LiquidationHeatmap extends AgentBase {
       );
       
       // Cache the analysis
-      this.analysisCache.set(futuresSymbol, { data: analysis, timestamp: Date.now() });
+      this.analysisCache.set(futuresSymbol, { data: analysis, timestamp: getActiveClock().now() });
 
       return this.generateSignalFromAnalysis(symbol, analysis, startTime);
     } catch (error) {
@@ -200,7 +201,7 @@ export class LiquidationHeatmap extends AgentBase {
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal: fallbackResult.signal,
         confidence: fallbackResult.confidence,
         strength: fallbackResult.strength,
@@ -211,7 +212,7 @@ export class LiquidationHeatmap extends AgentBase {
           originalError: error instanceof Error ? error.message : "Unknown error",
         },
         qualityScore: 0.45,
-        processingTime: Date.now() - startTime,
+        processingTime: getActiveClock().now() - startTime,
         dataFreshness: 0,
         executionScore: 35,
       };
@@ -244,7 +245,7 @@ export class LiquidationHeatmap extends AgentBase {
             longShortRatio,
             ticker.price
           );
-          this.analysisCache.set(symbol, { data: analysis, timestamp: Date.now() });
+          this.analysisCache.set(symbol, { data: analysis, timestamp: getActiveClock().now() });
         }
       } catch (error) {
         // Silently handle errors - expected when Binance is geo-blocked
@@ -292,7 +293,7 @@ export class LiquidationHeatmap extends AgentBase {
       ? this.normalizeFuturesSymbol(symbol)
       : this.normalizeFuturesSymbol(symbol).replace(/USD$/, 'USDT');
 
-    const cutoffMs = Date.now() - 60_000; // last 60s
+    const cutoffMs = getActiveClock().now() - 60_000; // last 60s
     const recent = liqs.filter(l => l.symbol === futSym && l.timestamp >= cutoffMs);
     if (recent.length === 0) return null;
 
@@ -326,7 +327,7 @@ export class LiquidationHeatmap extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: dominanceRatio,
@@ -342,8 +343,8 @@ export class LiquidationHeatmap extends AgentBase {
         fastPath: true,
       },
       qualityScore: 0.80, // real-time WS data is high quality
-      processingTime: Date.now() - startTime,
-      dataFreshness: Date.now() - Math.max(...recent.map(l => l.timestamp)), // ms since most recent liq
+      processingTime: getActiveClock().now() - startTime,
+      dataFreshness: getActiveClock().now() - Math.max(...recent.map(l => l.timestamp)), // ms since most recent liq
       executionScore: Math.round(50 + sizeFactor * 40), // bigger cascade = better execution timing
     };
   }
@@ -405,7 +406,7 @@ export class LiquidationHeatmap extends AgentBase {
         symbol: data.symbol,
         openInterest: parseFloat(data.openInterest),
         openInterestValue: 0, // Will be calculated with price
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
       };
     } catch (error) {
       // Silently handle network errors - expected when geo-blocked
@@ -626,7 +627,7 @@ export class LiquidationHeatmap extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength,
@@ -647,7 +648,7 @@ export class LiquidationHeatmap extends AgentBase {
           : "N/A",
       },
       qualityScore: this.calculateQualityScore(analysis),
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore,
     };
@@ -851,7 +852,7 @@ export class LiquidationHeatmap extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength,
@@ -869,7 +870,7 @@ export class LiquidationHeatmap extends AgentBase {
         multiExchangeEnabled: true,
       },
       qualityScore: 0.65 + (data.exchangeCount * 0.1),
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore,
     };

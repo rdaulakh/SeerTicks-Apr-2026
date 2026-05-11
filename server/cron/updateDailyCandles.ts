@@ -8,6 +8,7 @@
  */
 
 import { fetchFromBinance } from '../utils/fetchHistoricalCandles';
+import { getActiveClock } from '../_core/clock';
 import { saveCandlesToDatabase, getLatestCandleTimestamp } from '../db/candleStorage';
 
 // Configuration
@@ -29,7 +30,7 @@ async function updateCandles(symbol: string, interval: string): Promise<number> 
     }
 
     // Calculate how many candles to fetch (from latest to now)
-    const now = Date.now();
+    const now = getActiveClock().now();
     const timeSinceLatest = now - latestTimestamp;
     
     // Interval durations in ms
@@ -91,7 +92,7 @@ export async function runDailyUpdate(): Promise<void> {
   console.log(`Intervals: ${INTERVALS.join(', ')}`);
   console.log('='.repeat(60));
 
-  const startTime = Date.now();
+  const startTime = getActiveClock().now();
   let totalUpdated = 0;
 
   for (const symbol of SYMBOLS) {
@@ -104,7 +105,7 @@ export async function runDailyUpdate(): Promise<void> {
     }
   }
 
-  const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+  const duration = ((getActiveClock().now() - startTime) / 1000).toFixed(1);
 
   console.log('\n' + '='.repeat(60));
   console.log('✅ DAILY CANDLE UPDATE COMPLETE');

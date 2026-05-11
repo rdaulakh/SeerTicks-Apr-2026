@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { getActiveClock } from '../_core/clock';
 import type { AgentSignal } from "../agents/AgentBase";
 import type { ProcessedSignal, Consensus } from "./AutomatedSignalProcessor";
 
@@ -77,7 +78,7 @@ export class MacroVetoEnforcer extends EventEmitter {
       regime: evidence.regime || 'unknown',
       vetoActive: evidence.vetoActive || false,
       vetoReason: evidence.vetoReason || '',
-      lastUpdated: Date.now(),
+      lastUpdated: getActiveClock().now(),
     };
 
     console.log(`[MacroVetoEnforcer] Macro trend updated: ${this.macroTrendState.direction} (${(this.macroTrendState.confidence * 100).toFixed(1)}%)`);
@@ -91,7 +92,7 @@ export class MacroVetoEnforcer extends EventEmitter {
    * This is the CRITICAL gate that prevents 93% of losses
    */
   checkTradeAllowed(action: 'buy' | 'sell', symbol: string): VetoDecision {
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     // Check 1: Is macro data fresh?
     if (now - this.macroTrendState.lastUpdated > this.TREND_STALE_MS) {
@@ -234,7 +235,7 @@ export class MacroVetoEnforcer extends EventEmitter {
    * Check if macro data is fresh
    */
   isMacroDataFresh(): boolean {
-    return (Date.now() - this.macroTrendState.lastUpdated) < this.TREND_STALE_MS;
+    return (getActiveClock().now() - this.macroTrendState.lastUpdated) < this.TREND_STALE_MS;
   }
 
   /**

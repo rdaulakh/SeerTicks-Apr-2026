@@ -28,6 +28,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface TakerFill {
   side: 'buy' | 'sell';
@@ -83,7 +84,7 @@ export class PerpTakerFlowAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     const ring = ((global as any).__binancePerpTakerFlow || {})[binSym] as TakerFill[] | undefined;
@@ -91,7 +92,7 @@ export class PerpTakerFlowAgent extends AgentBase {
       return this.neutralSignal(symbol, startTime, `No perp taker flow for ${binSym}`);
     }
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     const cutoff = now - LOOKBACK_MS;
     const recent = ring.filter(f => f.timestamp >= cutoff);
     if (recent.length === 0) {
@@ -149,7 +150,7 @@ export class PerpTakerFlowAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: Math.abs(imbalance),
@@ -168,7 +169,7 @@ export class PerpTakerFlowAgent extends AgentBase {
         source: 'binance-perp-aggTrade-ws',
       },
       qualityScore: 0.78,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: now - Math.max(...recent.map(f => f.timestamp)),
       executionScore: Math.round(50 + magFactor * 25 + sizeFactor * 15),
     };
@@ -178,14 +179,14 @@ export class PerpTakerFlowAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: {},
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

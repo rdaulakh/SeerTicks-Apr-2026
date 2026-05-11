@@ -4,6 +4,7 @@
  */
 
 import * as si from 'systeminformation';
+import { getActiveClock } from '../_core/clock';
 
 export interface SystemMetrics {
   cpu: {
@@ -86,7 +87,7 @@ class MonitoringService {
   private apiResponseTimes: number[] = [];
   private apiErrors = 0;
   private apiActiveRequests = 0;
-  private lastApiMetricsReset = Date.now();
+  private lastApiMetricsReset = getActiveClock().now();
   
   // Order tracking ring buffer (timestamps of orders in last 60s)
   private orderTimestamps: number[] = [];
@@ -95,7 +96,7 @@ class MonitoringService {
   private wsConnections = 0;
   private wsMessageCount = 0;
   private wsErrors = 0;
-  private lastWsMetricsReset = Date.now();
+  private lastWsMetricsReset = getActiveClock().now();
 
   constructor() {
     // Start collecting metrics every 5 seconds
@@ -200,7 +201,7 @@ class MonitoringService {
       const avgHoldTime = closedPositions.length > 0
         ? closedPositions.reduce((sum: number, p: any) => {
             const entryTime = new Date(p.entryTime).getTime();
-            const exitTime = p.exitTime ? new Date(p.exitTime).getTime() : Date.now();
+            const exitTime = p.exitTime ? new Date(p.exitTime).getTime() : getActiveClock().now();
             return sum + (exitTime - entryTime);
           }, 0) / closedPositions.length / 1000
         : 0;
@@ -225,7 +226,7 @@ class MonitoringService {
    * Collect WebSocket metrics
    */
   private async collectWebSocketMetrics() {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const timeSinceReset = (now - this.lastWsMetricsReset) / 1000; // seconds
 
     const metrics: WebSocketMetrics = {
@@ -267,7 +268,7 @@ class MonitoringService {
    * Collect API metrics
    */
   private async collectAPIMetrics() {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const timeSinceReset = (now - this.lastApiMetricsReset) / 1000; // seconds
 
     const avgResponseTime = this.apiResponseTimes.length > 0
@@ -328,7 +329,7 @@ class MonitoringService {
    * Get metrics history for a time window
    */
   getHistory(windowMs: number = 300000): MonitoringSnapshot[] {
-    const cutoff = Date.now() - windowMs;
+    const cutoff = getActiveClock().now() - windowMs;
     const snapshots: MonitoringSnapshot[] = [];
 
     // Find the minimum length to avoid index errors
@@ -411,7 +412,7 @@ class MonitoringService {
    * Record an order execution timestamp for orders-per-minute tracking
    */
   recordOrder() {
-    this.orderTimestamps.push(Date.now());
+    this.orderTimestamps.push(getActiveClock().now());
     // Prune entries older than 60 seconds to keep the buffer bounded
     this.pruneOrderTimestamps();
   }
@@ -428,7 +429,7 @@ class MonitoringService {
    * Remove order timestamps older than 60 seconds
    */
   private pruneOrderTimestamps() {
-    const cutoff = Date.now() - 60_000;
+    const cutoff = getActiveClock().now() - 60_000;
     // Find the first index that is within the window
     let firstValid = 0;
     while (firstValid < this.orderTimestamps.length && this.orderTimestamps[firstValid] < cutoff) {

@@ -6,6 +6,7 @@
  */
 
 import { getDb } from '../db';
+import { getActiveClock } from '../_core/clock';
 import { sql } from 'drizzle-orm';
 
 export interface AgentPerformanceMetrics {
@@ -72,16 +73,16 @@ class PerformanceMetricsServiceImpl {
   // Real-time counters
   private tickCount: number = 0;
   private signalCount: number = 0;
-  private lastTickReset: number = Date.now();
-  private lastSignalReset: number = Date.now();
+  private lastTickReset: number = getActiveClock().now();
+  private lastSignalReset: number = getActiveClock().now();
   
   private constructor() {
     // Reset counters every minute
     setInterval(() => {
       this.tickCount = 0;
       this.signalCount = 0;
-      this.lastTickReset = Date.now();
-      this.lastSignalReset = Date.now();
+      this.lastTickReset = getActiveClock().now();
+      this.lastSignalReset = getActiveClock().now();
     }, 60000);
   }
   
@@ -111,7 +112,7 @@ class PerformanceMetricsServiceImpl {
    */
   async getMetrics(userId: number, hours: number = 24): Promise<ComprehensiveMetrics> {
     // Check cache
-    if (this.metricsCache && Date.now() - this.lastCacheTime < this.CACHE_TTL_MS) {
+    if (this.metricsCache && getActiveClock().now() - this.lastCacheTime < this.CACHE_TTL_MS) {
       return this.metricsCache;
     }
     
@@ -132,7 +133,7 @@ class PerformanceMetricsServiceImpl {
       latency,
       alerts,
     };
-    this.lastCacheTime = Date.now();
+    this.lastCacheTime = getActiveClock().now();
     
     return this.metricsCache;
   }
@@ -358,8 +359,8 @@ class PerformanceMetricsServiceImpl {
    */
   private getSystemMetrics(): SystemPerformanceMetrics {
     const memUsage = process.memoryUsage();
-    const elapsedSeconds = (Date.now() - this.lastTickReset) / 1000;
-    const signalElapsed = (Date.now() - this.lastSignalReset) / 1000;
+    const elapsedSeconds = (getActiveClock().now() - this.lastTickReset) / 1000;
+    const signalElapsed = (getActiveClock().now() - this.lastSignalReset) / 1000;
     
     return {
       uptime: process.uptime(),
@@ -422,7 +423,7 @@ class PerformanceMetricsServiceImpl {
     // Check for inactive agents
     const inactiveAgents = agents.filter(a => {
       if (!a.lastSignalTime) return true;
-      return Date.now() - a.lastSignalTime.getTime() > 5 * 60 * 1000; // 5 minutes
+      return getActiveClock().now() - a.lastSignalTime.getTime() > 5 * 60 * 1000; // 5 minutes
     });
     
     if (inactiveAgents.length > 0) {

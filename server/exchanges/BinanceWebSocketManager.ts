@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { getActiveClock } from '../_core/clock';
 import { EventEmitter } from 'events';
 
 /**
@@ -200,7 +201,7 @@ export class BinanceWebSocketManager extends EventEmitter {
    * Handle incoming WebSocket messages
    */
   private handleMessage(symbol: string, message: any): void {
-    const receiveTime = Date.now();
+    const receiveTime = getActiveClock().now();
     
     if (!message.data) return;
 
@@ -223,7 +224,7 @@ export class BinanceWebSocketManager extends EventEmitter {
         isBuyerMaker: data.m,
       };
       // Missing tick detection: log gaps, not every tick
-      const now = Date.now();
+      const now = getActiveClock().now();
       const lastTick = this.lastTickTime.get(symbol) || 0;
       const count = (this.tickCount.get(symbol) || 0) + 1;
       this.tickCount.set(symbol, count);
@@ -349,7 +350,7 @@ export class BinanceWebSocketManager extends EventEmitter {
    * Detect missing ticks — runs every 5s to check for symbols with no recent ticks
    */
   private detectMissingTicks(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     for (const [symbol, lastTick] of this.lastTickTime.entries()) {
       const elapsed = now - lastTick;
       if (elapsed > this.TICK_GAP_THRESHOLD_MS && this.isConnected(symbol)) {
@@ -363,7 +364,7 @@ export class BinanceWebSocketManager extends EventEmitter {
    * Get tick statistics for monitoring
    */
   getTickStats(): Record<string, { totalTicks: number; gapCount: number; lastTickAge: string }> {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const stats: Record<string, { totalTicks: number; gapCount: number; lastTickAge: string }> = {};
     for (const [symbol, count] of this.tickCount.entries()) {
       const lastTick = this.lastTickTime.get(symbol) || 0;

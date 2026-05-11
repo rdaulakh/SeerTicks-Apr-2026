@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 import {
   ExchangeInterface,
   NormalizedTick,
@@ -55,7 +56,7 @@ export class BinanceAdapter extends ExchangeInterface {
    * Cached for FILTERS_TTL_MS so we don't pay the weight cost on every order.
    */
   private async ensureSymbolFilters(): Promise<void> {
-    if (this.symbolFilters.size > 0 && Date.now() - this.filtersLoadedAt < this.FILTERS_TTL_MS) return;
+    if (this.symbolFilters.size > 0 && getActiveClock().now() - this.filtersLoadedAt < this.FILTERS_TTL_MS) return;
     try {
       const info = await this.client.getExchangeInfo();
       for (const sym of info.symbols || []) {
@@ -71,7 +72,7 @@ export class BinanceAdapter extends ExchangeInterface {
           });
         }
       }
-      this.filtersLoadedAt = Date.now();
+      this.filtersLoadedAt = getActiveClock().now();
       console.log(`[BinanceAdapter] Loaded LOT_SIZE/PRICE_FILTER for ${this.symbolFilters.size} symbols`);
     } catch (e: any) {
       console.warn('[BinanceAdapter] Failed to load symbol filters:', e?.message);
@@ -228,7 +229,7 @@ export class BinanceAdapter extends ExchangeInterface {
           price: parseFloat(ask[0]),
           quantity: parseFloat(ask[1]),
         })),
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
       };
     } catch (error) {
       console.error("[BinanceAdapter] Failed to get order book:", error);

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { getActiveClock } from '../_core/clock';
 import { getDb } from '../db';
 
 const router = Router();
@@ -453,7 +454,7 @@ router.get('/signal-diagnostic', async (req: Request, res: Response) => {
         tickCount: wsStatus.tickCount,
         messageCount: wsStatus.messageCount,
         lastMessageTime: wsStatus.lastMessageTime,
-        timeSinceLastMessage: Date.now() - wsStatus.lastMessageTime,
+        timeSinceLastMessage: getActiveClock().now() - wsStatus.lastMessageTime,
       },
       globalMarketEngine: {
         isRunning: engineStatus.isRunning,

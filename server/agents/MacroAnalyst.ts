@@ -1,4 +1,5 @@
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 import { getLLMRateLimiter } from '../utils/RateLimiter';
 import { fallbackManager, MarketDataInput } from './DeterministicFallback';
 import { getDuneProvider, OnChainSignal, DuneOnChainMetrics } from './DuneAnalyticsProvider';
@@ -97,11 +98,11 @@ export class MacroAnalyst extends AgentBase {
   }
 
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Fetch macro indicators if needed
-      if (!this.macroCache || (Date.now() - this.lastMacroFetch) > this.MACRO_FETCH_INTERVAL) {
+      if (!this.macroCache || (getActiveClock().now() - this.lastMacroFetch) > this.MACRO_FETCH_INTERVAL) {
         await this.fetchMacroIndicators();
       }
 
@@ -147,13 +148,13 @@ export class MacroAnalyst extends AgentBase {
       // A++ Grade: Calculate execution score
       const executionScore = this.calculateExecutionScore(this.macroCache, regime);
 
-      const processingTime = Date.now() - startTime;
-      const dataFreshness = (Date.now() - this.lastMacroFetch) / 1000;
+      const processingTime = getActiveClock().now() - startTime;
+      const dataFreshness = (getActiveClock().now() - this.lastMacroFetch) / 1000;
 
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal,
         confidence: adjustedConfidence,
         strength,
@@ -221,7 +222,7 @@ export class MacroAnalyst extends AgentBase {
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal: fallbackResult.signal,
         confidence: fallbackResult.confidence,
         strength: fallbackResult.strength,
@@ -235,7 +236,7 @@ export class MacroAnalyst extends AgentBase {
           vetoReason: macroFailClosed ? 'macro_data_unavailable_failclosed' : undefined,
         },
         qualityScore: 0.55, // Reduced quality for fallback
-        processingTime: Date.now() - startTime,
+        processingTime: getActiveClock().now() - startTime,
         dataFreshness: 0,
         executionScore: 45, // Lower execution score for fallback
       };
@@ -357,7 +358,7 @@ export class MacroAnalyst extends AgentBase {
         if (duneProvider.isConfigured()) {
           const duneMetrics = await duneProvider.getOnChainMetrics('BTC');
           this.duneMetricsCache = duneMetrics;
-          this.lastDuneFetch = Date.now();
+          this.lastDuneFetch = getActiveClock().now();
           
           duneOnChainSignal = duneMetrics.aggregatedSignal;
           duneExchangeNetFlow = duneMetrics.aggregatedSignal.metrics.exchangeNetFlow24h;
@@ -394,7 +395,7 @@ export class MacroAnalyst extends AgentBase {
         duneWhaleActivity,
       };
 
-      this.lastMacroFetch = Date.now();
+      this.lastMacroFetch = getActiveClock().now();
       console.log(`[${this.config.name}] Fetched macro indicators. Correlation regime: ${correlationRegime}`);
     } catch (error: any) {
       console.error(`[${this.config.name}] Failed to fetch macro indicators:`, error);
@@ -403,7 +404,7 @@ export class MacroAnalyst extends AgentBase {
       if (error.message && error.message.includes('429')) {
         console.warn(`[${this.config.name}] Rate limit hit (429), extending cache time by 30 minutes`);
         // Extend last fetch time by 30 minutes to avoid retrying too soon
-        this.lastMacroFetch = Date.now() + (30 * 60 * 1000);
+        this.lastMacroFetch = getActiveClock().now() + (30 * 60 * 1000);
       }
       
       // Keep using cached data if available, don't crash
@@ -912,7 +913,7 @@ Provide your macro analysis:`;
 
     // 4. Data Freshness (0-25 points)
     // Fresh data = better execution timing
-    const dataAge = (Date.now() - this.lastMacroFetch) / 1000; // seconds
+    const dataAge = (getActiveClock().now() - this.lastMacroFetch) / 1000; // seconds
     const freshnessScore = Math.max(25 - (dataAge / 1800) * 25, 0); // Decay over 30 minutes
     score += freshnessScore;
 

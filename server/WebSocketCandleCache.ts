@@ -8,6 +8,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from './_core/clock';
 
 export interface Candle {
   timestamp: number;
@@ -80,7 +81,7 @@ export class WebSocketCandleCache extends EventEmitter {
         buffer.candles.shift();
       }
 
-      buffer.lastUpdate = Date.now();
+      buffer.lastUpdate = getActiveClock().now();
 
       // Emit event for new closed candle
       this.emit('candle_closed', { symbol, interval, candle });
@@ -107,7 +108,7 @@ export class WebSocketCandleCache extends EventEmitter {
         buffer.candles.push(candle);
       }
 
-      buffer.lastUpdate = Date.now();
+      buffer.lastUpdate = getActiveClock().now();
     }
   }
 
@@ -230,7 +231,7 @@ export class WebSocketCandleCache extends EventEmitter {
 
     // Add all candles to buffer
     buffer.candles = sortedCandles.slice(-buffer.maxSize);
-    buffer.lastUpdate = Date.now();
+    buffer.lastUpdate = getActiveClock().now();
 
     console.log(`[WebSocketCandleCache] ✅ Seeded ${buffer.candles.length} historical candles for ${symbol} ${interval}`);
     this.emit('cache_seeded', { symbol, interval, count: buffer.candles.length });

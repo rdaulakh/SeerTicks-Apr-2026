@@ -9,6 +9,7 @@
  */
 
 import { getDb } from '../db';
+import { getActiveClock } from '../_core/clock';
 import { sql } from 'drizzle-orm';
 import { EventEmitter } from 'events';
 
@@ -179,7 +180,7 @@ class DiskUsageMonitor extends EventEmitter {
       this.snapshots.push(snapshot);
       
       // Clean up old snapshots
-      const cutoffTime = Date.now() - (this.config.retentionHours * 60 * 60 * 1000);
+      const cutoffTime = getActiveClock().now() - (this.config.retentionHours * 60 * 60 * 1000);
       this.snapshots = this.snapshots.filter(s => s.timestamp.getTime() > cutoffTime);
 
       // Calculate usage percentage
@@ -284,7 +285,7 @@ class DiskUsageMonitor extends EventEmitter {
     const recentAlert = this.alerts.find(a => 
       a.metric === alert.metric && 
       a.type === alert.type &&
-      (Date.now() - a.timestamp.getTime()) < 60 * 60 * 1000
+      (getActiveClock().now() - a.timestamp.getTime()) < 60 * 60 * 1000
     );
 
     if (!recentAlert) {
@@ -315,7 +316,7 @@ class DiskUsageMonitor extends EventEmitter {
     const currentSnapshot = this.snapshots[this.snapshots.length - 1];
     
     // Find snapshot from ~24 hours ago
-    const targetTime = Date.now() - (24 * 60 * 60 * 1000);
+    const targetTime = getActiveClock().now() - (24 * 60 * 60 * 1000);
     const oldSnapshot = this.snapshots.reduce((closest, s) => {
       const closestDiff = Math.abs(closest.timestamp.getTime() - targetTime);
       const currentDiff = Math.abs(s.timestamp.getTime() - targetTime);

@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * Coinbase API Rate Limiter
  * Prevents 429 errors by limiting requests to Coinbase API
@@ -28,7 +29,7 @@ class CoinbaseRateLimiter {
    * Check if a request is allowed
    */
   async checkLimit(key: string): Promise<boolean> {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const windowStart = now - this.config.windowMs;
 
     // Get existing records for this key
@@ -55,9 +56,9 @@ class CoinbaseRateLimiter {
    * Wait until a request is allowed
    */
   async waitForSlot(key: string, maxWaitMs: number = 5000): Promise<boolean> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
-    while (Date.now() - startTime < maxWaitMs) {
+    while (getActiveClock().now() - startTime < maxWaitMs) {
       if (await this.checkLimit(key)) {
         return true;
       }
@@ -113,7 +114,7 @@ class CoinbaseRateLimiter {
    * Get current rate limit status
    */
   getStatus(key: string): { current: number; limit: number; resetIn: number } {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const windowStart = now - this.config.windowMs;
 
     const records = this.requests.get(key) || [];
@@ -136,7 +137,7 @@ class CoinbaseRateLimiter {
    * Clean up old records
    */
   private cleanup() {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const windowStart = now - this.config.windowMs;
 
     for (const [key, records] of this.requests.entries()) {

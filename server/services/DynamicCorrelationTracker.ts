@@ -21,6 +21,7 @@
  */
 
 import { getTradingConfig } from '../config/TradingConfig';
+import { getActiveClock } from '../_core/clock';
 
 export interface CorrelationPair {
   symbolA: string;
@@ -101,7 +102,7 @@ class DynamicCorrelationTracker {
   /**
    * Ingest a price tick — called from PriceFabric or priceFeedService
    */
-  recordPrice(symbol: string, price: number, timestampMs: number = Date.now()): void {
+  recordPrice(symbol: string, price: number, timestampMs: number = getActiveClock().now()): void {
     try {
       if (!symbol || !isFinite(price) || price <= 0) return;
       if (!this.priceHistory.has(symbol)) {
@@ -235,7 +236,7 @@ class DynamicCorrelationTracker {
   getCorrelation(symbolA: string, symbolB: string): number | null {
     const key = this.makeCacheKey(symbolA, symbolB);
     const cached = this.correlationCache.get(key);
-    if (cached && Date.now() - cached.lastUpdated < 10 * 60 * 1000) {
+    if (cached && getActiveClock().now() - cached.lastUpdated < 10 * 60 * 1000) {
       return cached.correlation;
     }
 
@@ -260,7 +261,7 @@ class DynamicCorrelationTracker {
       symbolB,
       correlation: corr,
       dataPoints: len,
-      lastUpdated: Date.now(),
+      lastUpdated: getActiveClock().now(),
     });
 
     return corr;
@@ -289,7 +290,7 @@ class DynamicCorrelationTracker {
     return {
       symbols,
       matrix,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       windowMinutes: this.WINDOW_MINUTES,
       dataPoints: minLen,
     };
@@ -324,7 +325,7 @@ class DynamicCorrelationTracker {
    */
   private resampleAndRecalculate(): void {
     try {
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     for (const [symbol, prices] of this.priceHistory.entries()) {
       if (prices.length < 2) continue;

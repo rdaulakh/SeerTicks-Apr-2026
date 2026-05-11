@@ -1,4 +1,5 @@
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 import { MarketDataInput } from "./DeterministicFallback";
 import { getAggregatedOnChainData, getOnChainSignalFromAggregated } from "../services/MultiSourceOnChainService";
 import { getBGeometricsService } from "../services/BGeometricsService";
@@ -96,7 +97,7 @@ export class OnChainFlowAnalyst extends AgentBase {
   }
 
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // DUAL-SOURCE APPROACH: BGeometrics (institutional on-chain) + MultiSource (exchange flows)
@@ -146,14 +147,14 @@ export class OnChainFlowAnalyst extends AgentBase {
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal,
         confidence: adjustedConfidence,
         strength,
         reasoning: adjustedReasoning,
         evidence,
         qualityScore: bgSignals ? 0.8 : (flowData?.overallConfidence || 0.4),
-        processingTime: Date.now() - startTime,
+        processingTime: getActiveClock().now() - startTime,
         dataFreshness: 0,
         executionScore: this.calculateCombinedExecutionScore(bgSignals, flowSignalResult),
       };
@@ -346,7 +347,7 @@ export class OnChainFlowAnalyst extends AgentBase {
         const flowData = await this.fetchExchangeFlowData(symbol);
         if (flowData) {
           const analysis = this.analyzeFlowData(symbol, flowData);
-          this.flowCache.set(symbol, { data: analysis, timestamp: Date.now() });
+          this.flowCache.set(symbol, { data: analysis, timestamp: getActiveClock().now() });
         }
       } catch (error) {
         console.error(`[${this.config.name}] Prefetch failed for ${symbol}:`, error);
@@ -398,7 +399,7 @@ export class OnChainFlowAnalyst extends AgentBase {
   private async generateRealisticFlowData(symbol: string): Promise<ExchangeFlowData> {
     const normalizedSymbol = this.normalizeSymbol(symbol);
     const price = this.currentPrice || this.getEstimatedPrice(normalizedSymbol);
-    const timestamp = Date.now();
+    const timestamp = getActiveClock().now();
 
     try {
       // Fetch real exchange flow data from free APIs
@@ -621,7 +622,7 @@ export class OnChainFlowAnalyst extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength,
@@ -642,7 +643,7 @@ export class OnChainFlowAnalyst extends AgentBase {
         trendSignal,
       },
       qualityScore: this.calculateQualityScore(analysis),
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 300, // 5 minutes
       recommendation: {
         action: signal === "bullish" ? "buy" : signal === "bearish" ? "sell" : "hold",
@@ -843,7 +844,7 @@ export class OnChainFlowAnalyst extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength,
@@ -856,7 +857,7 @@ export class OnChainFlowAnalyst extends AgentBase {
         priceHistory: this.priceHistory.slice(-5),
       },
       qualityScore: 0.4,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       recommendation: {
         action: signal === "bullish" ? "buy" : signal === "bearish" ? "sell" : "hold",

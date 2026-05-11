@@ -11,11 +11,12 @@
  */
 
 import { BacktestEngineAPlusPlusV3, Candle, AgentSignal } from './BacktestEngineA++V3';
+import { getActiveClock } from '../_core/clock';
 
 // Fetch real historical data from Coinbase
 async function fetchCoinbaseCandles(symbol: string, days: number): Promise<Candle[]> {
   const candles: Candle[] = [];
-  const endTime = Math.floor(Date.now() / 1000);
+  const endTime = Math.floor(getActiveClock().now() / 1000);
   const startTime = endTime - (days * 24 * 60 * 60);
   
   console.log(`Fetching ${days} days of ${symbol} data from Coinbase...`);

@@ -3,6 +3,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../../_core/clock';
 
 export interface LiquidityPool { price: number; type: 'high' | 'low'; timestamp: number; strength: number; tested: boolean; grabbed: boolean; }
 export interface LiquidityGrabMetrics { symbol: string; timestamp: number; pools: LiquidityPool[]; activeGrab: { type: 'bullish' | 'bearish'; price: number; strength: number } | null; recentGrabs: number; }
@@ -56,7 +57,7 @@ export class LiquidityGrabDetector extends EventEmitter {
         else existing.strength++;
       }
     }
-    const cutoff = Date.now() - this.config.lookbackPeriod * 60000;
+    const cutoff = getActiveClock().now() - this.config.lookbackPeriod * 60000;
     this.pools.set(symbol, poolList.filter(p => p.timestamp > cutoff || p.strength >= this.config.minPoolStrength));
   }
   
@@ -80,8 +81,8 @@ export class LiquidityGrabDetector extends EventEmitter {
   
   private calculateMetrics(symbol: string): LiquidityGrabMetrics {
     const poolList = this.pools.get(symbol) || [];
-    const activeGrab = poolList.find(p => p.grabbed && Date.now() - p.timestamp < 300000);
-    return { symbol, timestamp: Date.now(), pools: poolList.filter(p => !p.grabbed), activeGrab: activeGrab ? { type: activeGrab.type === 'low' ? 'bullish' : 'bearish', price: activeGrab.price, strength: activeGrab.strength * 20 } : null, recentGrabs: poolList.filter(p => p.grabbed).length };
+    const activeGrab = poolList.find(p => p.grabbed && getActiveClock().now() - p.timestamp < 300000);
+    return { symbol, timestamp: getActiveClock().now(), pools: poolList.filter(p => !p.grabbed), activeGrab: activeGrab ? { type: activeGrab.type === 'low' ? 'bullish' : 'bearish', price: activeGrab.price, strength: activeGrab.strength * 20 } : null, recentGrabs: poolList.filter(p => p.grabbed).length };
   }
   
   getMetrics(symbol: string): LiquidityGrabMetrics | null { return this.lastMetrics.get(symbol) || null; }

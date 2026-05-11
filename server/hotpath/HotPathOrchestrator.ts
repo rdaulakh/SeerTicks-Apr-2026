@@ -1,4 +1,5 @@
 import EventEmitter from "eventemitter3";
+import { getActiveClock } from '../_core/clock';
 import { getWSManager, WSManagerEvents, TickEvent } from "./WebSocketManager";
 import { getDeviationEngine, ExpectedPath, DeviationScore } from "./DeviationEngine";
 import { RedisHelpers } from "./redisClient";
@@ -236,7 +237,7 @@ export class HotPathOrchestrator extends EventEmitter {
       exchange,
       reason,
       currentPrice,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
     };
 
     // Emit appropriate event

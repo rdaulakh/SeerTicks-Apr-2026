@@ -42,6 +42,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface BookSnapshot {
   midPrice: number;
@@ -99,7 +100,7 @@ export class CrossExchangeSpreadAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     const bin = ((global as any).__binanceSpotBook || {})[binSym] as BookSnapshot | undefined;
@@ -109,7 +110,7 @@ export class CrossExchangeSpreadAgent extends AgentBase {
       return this.neutralSignal(symbol, startTime, `Missing book (binance=${!!bin}, coinbase=${!!cb})`);
     }
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     const binAge = now - (bin.eventTime || (bin as any).receivedAt || 0);
     const cbAge = now - (cb.receivedAt || 0);
     if (binAge > STALE_MS || cbAge > STALE_MS) {
@@ -169,7 +170,7 @@ export class CrossExchangeSpreadAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: Math.min(Math.abs(spreadBps) / SATURATE_BPS, 1),
@@ -189,7 +190,7 @@ export class CrossExchangeSpreadAgent extends AgentBase {
         source: 'binance-spot-bookTicker + coinbase-ticker',
       },
       qualityScore: 0.74,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: Math.max(binAge, cbAge),
       executionScore: Math.round(45 + magFactor * 25 + deltaFactor * 15),
     };
@@ -199,14 +200,14 @@ export class CrossExchangeSpreadAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: { ringSize: this.spreadRings.get(symbol)?.length || 0 },
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

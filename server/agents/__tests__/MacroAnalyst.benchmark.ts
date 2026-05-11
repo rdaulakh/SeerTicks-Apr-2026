@@ -4,6 +4,7 @@
  */
 
 import { MacroAnalyst } from '../MacroAnalyst';
+import { getActiveClock } from '../../_core/clock';
 
 async function runBenchmark() {
   console.log('='.repeat(80));
@@ -21,12 +22,12 @@ async function runBenchmark() {
 
   for (let i = 0; i < iterations; i++) {
     const memBefore = process.memoryUsage().heapUsed / 1024 / 1024; // MB
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       const signal = await analyst.generateSignal('BTCUSDT', { currentPrice: 98000 });
       
-      const endTime = Date.now();
+      const endTime = getActiveClock().now();
       const latency = endTime - startTime;
       const memAfter = process.memoryUsage().heapUsed / 1024 / 1024; // MB
       const memDelta = memAfter - memBefore;

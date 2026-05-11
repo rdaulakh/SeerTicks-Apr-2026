@@ -22,6 +22,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from './AgentBase';
+import { getActiveClock } from '../_core/clock';
 import { getLLMRateLimiter } from '../utils/RateLimiter';
 import { fallbackManager, MarketDataInput } from './DeterministicFallback';
 import { getZScoreSentimentModel, ZScoreResult } from '../utils/ZScoreSentimentModel';
@@ -107,7 +108,7 @@ export class SentimentAnalyst extends AgentBase {
   }
 
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Fetch sentiment data
@@ -147,8 +148,8 @@ export class SentimentAnalyst extends AgentBase {
           strength: fb.strength,
           reasoning: `[ZScore-insufficient → deterministic] ${fb.reasoning}`,
           evidence: { fallbackReason: fb.fallbackReason, isDeterministic: true },
-          timestamp: Date.now(),
-          processingTime: Date.now() - startTime,
+          timestamp: getActiveClock().now(),
+          processingTime: getActiveClock().now() - startTime,
           dataFreshness: 0,
           qualityScore: 0.6,
           executionScore: 50,
@@ -158,8 +159,8 @@ export class SentimentAnalyst extends AgentBase {
       // Get LLM analysis for additional context
       const analysis = await this.analyzeSentiment(symbol, socialSentiment, fearGreed);
 
-      const processingTime = Date.now() - startTime;
-      const dataFreshness = fearGreed ? (Date.now() - fearGreed.timestamp) / 1000 : 0;
+      const processingTime = getActiveClock().now() - startTime;
+      const dataFreshness = fearGreed ? (getActiveClock().now() - fearGreed.timestamp) / 1000 : 0;
       const qualityScore = this.calculateQualityScore(socialSentiment, fearGreed, dataFreshness);
 
       // Calculate execution score
@@ -223,9 +224,9 @@ export class SentimentAnalyst extends AgentBase {
           sources: socialSentiment.sources.join(', '),
           analysis,
         },
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         processingTime,
-        dataFreshness: (Date.now() - startTime) / 1000,
+        dataFreshness: (getActiveClock().now() - startTime) / 1000,
         qualityScore,
         executionScore,
       };
@@ -259,8 +260,8 @@ export class SentimentAnalyst extends AgentBase {
           isDeterministic: true,
           originalError: error instanceof Error ? error.message : 'Unknown error',
         },
-        timestamp: Date.now(),
-        processingTime: Date.now() - startTime,
+        timestamp: getActiveClock().now(),
+        processingTime: getActiveClock().now() - startTime,
         dataFreshness: 0,
         qualityScore: 0.6,
         executionScore: 50,
@@ -400,7 +401,7 @@ Return ONLY a valid JSON object (no markdown, no code blocks) with this exact st
         this.fearGreedCache = {
           value,
           classification: this.classifyFearGreed(value),
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
         };
         
         // Add to Z-Score model
@@ -420,7 +421,7 @@ Return ONLY a valid JSON object (no markdown, no code blocks) with this exact st
    * Get cached Fear & Greed Index
    */
   private async getFearGreedIndex(): Promise<FearGreedData | null> {
-    if (!this.fearGreedCache || (Date.now() - this.fearGreedCache.timestamp) > this.CACHE_TTL) {
+    if (!this.fearGreedCache || (getActiveClock().now() - this.fearGreedCache.timestamp) > this.CACHE_TTL) {
       await this.fetchFearGreedIndex();
     }
     return this.fearGreedCache;
@@ -555,7 +556,7 @@ Provide your sentiment analysis:`;
         sources: 'None',
         analysis: 'Data unavailable',
       },
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       processingTime: 0,
       dataFreshness: 0,
       qualityScore: 0,

@@ -10,6 +10,7 @@
  */
 
 import { getDb } from '../db';
+import { getActiveClock } from '../_core/clock';
 import { portfolioRiskMetrics, positions, trades } from '../../drizzle/schema';
 import { eq, gte, and } from 'drizzle-orm';
 
@@ -49,7 +50,7 @@ export class PortfolioRiskCalculator {
     }
 
     // Get historical portfolio values
-    const startDate = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+    const startDate = new Date(getActiveClock().now() - lookbackDays * 24 * 60 * 60 * 1000);
     const historicalMetrics = await db
       .select()
       .from(portfolioRiskMetrics)
@@ -222,7 +223,7 @@ export class PortfolioRiskCalculator {
     }
 
     // Get historical trades for each symbol
-    const startDate = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+    const startDate = new Date(getActiveClock().now() - lookbackDays * 24 * 60 * 60 * 1000);
     const historicalTrades = await db
       .select()
       .from(trades)
@@ -338,7 +339,7 @@ export class PortfolioRiskCalculator {
       return [];
     }
 
-    const startDate = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+    const startDate = new Date(getActiveClock().now() - lookbackDays * 24 * 60 * 60 * 1000);
     const metrics = await db
       .select()
       .from(portfolioRiskMetrics)

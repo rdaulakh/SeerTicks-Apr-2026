@@ -12,6 +12,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { getDb } from '../db';
 import { paperWallets } from '../../drizzle/schema';
 import { eq } from 'drizzle-orm';
@@ -448,7 +449,7 @@ export class PaperTradingEngine extends EventEmitter implements ITradingEngine {
     // ✅ FIX: Ensure wallet is loaded before placing orders
     await this.waitForReady();
     
-    const orderId = `paper_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const orderId = `paper_${getActiveClock().now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const order: PaperOrder = {
       id: orderId,
@@ -666,7 +667,7 @@ export class PaperTradingEngine extends EventEmitter implements ITradingEngine {
     } else {
       // New position
       const position: PaperPosition = {
-        id: `pos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: `pos_${getActiveClock().now()}_${Math.random().toString(36).substr(2, 9)}`,
         userId: this.config.userId,
         symbol: order.symbol,
         exchange: order.exchange,

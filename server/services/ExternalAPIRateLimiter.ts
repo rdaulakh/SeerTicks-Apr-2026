@@ -20,6 +20,7 @@ async function _getAuditLoggerModule() {
  */
 
 import { circuitBreakerManager, recordAPISuccess, recordAPIFailure, isServiceAvailable } from './CircuitBreakerManager';
+import { getActiveClock } from '../_core/clock';
 
 interface RateLimitConfig {
   maxRequests: number;      // Max requests per window
@@ -103,7 +104,7 @@ class ExternalAPIRateLimiter {
     }
 
     const state = this.getState(apiName);
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     // Check if we're in backoff period
     if (state.backoffUntil > now) {
@@ -181,7 +182,7 @@ class ExternalAPIRateLimiter {
       console.error(`[ExternalAPIRateLimiter] ${apiName}: 403 Forbidden - check API key! Backing off for ${Math.ceil(backoffMs / 1000)}s`);
     }
 
-    state.backoffUntil = Date.now() + backoffMs;
+    state.backoffUntil = getActiveClock().now() + backoffMs;
     
     // Also record failure with circuit breaker
     recordAPIFailure(apiName, errorMessage || `HTTP ${statusCode}`);
@@ -206,7 +207,7 @@ class ExternalAPIRateLimiter {
     if (!state) {
       state = {
         requestCount: 0,
-        windowStart: Date.now(),
+        windowStart: getActiveClock().now(),
         backoffUntil: 0,
         consecutiveErrors: 0,
       };
@@ -227,7 +228,7 @@ class ExternalAPIRateLimiter {
     lastError?: string;
   }> {
     const status: Record<string, any> = {};
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     for (const [apiName, config] of Object.entries(API_CONFIGS)) {
       const state = this.states.get(apiName);
@@ -299,7 +300,7 @@ export async function rateLimitedFetch(
     throw new RateLimitError(apiName, check.waitMs, check.reason || 'Rate limited');
   }
 
-  const startMs = Date.now();
+  const startMs = getActiveClock().now();
   try {
     // Add per-request timeout (30s) to prevent hanging API calls from blocking agents
     const controller = new AbortController();
@@ -311,7 +312,7 @@ export async function rateLimitedFetch(
     } finally {
       clearTimeout(timeoutId);
     }
-    const responseTimeMs = Date.now() - startMs;
+    const responseTimeMs = getActiveClock().now() - startMs;
 
     if (response.ok) {
       limiter.recordSuccess(apiName);
@@ -351,7 +352,7 @@ export async function rateLimitedFetch(
 
     return response;
   } catch (error) {
-    const responseTimeMs = Date.now() - startMs;
+    const responseTimeMs = getActiveClock().now() - startMs;
     if (error instanceof RateLimitError) {
       throw error;
     }

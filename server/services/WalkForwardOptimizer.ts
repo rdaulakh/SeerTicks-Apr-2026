@@ -23,6 +23,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 export interface ParameterSet {
   consensusThreshold: number;
@@ -112,7 +113,7 @@ class WalkForwardOptimizer extends EventEmitter {
       if (trades.length < 50) {
         console.log(`[WalkForwardOptimizer] Insufficient trades: ${trades.length} (need 50+)`);
         const emptyResult: WalkForwardResult = {
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
           totalWindows: 0,
           windowResults: [],
           avgInSampleSharpe: 0,
@@ -141,7 +142,7 @@ class WalkForwardOptimizer extends EventEmitter {
       if (totalMonths < trainMonths + testMonths) {
         console.log(`[WalkForwardOptimizer] Insufficient time range: ${totalMonths} months (need ${trainMonths + testMonths}+)`);
         const emptyResult: WalkForwardResult = {
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
           totalWindows: 0,
           windowResults: [],
           avgInSampleSharpe: 0,
@@ -231,7 +232,7 @@ class WalkForwardOptimizer extends EventEmitter {
         : (!isOverfit || !isUnstable) ? 'medium' : 'low';
 
       const result: WalkForwardResult = {
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         totalWindows: windowResults.length,
         windowResults,
         avgInSampleSharpe,

@@ -32,6 +32,7 @@
  */
 
 import { sql, desc, asc, eq, and, gte, lte, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { getActiveClock } from '../_core/clock';
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
@@ -464,7 +465,7 @@ export class TradingQualityAuditor {
       .limit(200);
 
     const findings: Finding[] = [];
-    const now = Date.now();
+    const now = getActiveClock().now();
     for (const p of open) {
       const ageMin = (now - new Date(p.entryTime).getTime()) / 60_000;
       if (ageMin < 120) continue; // <2h is normal

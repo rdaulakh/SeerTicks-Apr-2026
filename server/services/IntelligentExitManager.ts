@@ -1763,7 +1763,7 @@ export class IntelligentExitManager extends EventEmitter {
             currentPrice: position.currentPrice.toString(),
             unrealizedPnL: position.unrealizedPnl.toString(),
             unrealizedPnLPercent: position.unrealizedPnlPercent.toString(),
-            updatedAt: new Date(),
+            updatedAt: getActiveClock().date(),
           };
           
           // Sync consensus data if available

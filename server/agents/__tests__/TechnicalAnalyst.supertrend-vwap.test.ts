@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { getActiveClock } from '../../_core/clock';
 import { TechnicalAnalyst } from '../TechnicalAnalyst';
 import { MarketData } from '../../exchanges';
 
@@ -17,7 +18,7 @@ describe('TechnicalAnalyst - SuperTrend & VWAP', () => {
       for (let i = 0; i < 50; i++) {
         const price = basePrice + (i * 100); // Uptrend
         candles.push({
-          timestamp: Date.now() - (50 - i) * 3600000,
+          timestamp: getActiveClock().now() - (50 - i) * 3600000,
           open: price - 50,
           high: price + 100,
           low: price - 100,
@@ -45,7 +46,7 @@ describe('TechnicalAnalyst - SuperTrend & VWAP', () => {
       for (let i = 0; i < 100; i++) {
         const price = basePrice - (i * 50);
         candles.push({
-          timestamp: Date.now() - (100 - i) * 3600000,
+          timestamp: getActiveClock().now() - (100 - i) * 3600000,
           open: price + 25,
           high: price + 50,
           low: price - 50,
@@ -67,7 +68,7 @@ describe('TechnicalAnalyst - SuperTrend & VWAP', () => {
       
       const candles: MarketData[] = [
         {
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
           open: 50000,
           high: 50500,
           low: 49500,
@@ -89,9 +90,9 @@ describe('TechnicalAnalyst - SuperTrend & VWAP', () => {
       const analyst = new TechnicalAnalyst();
       
       const candles: MarketData[] = [
-        { timestamp: Date.now() - 3600000, open: 50000, high: 50500, low: 49500, close: 50200, volume: 1000 },
-        { timestamp: Date.now() - 2 * 3600000, open: 50200, high: 50700, low: 49700, close: 50400, volume: 2000 },
-        { timestamp: Date.now() - 3 * 3600000, open: 50400, high: 50900, low: 49900, close: 50600, volume: 1500 },
+        { timestamp: getActiveClock().now() - 3600000, open: 50000, high: 50500, low: 49500, close: 50200, volume: 1000 },
+        { timestamp: getActiveClock().now() - 2 * 3600000, open: 50200, high: 50700, low: 49700, close: 50400, volume: 2000 },
+        { timestamp: getActiveClock().now() - 3 * 3600000, open: 50400, high: 50900, low: 49900, close: 50600, volume: 1500 },
       ];
       
       const vwap = (analyst as any).calculateVWAP(candles);
@@ -111,8 +112,8 @@ describe('TechnicalAnalyst - SuperTrend & VWAP', () => {
       const analyst = new TechnicalAnalyst();
       
       const candles: MarketData[] = [
-        { timestamp: Date.now() - 3600000, open: 50000, high: 50500, low: 49500, close: 50200, volume: 0 },
-        { timestamp: Date.now() - 2 * 3600000, open: 50200, high: 50700, low: 49700, close: 50400, volume: 0 },
+        { timestamp: getActiveClock().now() - 3600000, open: 50000, high: 50500, low: 49500, close: 50200, volume: 0 },
+        { timestamp: getActiveClock().now() - 2 * 3600000, open: 50200, high: 50700, low: 49700, close: 50400, volume: 0 },
       ];
       
       const vwap = (analyst as any).calculateVWAP(candles);
@@ -128,7 +129,7 @@ describe('TechnicalAnalyst - SuperTrend & VWAP', () => {
       const candles: MarketData[] = [];
       for (let i = 0; i < 30; i++) {
         candles.push({
-          timestamp: Date.now() - (30 - i) * 3600000,
+          timestamp: getActiveClock().now() - (30 - i) * 3600000,
           open: 50000 + i * 10,
           high: 50100 + i * 10,
           low: 49900 + i * 10,
@@ -155,7 +156,7 @@ describe('TechnicalAnalyst - SuperTrend & VWAP', () => {
       for (let i = 0; i < 100; i++) {
         const price = basePrice + (i * 50); // Strong uptrend
         candles.push({
-          timestamp: Date.now() - (100 - i) * 3600000,
+          timestamp: getActiveClock().now() - (100 - i) * 3600000,
           open: price - 25,
           high: price + 50,
           low: price - 50,
@@ -181,7 +182,7 @@ describe('TechnicalAnalyst - SuperTrend & VWAP', () => {
       for (let i = 0; i < 100; i++) {
         const price = basePrice + (i * 100); // Strong uptrend
         candles.push({
-          timestamp: Date.now() - (100 - i) * 3600000,
+          timestamp: getActiveClock().now() - (100 - i) * 3600000,
           open: price - 50,
           high: price + 100,
           low: price - 100,
@@ -212,7 +213,7 @@ describe('TechnicalAnalyst - SuperTrend & VWAP', () => {
       for (let i = 0; i < 100; i++) {
         const price = basePrice + (i * 50);
         candles.push({
-          timestamp: Date.now() - (100 - i) * 3600000,
+          timestamp: getActiveClock().now() - (100 - i) * 3600000,
           open: price - 25,
           high: price + 50,
           low: price - 50,
@@ -245,7 +246,7 @@ describe('TechnicalAnalyst - SuperTrend & VWAP', () => {
       for (let i = 0; i < 100; i++) {
         const price = basePrice + (i * 50);
         candles.push({
-          timestamp: Date.now() - (100 - i) * 3600000,
+          timestamp: getActiveClock().now() - (100 - i) * 3600000,
           open: price - 25,
           high: price + 50,
           low: price - 50,

@@ -13,6 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { Candle } from '../WebSocketCandleCache';
 
 // ============================================================================
@@ -299,7 +300,7 @@ export class OptimizedSignalEngine extends EventEmitter {
 
     const signals: OptimizedSignal[] = [];
     const currentPrice = candles[candles.length - 1].close;
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     // Update candle cache
     this.candleCache.set(symbol, candles);
@@ -419,7 +420,7 @@ export class OptimizedSignalEngine extends EventEmitter {
 
     return {
       symbol,
-      lastUpdate: Date.now(),
+      lastUpdate: getActiveClock().now(),
       candleCount: candles.length,
       rsi,
       macd,
@@ -465,7 +466,7 @@ export class OptimizedSignalEngine extends EventEmitter {
 
     return {
       ...cache,
-      lastUpdate: Date.now(),
+      lastUpdate: getActiveClock().now(),
       candleCount: candles.length,
       rsi,
       macd: {

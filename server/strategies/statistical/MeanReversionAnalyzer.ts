@@ -2,6 +2,7 @@
  * MeanReversionAnalyzer - Z-score based mean reversion analysis
  */
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../../_core/clock';
 
 export interface MeanReversionMetrics { symbol: string; timestamp: number; zScore: number; zScore20: number; zScore50: number; bollingerUpper: number; bollingerMiddle: number; bollingerLower: number; percentB: number; rsi: number; regime: 'trending' | 'mean_reverting' | 'volatile'; signal: 'oversold' | 'overbought' | 'neutral'; strength: number; }
 export interface MeanReversionConfig { shortPeriod: number; longPeriod: number; bollingerPeriod: number; bollingerStd: number; rsiPeriod: number; entryZScore: number; rsiOversold: number; rsiOverbought: number; }
@@ -25,7 +26,7 @@ export class MeanReversionAnalyzer extends EventEmitter {
   
   private calculateMetrics(symbol: string): MeanReversionMetrics {
     const prices = this.prices.get(symbol) || [];
-    const now = Date.now();
+    const now = getActiveClock().now();
     if (prices.length < this.config.shortPeriod) {
       return { symbol, timestamp: now, zScore: 0, zScore20: 0, zScore50: 0, bollingerUpper: 0, bollingerMiddle: 0, bollingerLower: 0, percentB: 0.5, rsi: 50, regime: 'mean_reverting', signal: 'neutral', strength: 0 };
     }

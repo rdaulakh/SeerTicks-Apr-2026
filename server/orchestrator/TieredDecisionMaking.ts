@@ -17,6 +17,7 @@
  */
 
 import { AgentSignal } from '../agents/AgentBase';
+import { getActiveClock } from '../_core/clock';
 import { getAgentWeightManager, DEFAULT_AGENT_WEIGHTS, DEFAULT_CATEGORY_MULTIPLIERS } from '../services/AgentWeightManager';
 import { tradingLogger } from '../utils/logger';
 
@@ -376,7 +377,7 @@ function buildReasoning(
  */
 export function exampleUsage() {
   // Example: Maximum conviction (120%)
-  const now = Date.now();
+  const now = getActiveClock().now();
   const maxConvictionSignals = {
     technical: { signal: 'bullish' as const, confidence: 0.95, strength: 0.9, reasoning: 'Strong uptrend', evidence: {}, qualityScore: 0.9, agentName: 'TechnicalAnalyst', symbol: 'BTCUSDT', timestamp: now, processingTime: 100, dataFreshness: 1000 },
     pattern: { signal: 'bullish' as const, confidence: 0.90, strength: 0.85, reasoning: 'High-quality pattern', evidence: {}, qualityScore: 0.9, agentName: 'PatternMatcher', symbol: 'BTCUSDT', timestamp: now, processingTime: 100, dataFreshness: 1000 },

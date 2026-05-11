@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { getActiveClock } from '../../_core/clock';
 import { OrderFlowAnalyst } from '../OrderFlowAnalyst';
 import { CoinbaseAdapter } from '../../exchanges/CoinbaseAdapter';
 import { ENV } from '../../_core/env';
@@ -51,9 +52,9 @@ describe.skipIf(!isIntegration)('OrderFlowAnalyst Signal Generation (integration
     const symbol = 'BTC-USD';
     agent.setCurrentPrice(95000);
     
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const signal = await agent.generateSignal(symbol);
-    const duration = Date.now() - startTime;
+    const duration = getActiveClock().now() - startTime;
     
     expect(duration).toBeLessThan(500);
     expect(signal.reasoning).not.toBe('No order book data available');

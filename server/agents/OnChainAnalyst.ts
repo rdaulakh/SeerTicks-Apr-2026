@@ -20,6 +20,7 @@
  */
 
 import { AgentBase, AgentConfig, AgentSignal } from './AgentBase';
+import { getActiveClock } from '../_core/clock';
 import { FreeOnChainDataProvider } from './FreeOnChainDataProvider';
 import { rateLimitedFetch, retryWithBackoff, RateLimitError } from '../services/ExternalAPIRateLimiter';
 
@@ -84,7 +85,7 @@ export class OnChainAnalyst extends AgentBase {
   }
 
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Fetch on-chain metrics
@@ -136,11 +137,11 @@ export class OnChainAnalyst extends AgentBase {
       // A++ Grade: Calculate execution score (0-100) for tactical timing quality
       const executionScore = this.calculateExecutionScore(metrics, signal);
 
-      const processingTime = Date.now() - startTime;
+      const processingTime = getActiveClock().now() - startTime;
 
       // Calculate actual data freshness from cache timestamp
       const cached = this.metricsCache.get(symbol);
-      const actualFreshness = cached ? Math.floor((Date.now() - cached.timestamp) / 1000) : processingTime / 1000;
+      const actualFreshness = cached ? Math.floor((getActiveClock().now() - cached.timestamp) / 1000) : processingTime / 1000;
 
       // Detect if data is synthetic (no API key configured)
       const isSyntheticData = !this.WHALE_ALERT_API_KEY;
@@ -176,7 +177,7 @@ export class OnChainAnalyst extends AgentBase {
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal,
         confidence,
         strength,
@@ -211,7 +212,7 @@ export class OnChainAnalyst extends AgentBase {
 
   protected async periodicUpdate(): Promise<void> {
     // Clear old cache entries
-    const now = Date.now();
+    const now = getActiveClock().now();
     for (const [key, value] of Array.from(this.metricsCache.entries())) {
       if (now - value.timestamp > this.CACHE_TTL) {
         this.metricsCache.delete(key);
@@ -225,7 +226,7 @@ export class OnChainAnalyst extends AgentBase {
   private async fetchOnChainMetrics(symbol: string): Promise<OnChainMetrics> {
     // Check cache
     const cached = this.metricsCache.get(symbol);
-    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+    if (cached && getActiveClock().now() - cached.timestamp < this.CACHE_TTL) {
       return cached.metrics;
     }
 
@@ -298,7 +299,7 @@ export class OnChainAnalyst extends AgentBase {
       };
 
       // Cache metrics
-      this.metricsCache.set(symbol, { metrics, timestamp: Date.now() });
+      this.metricsCache.set(symbol, { metrics, timestamp: getActiveClock().now() });
 
       return metrics;
     } catch (error) {
@@ -313,7 +314,7 @@ export class OnChainAnalyst extends AgentBase {
   private async fetchWhaleTransactions(symbol: string): Promise<WhaleTransaction[]> {
     // Handle both BTC-USD and BTCUSDT formats
     const currency = symbol.split(/[\-\/]/)[0].replace(/USDT$|USD$/, '').toLowerCase();
-    const now = Math.floor(Date.now() / 1000);
+    const now = Math.floor(getActiveClock().now() / 1000);
     const start = now - 3600; // Last hour
 
     const url = `https://api.whale-alert.io/v1/transactions?api_key=${this.WHALE_ALERT_API_KEY}&start=${start}&end=${now}&currency=${currency}&min_value=${this.WHALE_THRESHOLD_USD}`;
@@ -728,7 +729,7 @@ export class OnChainAnalyst extends AgentBase {
       };
 
       // Cache the free metrics
-      this.metricsCache.set(symbol, { metrics, timestamp: Date.now() });
+      this.metricsCache.set(symbol, { metrics, timestamp: getActiveClock().now() });
 
       console.log(`[${this.config.name}] Using FREE on-chain data: SOPR=${onChainMetrics.sopr.toFixed(3)}, MVRV=${onChainMetrics.mvrv.toFixed(2)}, ${whaleTransactions.length} whale txs, stablecoin flow=$${(stablecoinFlow / 1e6).toFixed(1)}M`);
 

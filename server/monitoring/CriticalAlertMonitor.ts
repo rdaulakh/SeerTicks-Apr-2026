@@ -14,6 +14,7 @@
  */
 
 import { getDb } from "../db";
+import { getActiveClock } from '../_core/clock';
 import {
   systemHeartbeat,
   apiConnectionLog,
@@ -80,7 +81,7 @@ class CriticalAlertMonitorService {
 
           if (!result?.latestBeat) return null;
 
-          const minutesSinceLastBeat = (Date.now() - new Date(result.latestBeat).getTime()) / 60_000;
+          const minutesSinceLastBeat = (getActiveClock().now() - new Date(result.latestBeat).getTime()) / 60_000;
 
           if (minutesSinceLastBeat > 5) {
             return {
@@ -104,7 +105,7 @@ class CriticalAlertMonitorService {
           const db = await getDb();
           if (!db) return null;
 
-          const oneHourAgo = new Date(Date.now() - 60 * 60_000);
+          const oneHourAgo = new Date(getActiveClock().now() - 60 * 60_000);
           const results = await db
             .select({
               apiName: apiConnectionLog.apiName,
@@ -140,7 +141,7 @@ class CriticalAlertMonitorService {
           const db = await getDb();
           if (!db) return null;
 
-          const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60_000);
+          const fourHoursAgo = new Date(getActiveClock().now() - 4 * 60 * 60_000);
           const [result] = await db
             .select({
               avgUtilization: sql<number>`AVG(CAST(utilizationPercent AS DECIMAL(5,2)))`,
@@ -237,7 +238,7 @@ class CriticalAlertMonitorService {
           const heartbeatStatus = systemHeartbeatService.getStatus();
           
           if (heartbeatStatus.lastTickTime) {
-            const minutesSinceLastTick = (Date.now() - new Date(heartbeatStatus.lastTickTime).getTime()) / 60_000;
+            const minutesSinceLastTick = (getActiveClock().now() - new Date(heartbeatStatus.lastTickTime).getTime()) / 60_000;
             if (minutesSinceLastTick > 5) {
               return {
                 triggered: true,
@@ -291,7 +292,7 @@ class CriticalAlertMonitorService {
    * Run all alert rule checks.
    */
   private async runChecks(): Promise<void> {
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     for (const rule of this.rules) {
       // Skip if not enough time has passed since last check

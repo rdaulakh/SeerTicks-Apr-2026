@@ -6,6 +6,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // ============================================================================
 // Types & Interfaces
@@ -66,7 +67,7 @@ class CoinbaseHistoricalDataServiceClass extends EventEmitter {
     startDate: Date,
     endDate: Date
   ): Promise<string> {
-    const jobId = `job_${++this.jobCounter}_${Date.now()}`;
+    const jobId = `job_${++this.jobCounter}_${getActiveClock().now()}`;
     
     const job: IngestionJob = {
       id: jobId,
@@ -185,14 +186,14 @@ class CoinbaseHistoricalDataServiceClass extends EventEmitter {
         symbol: 'BTC-USD',
         timeframe: '1h',
         totalCandles: 8760,
-        earliestDate: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+        earliestDate: new Date(getActiveClock().now() - 365 * 24 * 60 * 60 * 1000),
         latestDate: new Date(),
       },
       {
         symbol: 'ETH-USD',
         timeframe: '1h',
         totalCandles: 8760,
-        earliestDate: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+        earliestDate: new Date(getActiveClock().now() - 365 * 24 * 60 * 60 * 1000),
         latestDate: new Date(),
       },
     ];

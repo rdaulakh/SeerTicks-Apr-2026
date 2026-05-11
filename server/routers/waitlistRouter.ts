@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getActiveClock } from '../_core/clock';
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { waitlist } from "../../drizzle/schema";
@@ -15,14 +16,14 @@ const waitlistRateLimits = new Map<string, { count: number; firstRequest: number
 const WAITLIST_RATE_LIMIT = { maxRequests: 3, windowMs: 60 * 60 * 1000 };
 
 setInterval(() => {
-  const now = Date.now();
+  const now = getActiveClock().now();
   for (const [ip, entry] of waitlistRateLimits.entries()) {
     if (now - entry.firstRequest > WAITLIST_RATE_LIMIT.windowMs) waitlistRateLimits.delete(ip);
   }
 }, 5 * 60 * 1000);
 
 function checkWaitlistRateLimit(ip: string): { allowed: boolean; message?: string } {
-  const now = Date.now();
+  const now = getActiveClock().now();
   const entry = waitlistRateLimits.get(ip);
   if (!entry || now - entry.firstRequest > WAITLIST_RATE_LIMIT.windowMs) return { allowed: true };
   if (entry.count >= WAITLIST_RATE_LIMIT.maxRequests) {
@@ -33,7 +34,7 @@ function checkWaitlistRateLimit(ip: string): { allowed: boolean; message?: strin
 }
 
 function recordWaitlistRequest(ip: string): void {
-  const now = Date.now();
+  const now = getActiveClock().now();
   const entry = waitlistRateLimits.get(ip);
   if (!entry || now - entry.firstRequest > WAITLIST_RATE_LIMIT.windowMs) {
     waitlistRateLimits.set(ip, { count: 1, firstRequest: now });

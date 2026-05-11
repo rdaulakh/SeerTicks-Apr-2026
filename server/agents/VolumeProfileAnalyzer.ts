@@ -1,4 +1,5 @@
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 import { ExchangeInterface, MarketData } from "../exchanges";
 import { getCandleCache } from '../WebSocketCandleCache';
 
@@ -91,12 +92,12 @@ export class VolumeProfileAnalyzer extends AgentBase {
   }
 
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Check cache first
       const cached = this.analysisCache.get(symbol);
-      if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      if (cached && getActiveClock().now() - cached.timestamp < this.CACHE_TTL) {
         return this.generateSignalFromAnalysis(symbol, cached.data, startTime, context);
       }
 
@@ -129,7 +130,7 @@ export class VolumeProfileAnalyzer extends AgentBase {
       const analysis = this.analyzeVolumeProfile(candles);
 
       // Cache the analysis
-      this.analysisCache.set(symbol, { data: analysis, timestamp: Date.now() });
+      this.analysisCache.set(symbol, { data: analysis, timestamp: getActiveClock().now() });
 
       return this.generateSignalFromAnalysis(symbol, analysis, startTime, context);
     } catch (error) {
@@ -140,7 +141,7 @@ export class VolumeProfileAnalyzer extends AgentBase {
 
   protected async periodicUpdate(): Promise<void> {
     // Clear old cache entries
-    const now = Date.now();
+    const now = getActiveClock().now();
     for (const [key, value] of Array.from(this.analysisCache.entries())) {
       if (now - value.timestamp > this.CACHE_TTL * 2) {
         this.analysisCache.delete(key);
@@ -482,7 +483,7 @@ export class VolumeProfileAnalyzer extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength,
@@ -504,7 +505,7 @@ export class VolumeProfileAnalyzer extends AgentBase {
         deltaSignal,
       },
       qualityScore: this.calculateQualityScore(analysis),
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 60, // 1 minute
       recommendation: {
         action: signal === "bullish" ? "buy" : signal === "bearish" ? "sell" : "hold",

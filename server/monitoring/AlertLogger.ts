@@ -16,6 +16,7 @@
  */
 
 import { getDb } from "../db";
+import { getActiveClock } from '../_core/clock';
 import { alertLog } from "../../drizzle/schema";
 
 type Severity = "info" | "warning" | "critical" | "emergency";
@@ -83,11 +84,11 @@ class AlertLoggerService {
     // Deduplication check
     const dedupKey = `${alert.alertType}:${alert.severity}:${alert.relatedEntityId || ""}`;
     const lastSent = this.recentAlerts.get(dedupKey);
-    if (lastSent && Date.now() - lastSent < this.DEDUP_WINDOW_MS) {
+    if (lastSent && getActiveClock().now() - lastSent < this.DEDUP_WINDOW_MS) {
       // Suppress duplicate alert
       return false;
     }
-    this.recentAlerts.set(dedupKey, Date.now());
+    this.recentAlerts.set(dedupKey, getActiveClock().now());
 
     // Console output for immediate visibility
     const severityIcon = alert.severity === "emergency" ? "🚨" 
@@ -150,7 +151,7 @@ class AlertLoggerService {
   }
 
   private cleanupDedupMap(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     for (const [key, timestamp] of this.recentAlerts) {
       if (now - timestamp > this.DEDUP_WINDOW_MS) {
         this.recentAlerts.delete(key);

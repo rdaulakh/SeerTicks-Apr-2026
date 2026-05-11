@@ -2,6 +2,7 @@
  * PairTradingEngine - Correlation-based pair trading strategies
  */
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../../_core/clock';
 
 export interface TradingPair { id: string; symbol1: string; symbol2: string; correlation: number; cointegration: number; spread: number; spreadMean: number; spreadStd: number; zScore: number; hedgeRatio: number; lastUpdate: number; }
 export interface PairSignal { pairId: string; type: 'entry' | 'exit'; direction: 'long_spread' | 'short_spread'; strength: number; zScore: number; }
@@ -20,7 +21,7 @@ export class PairTradingEngine extends EventEmitter {
   
   registerPair(symbol1: string, symbol2: string): string {
     const id = `${symbol1}_${symbol2}`;
-    if (!this.pairs.has(id)) this.pairs.set(id, { id, symbol1, symbol2, correlation: 0, cointegration: 0, spread: 0, spreadMean: 0, spreadStd: 0, zScore: 0, hedgeRatio: 1, lastUpdate: Date.now() });
+    if (!this.pairs.has(id)) this.pairs.set(id, { id, symbol1, symbol2, correlation: 0, cointegration: 0, spread: 0, spreadMean: 0, spreadStd: 0, zScore: 0, hedgeRatio: 1, lastUpdate: getActiveClock().now() });
     return id;
   }
   
@@ -53,7 +54,7 @@ export class PairTradingEngine extends EventEmitter {
     pair.spreadStd = Math.sqrt(spreads.reduce((sum, s) => sum + Math.pow(s - pair.spreadMean, 2), 0) / spreads.length);
     pair.zScore = pair.spreadStd > 0 ? (pair.spread - pair.spreadMean) / pair.spreadStd : 0;
     pair.cointegration = Math.abs(pair.correlation) * 100;
-    pair.lastUpdate = Date.now();
+    pair.lastUpdate = getActiveClock().now();
     if (Math.abs(pair.correlation) >= this.config.minCorrelation && pair.cointegration >= this.config.minCointegration) {
       if (Math.abs(pair.zScore) >= this.config.entryZScore) this.emit('entrySignal', { pairId, type: 'entry', direction: pair.zScore > 0 ? 'short_spread' : 'long_spread', strength: Math.min(100, Math.abs(pair.zScore) * 30), zScore: pair.zScore });
       else if (Math.abs(pair.zScore) <= this.config.exitZScore) this.emit('exitSignal', { pairId, type: 'exit', direction: pair.zScore > 0 ? 'short_spread' : 'long_spread', strength: 50, zScore: pair.zScore });

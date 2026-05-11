@@ -6,6 +6,7 @@
  */
 
 import { Server as HTTPServer } from 'http';
+import { getActiveClock } from '../_core/clock';
 import { WebSocketServer, WebSocket } from 'ws';
 import { getEngineAdapter, getExistingAdapter } from '../services/EngineAdapter';
 import { priceFeedService, PriceData } from '../services/priceFeedService';
@@ -125,7 +126,7 @@ export class SEERMultiWebSocketServer {
     this.priceFeedHandler = (priceData: PriceData) => {
       this.broadcast({
         type: 'price_tick',
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         data: {
           symbol: priceData.symbol,
           price: priceData.price,
@@ -165,7 +166,7 @@ export class SEERMultiWebSocketServer {
       listen('trade_executed', (data: any) => {
         this.broadcast({
           type: 'position',
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
           data: { action: 'opened', exchangeId: data.exchangeId, exchangeName: data.exchangeName, symbol: data.symbol, side: data.side, quantity: data.quantity, price: data.price },
         });
       });
@@ -173,17 +174,17 @@ export class SEERMultiWebSocketServer {
       listen('exit_executed', (data: any) => {
         this.broadcast({
           type: 'position',
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
           data: { action: 'closed', exchangeId: data.exchangeId, symbol: data.symbol, positionId: data.positionId, reason: data.reason },
         });
       });
 
       listen('signal_approved', (data: any) => {
-        this.broadcast({ type: 'agent_signals', timestamp: Date.now(), data });
+        this.broadcast({ type: 'agent_signals', timestamp: getActiveClock().now(), data });
       });
 
       listen('signal_rejected', (data: any) => {
-        this.broadcast({ type: 'agent_signals', timestamp: Date.now(), data: { ...data, rejected: true } });
+        this.broadcast({ type: 'agent_signals', timestamp: getActiveClock().now(), data: { ...data, rejected: true } });
       });
 
       this.userListenerRefs.set(userId, refs);
@@ -235,7 +236,7 @@ export class SEERMultiWebSocketServer {
           const fullStatus = await this.getFullStatus(userId);
           this.sendToClient(ws, {
             type: 'status',
-            timestamp: Date.now(),
+            timestamp: getActiveClock().now(),
             data: fullStatus,
           });
           wsLogger.info('Auth complete, sent initial status');
@@ -250,7 +251,7 @@ export class SEERMultiWebSocketServer {
           const fullStatus = await this.getFullStatus(userIdForStatus);
           this.sendToClient(ws, {
             type: 'status',
-            timestamp: Date.now(),
+            timestamp: getActiveClock().now(),
             data: fullStatus,
           });
         }
@@ -269,7 +270,7 @@ export class SEERMultiWebSocketServer {
           );
           this.sendToClient(ws, {
             type: 'symbol_tick',
-            timestamp: Date.now(),
+            timestamp: getActiveClock().now(),
             data: state || null,
           });
         } catch (error) {
@@ -285,7 +286,7 @@ export class SEERMultiWebSocketServer {
             const positions = await adapter.getAllPositions();
             this.sendToClient(ws, {
               type: 'position',
-              timestamp: Date.now(),
+              timestamp: getActiveClock().now(),
               data: {
                 positions,
               },

@@ -1,4 +1,5 @@
 import { getDb } from "../db";
+import { getActiveClock } from '../_core/clock';
 import {
   reconciliationLogs,
   positionDiscrepancies,
@@ -84,7 +85,7 @@ export class PositionReconciliationService {
    * Fetches positions from both sources, compares them, and resolves discrepancies
    */
   async reconcile(triggerType: "scheduled" | "manual" | "on_demand" = "scheduled"): Promise<ReconciliationResult> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
@@ -111,7 +112,7 @@ export class PositionReconciliationService {
       // Resolve discrepancies
       const resolutionStats = await this.resolveDiscrepancies(comparisons);
 
-      const executionTimeMs = Date.now() - startTime;
+      const executionTimeMs = getActiveClock().now() - startTime;
 
       // Update reconciliation log with results
       await db.update(reconciliationLogs)

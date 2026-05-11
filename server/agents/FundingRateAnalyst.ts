@@ -1,4 +1,5 @@
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 import { fallbackManager, MarketDataInput } from "./DeterministicFallback";
 import { multiExchangeFundingService, AggregatedFundingData } from "../services/MultiExchangeFundingService";
 
@@ -85,7 +86,7 @@ export class FundingRateAnalyst extends AgentBase {
   }
 
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // FIXED: Use multi-exchange service instead of Binance-only
@@ -101,7 +102,7 @@ export class FundingRateAnalyst extends AgentBase {
       
       // Check cache first
       const cached = this.fundingCache.get(futuresSymbol);
-      if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      if (cached && getActiveClock().now() - cached.timestamp < this.CACHE_TTL) {
         return this.generateSignalFromAnalysis(symbol, cached.data, startTime);
       }
 
@@ -125,7 +126,7 @@ export class FundingRateAnalyst extends AgentBase {
         return {
           agentName: this.config.name,
           symbol,
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
           signal: fallbackResult.signal,
           confidence: fallbackResult.confidence,
           strength: fallbackResult.strength,
@@ -135,7 +136,7 @@ export class FundingRateAnalyst extends AgentBase {
             isDeterministic: true,
           },
           qualityScore: 0.5,
-          processingTime: Date.now() - startTime,
+          processingTime: getActiveClock().now() - startTime,
           dataFreshness: 0,
           executionScore: 40,
         };
@@ -145,7 +146,7 @@ export class FundingRateAnalyst extends AgentBase {
       const analysis = this.analyzeFundingRate(futuresSymbol, fundingData);
       
       // Cache the analysis
-      this.fundingCache.set(futuresSymbol, { data: analysis, timestamp: Date.now() });
+      this.fundingCache.set(futuresSymbol, { data: analysis, timestamp: getActiveClock().now() });
 
       return this.generateSignalFromAnalysis(symbol, analysis, startTime, context);
     } catch (error) {
@@ -167,7 +168,7 @@ export class FundingRateAnalyst extends AgentBase {
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal: fallbackResult.signal,
         confidence: fallbackResult.confidence,
         strength: fallbackResult.strength,
@@ -178,7 +179,7 @@ export class FundingRateAnalyst extends AgentBase {
           originalError: error instanceof Error ? error.message : "Unknown error",
         },
         qualityScore: 0.5,
-        processingTime: Date.now() - startTime,
+        processingTime: getActiveClock().now() - startTime,
         dataFreshness: 0,
         executionScore: 40,
       };
@@ -201,7 +202,7 @@ export class FundingRateAnalyst extends AgentBase {
         const fundingData = await this.fetchFundingRate(symbol);
         if (fundingData) {
           const analysis = this.analyzeFundingRate(symbol, fundingData);
-          this.fundingCache.set(symbol, { data: analysis, timestamp: Date.now() });
+          this.fundingCache.set(symbol, { data: analysis, timestamp: getActiveClock().now() });
         }
       } catch (error) {
         // Silently handle errors - expected when Binance is geo-blocked
@@ -428,7 +429,7 @@ export class FundingRateAnalyst extends AgentBase {
     }
 
     // Time to next funding
-    const timeToFunding = analysis.nextFundingTime.getTime() - Date.now();
+    const timeToFunding = analysis.nextFundingTime.getTime() - getActiveClock().now();
     if (timeToFunding < 3600000) { // Less than 1 hour
       confidence += 0.05;
       reasons.push(`Next funding in ${Math.round(timeToFunding / 60000)} minutes`);
@@ -443,7 +444,7 @@ export class FundingRateAnalyst extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength,
@@ -457,7 +458,7 @@ export class FundingRateAnalyst extends AgentBase {
         historicalAvg: (analysis.historicalAvg * 100).toFixed(4) + "%",
       },
       qualityScore: this.calculateQualityScore(analysis),
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore,
     };
@@ -667,7 +668,7 @@ export class FundingRateAnalyst extends AgentBase {
     }
 
     // Time to next funding
-    const timeToFunding = data.nextFundingTime - Date.now();
+    const timeToFunding = data.nextFundingTime - getActiveClock().now();
     if (timeToFunding > 0 && timeToFunding < 3600000) { // Less than 1 hour
       confidence += 0.05;
       reasons.push(`Next funding in ${Math.round(timeToFunding / 60000)} minutes`);
@@ -702,7 +703,7 @@ export class FundingRateAnalyst extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength,
@@ -719,7 +720,7 @@ export class FundingRateAnalyst extends AgentBase {
         multiExchangeEnabled: true,
       },
       qualityScore: 0.7 + (data.exchangeCount * 0.1),
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore,
     };

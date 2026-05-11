@@ -14,6 +14,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // Types for log entries (queued before DB write)
 interface TickHeartbeatEntry {
@@ -205,7 +206,7 @@ class AuditLogger extends EventEmitter {
     acc.lastTickTime = new Date();
     if (price > acc.priceHigh) acc.priceHigh = price;
     if (price < acc.priceLow) acc.priceLow = price;
-    acc.tickTimestamps.push(Date.now());
+    acc.tickTimestamps.push(getActiveClock().now());
     acc.source = source;
 
     // Keep only last 200 tick timestamps for spread calculation

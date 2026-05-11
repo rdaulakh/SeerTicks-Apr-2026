@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { getActiveClock } from '../_core/clock';
 import { AgentManager } from "../agents/AgentBase";
 import { getBinanceWebSocketManager } from "../exchanges/BinanceWebSocketManager";
 import { CoinbaseWebSocketManager } from "../exchanges/CoinbaseWebSocketManager";
@@ -353,7 +354,7 @@ export class SymbolOrchestrator extends EventEmitter {
           symbol: this.symbol,
           price: this.currentPrice,
           recommendation,
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
         });
       }
 
@@ -439,7 +440,7 @@ export class SymbolOrchestrator extends EventEmitter {
                   price: parseFloat(u.price_level),
                   quantity: parseFloat(u.new_quantity),
                 })) || [],
-                timestamp: Date.now(),
+                timestamp: getActiveClock().now(),
               };
               this.handleWebSocketDepth(normalizedEventDepth);
             }
@@ -488,7 +489,7 @@ export class SymbolOrchestrator extends EventEmitter {
                 volume: parseFloat(event.volume_24_h || '0'),
                 high: parseFloat(event.high_24_h || '0'),
                 low: parseFloat(event.low_24_h || '0'),
-                timestamp: event.timestamp ? new Date(event.timestamp).getTime() : Date.now(),
+                timestamp: event.timestamp ? new Date(event.timestamp).getTime() : getActiveClock().now(),
               };
               this.handleWebSocketTrade(normalizedEvent);
               this.handleWebSocketTicker(normalizedEvent);
@@ -665,11 +666,11 @@ export class SymbolOrchestrator extends EventEmitter {
       // This is ESSENTIAL for Coinbase which doesn't provide kline/candle streams
       const { getTickToCandleAggregator } = await import('../services/TickToCandleAggregator');
       const aggregator = getTickToCandleAggregator();
-      aggregator.processTick(this.symbol, event.price, event.volume || 0, event.timestamp || Date.now());
+      aggregator.processTick(this.symbol, event.price, event.volume || 0, event.timestamp || getActiveClock().now());
 
       // ✅ Update lastTickTime for ALL fast agents immediately on every tick
       // This ensures the UI shows accurate "last tick" time for fast agents
-      const tickData = { price: event.price, timestamp: event.timestamp || Date.now(), symbol: this.symbol };
+      const tickData = { price: event.price, timestamp: event.timestamp || getActiveClock().now(), symbol: this.symbol };
       const fastAgentNames = ['TechnicalAnalyst', 'PatternMatcher', 'OrderFlowAnalyst'];
       for (const agentName of fastAgentNames) {
         const agent = this.agentManager.getAgent(agentName);
@@ -694,8 +695,8 @@ export class SymbolOrchestrator extends EventEmitter {
       }
 
       this.fastAgentDebounceTimer = setTimeout(async () => {
-        const tickStartTime = Date.now();
-        const processingStartTime = Date.now();
+        const tickStartTime = getActiveClock().now();
+        const processingStartTime = getActiveClock().now();
         try {
           // Inject live WebSocket price into fast agents for tick-level confidence updates
           const patternMatcher = this.agentManager.getAgent('PatternMatcher');
@@ -732,7 +733,7 @@ export class SymbolOrchestrator extends EventEmitter {
                 reasoning: a.latestSignal?.reasoning || '',
                 qualityScore: a.latestSignal?.qualityScore || 0,
               })),
-              timestamp: Date.now(),
+              timestamp: getActiveClock().now(),
             });
           }
           
@@ -744,7 +745,7 @@ export class SymbolOrchestrator extends EventEmitter {
               symbol: this.symbol,
               price: this.currentPrice,
               recommendation,
-              timestamp: Date.now(),
+              timestamp: getActiveClock().now(),
               source: 'websocket',
             });
           }
@@ -752,13 +753,13 @@ export class SymbolOrchestrator extends EventEmitter {
           this.lastUpdate = new Date();
           
           // Record performance metrics
-          const processingTime = Date.now() - processingStartTime;
+          const processingTime = getActiveClock().now() - processingStartTime;
           // Note: recordTick method doesn't exist in PerformanceMonitor
           // const perfMonitor = getPerformanceMonitor();
           // perfMonitor.recordTick(this.symbol, processingTime);
           
           // Performance monitoring: Log if tick processing exceeds target
-          const tickEndTime = Date.now();
+          const tickEndTime = getActiveClock().now();
           const tickEndTimestamp = new Date().toISOString();
           console.log(`[TICK] End Time: ${tickEndTime}ms`);
           console.log(`[TICK] End Timestamp: ${tickEndTimestamp}`);
@@ -836,7 +837,7 @@ export class SymbolOrchestrator extends EventEmitter {
     // BinanceWebSocketManager already parsed the data into {price, quantity} format
     const orderBook = {
       symbol: event.symbol,
-      timestamp: event.timestamp || Date.now(),
+      timestamp: event.timestamp || getActiveClock().now(),
       bids: event.bids || [], // Already in [{price, quantity}] format
       asks: event.asks || [], // Already in [{price, quantity}] format
     };

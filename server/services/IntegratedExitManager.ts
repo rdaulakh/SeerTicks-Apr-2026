@@ -13,6 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import {
   StructureBasedExitManager,
   ExitSignal,
@@ -210,7 +211,7 @@ export class IntegratedExitManager extends EventEmitter {
 
     // Check time-based exit
     if (this.config.enableTimeBasedExits) {
-      const holdTimeMs = Date.now() - position.openTime;
+      const holdTimeMs = getActiveClock().now() - position.openTime;
       const maxHoldTimeMs = this.config.maxHoldTimeHours * 60 * 60 * 1000;
       
       if (holdTimeMs > maxHoldTimeMs) {
@@ -441,7 +442,7 @@ export class IntegratedExitManager extends EventEmitter {
   updateCandleCache(symbol: string, candles: OHLCV[]): void {
     this.candleCache.set(symbol, {
       candles,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
     });
   }
 
@@ -453,7 +454,7 @@ export class IntegratedExitManager extends EventEmitter {
     if (!cached) return [];
     
     // Cache expires after 5 minutes
-    if (Date.now() - cached.timestamp > 5 * 60 * 1000) {
+    if (getActiveClock().now() - cached.timestamp > 5 * 60 * 1000) {
       return [];
     }
     
@@ -564,7 +565,7 @@ export class IntegratedExitManager extends EventEmitter {
     avgHoldTime: number;
   } {
     const positions = this.getPositions();
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     const totalHoldTime = positions.reduce((sum, p) => sum + (now - p.openTime), 0);
     const avgHoldTime = positions.length > 0 ? totalHoldTime / positions.length : 0;

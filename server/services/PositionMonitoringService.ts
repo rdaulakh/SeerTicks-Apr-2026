@@ -10,6 +10,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { getDb } from '../db';
 import { paperPositions, paperWallets, PaperPosition } from '../../drizzle/schema';
 import { eq, and, sql } from 'drizzle-orm';
@@ -307,7 +308,7 @@ export class PositionMonitoringService extends EventEmitter {
     }
 
     // Position age alert
-    const positionAgeHours = (Date.now() - new Date(position.entryTime).getTime()) / (1000 * 60 * 60);
+    const positionAgeHours = (getActiveClock().now() - new Date(position.entryTime).getTime()) / (1000 * 60 * 60);
     if (positionAgeHours > this.config.maxPositionAgeHours) {
       alerts.push({
         type: 'position_aged',

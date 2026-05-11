@@ -12,6 +12,7 @@
  */
 
 import { getDb } from '../db';
+import { getActiveClock } from '../_core/clock';
 import { agentSignals } from '../../drizzle/schema';
 import { sql, desc, gte, and } from 'drizzle-orm';
 
@@ -145,7 +146,7 @@ async function analyzeAgent(
 
     // Check staleness
     const lastSignalTime = signals.length > 0 ? new Date(signals[0].timestamp).getTime() : 0;
-    const lastSignalAge = lastSignalTime > 0 ? (Date.now() - lastSignalTime) / 60000 : Infinity;
+    const lastSignalAge = lastSignalTime > 0 ? (getActiveClock().now() - lastSignalTime) / 60000 : Infinity;
     const isStale = lastSignalAge > STALE_THRESHOLD_MINUTES;
 
     return {
@@ -196,7 +197,7 @@ export async function runAgentHealthCheck(): Promise<SystemHealthSummary | null>
   }
 
   try {
-    const windowStart = new Date(Date.now() - ROLLING_WINDOW_HOURS * 60 * 60 * 1000);
+    const windowStart = new Date(getActiveClock().now() - ROLLING_WINDOW_HOURS * 60 * 60 * 1000);
 
     // Get distinct agent names from recent signals
     const agentNames = await db

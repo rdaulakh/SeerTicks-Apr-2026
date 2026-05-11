@@ -8,6 +8,7 @@
  */
 
 import { ENV } from "./env";
+import { getActiveClock } from '../_core/clock';
 
 // ============================================================================
 // Configuration
@@ -287,7 +288,7 @@ export type RoadsResult = {
 /**
  * TIME ZONE - Get timezone information for a location
  * Endpoint: /maps/api/timezone/json
- * Input: { location: string, timestamp: number }  // timestamp: Math.floor(Date.now()/1000)
+ * Input: { location: string, timestamp: number }  // timestamp: Math.floor(getActiveClock().now()/1000)
  * Output: TimeZoneResult  // timeZoneId, timeZoneName
  */
 

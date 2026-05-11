@@ -12,6 +12,7 @@
  */
 
 import { eq } from "drizzle-orm";
+import { getActiveClock } from './_core/clock';
 import { getDb } from "./db";
 import { getLatencyTracker } from './utils/LatencyTracker';
 import { positions, trades, type Position, type InsertPosition } from "../drizzle/schema";
@@ -171,7 +172,7 @@ export class PositionManager extends EventEmitter {
   updatePriceFromFeed(symbol: string, price: number): void {
     this.priceCache.set(symbol, {
       price,
-      timestamp: Date.now()
+      timestamp: getActiveClock().now()
     });
   }
 
@@ -188,7 +189,7 @@ export class PositionManager extends EventEmitter {
    * ✅ P0-2 FIX: Check if any cached prices are stale
    */
   private checkPriceFreshness(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     for (const [symbol, data] of this.priceCache) {
       const age = now - data.timestamp;
       if (age > 10000) { // 10 seconds
@@ -317,7 +318,7 @@ export class PositionManager extends EventEmitter {
 
     // FIX: Orphan detection — identify positions that may be stale from previous crashes
     const MAX_UNMONITORED_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
-    const now = Date.now();
+    const now = getActiveClock().now();
     let orphanCount = 0;
 
     for (const position of openPositions) {
@@ -404,7 +405,7 @@ export class PositionManager extends EventEmitter {
           unrealizedPnlPercent,
           stopLoss: parseFloat(position.stopLoss.toString()),
           takeProfit: parseFloat(position.takeProfit.toString()),
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
         });
       }
     }
@@ -487,7 +488,7 @@ export class PositionManager extends EventEmitter {
     await this.checkPartialProfitTaking(position, currentPrice, entryPrice, quantity, state);
 
     // 5. Check time-based exit rule (if held >4 hours and PnL ≤ 0%)
-    const holdTime = Date.now() - state.entryTime;
+    const holdTime = getActiveClock().now() - state.entryTime;
     const fourHours = 4 * 60 * 60 * 1000;
     if (holdTime > fourHours) {
       const pnlPercent = this.calculatePnlPercent(position.side, entryPrice, currentPrice);
@@ -806,7 +807,7 @@ export class PositionManager extends EventEmitter {
     const cached = this.priceCache.get(symbol);
     if (cached) {
       // Check if price is fresh (< 30 seconds old - increased tolerance)
-      const age = Date.now() - cached.timestamp;
+      const age = getActiveClock().now() - cached.timestamp;
       if (age < 30000) {
         return cached.price;
       } else {
@@ -991,7 +992,7 @@ export class PositionManager extends EventEmitter {
       }
 
       const entryPrice = parseFloat(position.entryPrice.toString());
-      const holdTime = Date.now() - position.createdAt.getTime();
+      const holdTime = getActiveClock().now() - position.createdAt.getTime();
       const holdMinutes = holdTime / (60 * 1000);
 
       // Find the expected price at current hold time
@@ -1050,7 +1051,7 @@ export class PositionManager extends EventEmitter {
       }
 
       // Generate client order ID for tracking
-      const clientOrderId = `SEER-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      const clientOrderId = `SEER-${getActiveClock().now()}-${Math.random().toString(36).substring(7)}`;
 
       // Prepare order (database insert)
       const [result] = await db.insert(positions).values({
@@ -1202,7 +1203,7 @@ export class PositionManager extends EventEmitter {
           stage2: false,
           stage3: false,
         },
-        entryTime: Date.now(),
+        entryTime: getActiveClock().now(),
         clientOrderId,
       });
 

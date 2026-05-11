@@ -1,4 +1,5 @@
 import { NormalizedTick } from "../exchanges";
+import { getActiveClock } from '../_core/clock';
 import { RedisHelpers } from "./redisClient";
 
 /**
@@ -178,7 +179,7 @@ export class DeviationEngine {
       stopLoss,
       timeHorizon,
       milestones,
-      createdAt: Date.now(),
+      createdAt: getActiveClock().now(),
     };
   }
 

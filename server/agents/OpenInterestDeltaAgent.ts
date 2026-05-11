@@ -32,6 +32,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface OISample {
   timestamp: number;
@@ -125,7 +126,7 @@ export class OpenInterestDeltaAgent extends AgentBase {
       if (price === null) return; // no price ref → skip this sample
 
       const hist = this.oiHistory.get(binSym) || [];
-      hist.push({ timestamp: Date.now(), oi, price });
+      hist.push({ timestamp: getActiveClock().now(), oi, price });
       if (hist.length > HISTORY_KEEP) hist.shift();
       this.oiHistory.set(binSym, hist);
     } catch {
@@ -138,7 +139,7 @@ export class OpenInterestDeltaAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     // If the analyzer asks for a symbol we don't track yet, add it (so future
@@ -215,7 +216,7 @@ export class OpenInterestDeltaAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: Math.min(Math.abs(oiDelta) / OI_DELTA_SAT, 1),
@@ -234,8 +235,8 @@ export class OpenInterestDeltaAgent extends AgentBase {
         source: 'binance-fapi-openInterest',
       },
       qualityScore: 0.75,
-      processingTime: Date.now() - startTime,
-      dataFreshness: Date.now() - now.timestamp,
+      processingTime: getActiveClock().now() - startTime,
+      dataFreshness: getActiveClock().now() - now.timestamp,
       executionScore: Math.round(40 + magFactor * 30),
     };
   }
@@ -244,14 +245,14 @@ export class OpenInterestDeltaAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: { historyLength: this.oiHistory.get(this.toBinanceSymbol(symbol))?.length || 0 },
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

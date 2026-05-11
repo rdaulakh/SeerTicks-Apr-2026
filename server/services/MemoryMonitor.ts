@@ -12,6 +12,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // Default RSS limit — Manus typically allocates 225-512MB
 // Can be overridden via MEMORY_LIMIT_MB env var
@@ -82,7 +83,7 @@ class MemoryMonitor extends EventEmitter {
   private takeSample(): MemorySample {
     const mem = process.memoryUsage();
     return {
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
       heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
       rssMB: Math.round(mem.rss / 1024 / 1024),

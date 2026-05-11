@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { getActiveClock } from '../../_core/clock';
 
 // ── 1. Mock the DB candle loader BEFORE importing the SUT ──────────────────
 vi.mock('../../db/candleStorage', () => ({
@@ -57,7 +58,7 @@ function makeSplitAgentSignals() {
 
 // Helper: build a fresh, actionable signal set for the processor-level tests.
 function makeFreshBullishSignals(symbol: string): SignalForProcessor[] {
-  const ts = Date.now();
+  const ts = getActiveClock().now();
   const base = {
     symbol,
     timestamp: ts,
@@ -124,17 +125,17 @@ describe('AutomatedSignalProcessor — entry gates', () => {
     // Default: plenty of candles AND fresh price, so default path reaches
     // consensus-level checks without the two gates interfering.
     mockedLoadCandles.mockResolvedValue(Array.from({ length: 60 }, () => ({
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       open: 100, high: 100, low: 100, close: 100, volume: 1,
     })));
     mockedGetLatestPrice.mockReturnValue({
-      symbol, price: 100, timestamp: Date.now(), source: 'websocket',
+      symbol, price: 100, timestamp: getActiveClock().now(), source: 'websocket',
     });
   });
 
   it('rejects with insufficient_candle_history when CandleStorage returns < 50 rows', async () => {
     mockedLoadCandles.mockResolvedValueOnce(Array.from({ length: 10 }, () => ({
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       open: 100, high: 100, low: 100, close: 100, volume: 1,
     })));
 
@@ -153,7 +154,7 @@ describe('AutomatedSignalProcessor — entry gates', () => {
     mockedGetLatestPrice.mockReturnValueOnce({
       symbol,
       price: 100,
-      timestamp: Date.now() - 10_000, // 10s old → stale
+      timestamp: getActiveClock().now() - 10_000, // 10s old → stale
       source: 'cache',
     });
 

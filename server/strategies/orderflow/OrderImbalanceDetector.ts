@@ -3,6 +3,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../../_core/clock';
 
 export interface ImbalanceMetrics {
   symbol: string;
@@ -55,7 +56,7 @@ export class OrderImbalanceDetector extends EventEmitter {
   private cleanOldTrades(symbol: string): void {
     const data = this.windowData.get(symbol);
     if (!data) return;
-    const cutoff = Date.now() - this.config.windowSize;
+    const cutoff = getActiveClock().now() - this.config.windowSize;
     const oldTrades = data.trades.filter((t: any) => t.timestamp < cutoff);
     for (const trade of oldTrades) {
       if (trade.side === 'buy') data.buyVolume -= trade.quantity;
@@ -75,7 +76,7 @@ export class OrderImbalanceDetector extends EventEmitter {
     const strength = Math.min(100, Math.abs(Math.log(imbalanceRatio)) * 30);
     const isSignificant = imbalanceRatio > this.config.imbalanceThreshold || imbalanceRatio < 1 / this.config.imbalanceThreshold;
     
-    return { symbol, timestamp: Date.now(), buyVolume: data.buyVolume, sellVolume: data.sellVolume, imbalanceRatio, direction, strength, isSignificant };
+    return { symbol, timestamp: getActiveClock().now(), buyVolume: data.buyVolume, sellVolume: data.sellVolume, imbalanceRatio, direction, strength, isSignificant };
   }
   
   getMetrics(symbol: string): ImbalanceMetrics | null { return this.lastMetrics.get(symbol) || null; }

@@ -18,6 +18,7 @@
  */
 
 import type { AgentSignal } from '../agents/AgentBase';
+import { getActiveClock } from '../_core/clock';
 import type { AggregatedSignal } from './SignalAggregator';
 import type { EvaluationResult } from './DecisionEvaluator';
 
@@ -189,7 +190,7 @@ export class AgentRetriggerService {
     marketContext: any,
     userId: number
   ): Promise<RetriggerResult> {
-    const startMs = Date.now();
+    const startMs = getActiveClock().now();
     this.stats.totalRejections++;
 
     // Guard 1: Score too low — not worth re-triggering
@@ -202,7 +203,7 @@ export class AgentRetriggerService {
         updatedSignals: originalSignals,
         reEvaluation: null,
         reason: `Score too low for re-trigger (${(evaluation.score * 100).toFixed(1)}% < ${(this.MIN_SCORE_FOR_RETRIGGER * 100).toFixed(0)}%)`,
-        durationMs: Date.now() - startMs,
+        durationMs: getActiveClock().now() - startMs,
       };
     }
 
@@ -216,13 +217,13 @@ export class AgentRetriggerService {
         updatedSignals: originalSignals,
         reEvaluation: null,
         reason: `Score too close to threshold for re-trigger (${(evaluation.score * 100).toFixed(1)}% > ${(this.MAX_SCORE_FOR_RETRIGGER * 100).toFixed(0)}%)`,
-        durationMs: Date.now() - startMs,
+        durationMs: getActiveClock().now() - startMs,
       };
     }
 
     // Guard 3: Cooldown — prevent re-trigger storms
     const lastRetrigger = this.recentRetriggers.get(symbol) || 0;
-    if (Date.now() - lastRetrigger < this.RETRIGGER_COOLDOWN_MS) {
+    if (getActiveClock().now() - lastRetrigger < this.RETRIGGER_COOLDOWN_MS) {
       this.stats.skippedRetriggers++;
       return {
         retriggered: false,
@@ -230,8 +231,8 @@ export class AgentRetriggerService {
         refinedQuestions: {},
         updatedSignals: originalSignals,
         reEvaluation: null,
-        reason: `Re-trigger cooldown active for ${symbol} (${((this.RETRIGGER_COOLDOWN_MS - (Date.now() - lastRetrigger)) / 1000).toFixed(0)}s remaining)`,
-        durationMs: Date.now() - startMs,
+        reason: `Re-trigger cooldown active for ${symbol} (${((this.RETRIGGER_COOLDOWN_MS - (getActiveClock().now() - lastRetrigger)) / 1000).toFixed(0)}s remaining)`,
+        durationMs: getActiveClock().now() - startMs,
       };
     }
 
@@ -247,7 +248,7 @@ export class AgentRetriggerService {
     console.log(`[AgentRetriggerService] Re-triggering ${agentsToRerun.join(', ')} for ${symbol} | Weak factor: ${weakFactor} | Score: ${(evaluation.score * 100).toFixed(1)}%`);
 
     this.stats.totalRetriggers++;
-    this.recentRetriggers.set(symbol, Date.now());
+    this.recentRetriggers.set(symbol, getActiveClock().now());
 
     try {
       // Re-run agents with refined context (with timeout)
@@ -312,7 +313,7 @@ export class AgentRetriggerService {
         marketContext
       );
 
-      const durationMs = Date.now() - startMs;
+      const durationMs = getActiveClock().now() - startMs;
 
       if (reEvaluation.approved) {
         this.stats.successfulRetriggers++;
@@ -325,7 +326,7 @@ export class AgentRetriggerService {
       // Update average duration
       const totalRetriggers = this.stats.successfulRetriggers + this.stats.failedRetriggers;
       this.stats.avgRetriggerDurationMs = (this.stats.avgRetriggerDurationMs * (totalRetriggers - 1) + durationMs) / totalRetriggers;
-      this.stats.lastRetriggerTime = Date.now();
+      this.stats.lastRetriggerTime = getActiveClock().now();
 
       return {
         retriggered: true,
@@ -340,7 +341,7 @@ export class AgentRetriggerService {
       };
     } catch (err) {
       this.stats.failedRetriggers++;
-      const durationMs = Date.now() - startMs;
+      const durationMs = getActiveClock().now() - startMs;
       console.warn(`[AgentRetriggerService] Re-trigger error for ${symbol}:`, (err as Error)?.message);
 
       return {

@@ -24,6 +24,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 import { getLeadLagTracker, type LeadLagEvent } from "../services/LeadLagTracker";
 
 const LOOKBACK_MS = 8_000;             // Consider events from last 8 seconds
@@ -65,7 +66,7 @@ export class LeadLagAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const cutoff = startTime - LOOKBACK_MS;
 
     const recent = this.recentEvents.filter(e => e.symbol === symbol && e.resolvedAt >= cutoff);
@@ -121,7 +122,7 @@ export class LeadLagAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: dominanceRatio,
@@ -137,7 +138,7 @@ export class LeadLagAgent extends AgentBase {
         recencyFactorMostRecentAgeMs: ageMs,
       },
       qualityScore: 0.75,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: ageMs,
       executionScore: Math.round(50 + recencyFactor * 40), // fresher = better timing
     };
@@ -147,14 +148,14 @@ export class LeadLagAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: { recentEventCount: this.recentEvents.length },
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

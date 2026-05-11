@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * Multi-Exchange Funding Rate Service
  * 
@@ -42,7 +43,7 @@ class MultiExchangeFundingService {
     
     // Check cache
     const cached = this.cache.get(normalizedSymbol);
-    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+    if (cached && getActiveClock().now() - cached.timestamp < this.CACHE_TTL) {
       return cached.data;
     }
 
@@ -69,7 +70,7 @@ class MultiExchangeFundingService {
     const aggregated = this.aggregateResults(normalizedSymbol, successfulResults);
     
     // Cache the result
-    this.cache.set(normalizedSymbol, { data: aggregated, timestamp: Date.now() });
+    this.cache.set(normalizedSymbol, { data: aggregated, timestamp: getActiveClock().now() });
     
     return aggregated;
   }
@@ -191,7 +192,7 @@ class MultiExchangeFundingService {
     
     // Find earliest next funding time
     const fundingTimes = results.map(r => r.fundingTime).filter(t => t > 0);
-    const nextFundingTime = fundingTimes.length > 0 ? Math.min(...fundingTimes) : Date.now() + 8 * 60 * 60 * 1000;
+    const nextFundingTime = fundingTimes.length > 0 ? Math.min(...fundingTimes) : getActiveClock().now() + 8 * 60 * 60 * 1000;
 
     // Determine consensus
     let bullishCount = 0;

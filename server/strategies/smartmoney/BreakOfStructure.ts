@@ -2,6 +2,7 @@
  * BreakOfStructure - Market structure analysis (BOS, CHoCH, MSS)
  */
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../../_core/clock';
 
 export interface SwingPoint { price: number; type: 'high' | 'low'; timestamp: number; broken: boolean; }
 export interface StructureMetrics { symbol: string; timestamp: number; trend: 'bullish' | 'bearish' | 'ranging'; lastBOS: { type: 'bullish' | 'bearish'; price: number; timestamp: number } | null; lastCHoCH: { type: 'bullish' | 'bearish'; price: number; timestamp: number } | null; swingHighs: SwingPoint[]; swingLows: SwingPoint[]; }
@@ -103,7 +104,7 @@ export class BreakOfStructure extends EventEmitter {
   }
   
   private calculateMetrics(symbol: string): StructureMetrics {
-    return { symbol, timestamp: Date.now(), trend: this.trends.get(symbol) || 'ranging', lastBOS: this.lastBOS.get(symbol) || null, lastCHoCH: this.lastCHoCH.get(symbol) || null, swingHighs: this.swingHighs.get(symbol) || [], swingLows: this.swingLows.get(symbol) || [] };
+    return { symbol, timestamp: getActiveClock().now(), trend: this.trends.get(symbol) || 'ranging', lastBOS: this.lastBOS.get(symbol) || null, lastCHoCH: this.lastCHoCH.get(symbol) || null, swingHighs: this.swingHighs.get(symbol) || [], swingLows: this.swingLows.get(symbol) || [] };
   }
   
   getSwingPoints(symbol: string): { highs: SwingPoint[]; lows: SwingPoint[] } { return { highs: this.swingHighs.get(symbol) || [], lows: this.swingLows.get(symbol) || [] }; }

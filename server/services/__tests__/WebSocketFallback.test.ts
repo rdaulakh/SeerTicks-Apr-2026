@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { getActiveClock } from '../../_core/clock';
 
 // Mock WebSocket
 vi.mock('ws', () => {
@@ -261,9 +262,9 @@ describe('WebSocketFallbackManager', () => {
 
   describe('Primary WebSocket Reporting', () => {
     it('should update lastPrimaryMessage on reportPrimaryMessage', () => {
-      const before = Date.now();
+      const before = getActiveClock().now();
       fallbackManager.reportPrimaryMessage();
-      const after = Date.now();
+      const after = getActiveClock().now();
 
       const status = fallbackManager.getStatus();
       expect(status.lastPrimaryMessage).toBeGreaterThanOrEqual(before);

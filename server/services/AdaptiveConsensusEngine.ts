@@ -17,6 +17,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { getAgentAlphaValidator, AlphaValidationResult, AgentAlphaReport } from './AgentAlphaValidator';
 import { getAgentWeightManager, AgentName, ALL_AGENTS } from './AgentWeightManager';
 
@@ -180,7 +181,7 @@ class AdaptiveConsensusEngine extends EventEmitter {
       }
 
       this.currentWeights = newWeights;
-      this.lastUpdate = Date.now();
+      this.lastUpdate = getActiveClock().now();
       this.totalUpdates++;
 
       // Save updated weights to database

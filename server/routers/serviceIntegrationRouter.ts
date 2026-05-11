@@ -6,6 +6,7 @@
  */
 
 import { router, protectedProcedure } from "../_core/trpc";
+import { getActiveClock } from '../_core/clock';
 import { z } from "zod";
 import { getServiceIntegrationManager } from "../services/ServiceIntegration";
 import { getIntelligentTradingCoordinator } from "../services/IntelligentTradingCoordinator";
@@ -49,7 +50,7 @@ export const serviceIntegrationRouter = router({
         isRunning: false,
         servicesConnected: 0,
         servicesFailed: 0,
-        lastUpdate: Date.now(),
+        lastUpdate: getActiveClock().now(),
         intelligentExitsActive: false,
         smartRoutingActive: false,
         hftActive: false,

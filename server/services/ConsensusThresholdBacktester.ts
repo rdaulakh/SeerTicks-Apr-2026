@@ -13,6 +13,7 @@
  */
 
 import { getDb } from "../db";
+import { getActiveClock } from '../_core/clock';
 import {
   tradingSignals,
   trades,
@@ -251,7 +252,7 @@ class ConsensusThresholdBacktester {
     userId: number,
     config: ThresholdBacktestConfig
   ): Promise<ThresholdBacktestResult> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const trades: BacktestTrade[] = [];
     const equityCurve: { timestamp: Date; equity: number }[] = [];
     
@@ -268,7 +269,7 @@ class ConsensusThresholdBacktester {
           equityCurve,
           status: 'error',
           errorMessage: 'Database not available',
-          executionTimeMs: Date.now() - startTime,
+          executionTimeMs: getActiveClock().now() - startTime,
         };
       }
       
@@ -440,7 +441,7 @@ class ConsensusThresholdBacktester {
             equityCurve,
             status: 'stopped_drawdown',
             errorMessage: `Stopped: Drawdown ${(currentDrawdown * 100).toFixed(1)}% exceeded limit ${(config.maxDrawdownLimit * 100).toFixed(1)}%`,
-            executionTimeMs: Date.now() - startTime,
+            executionTimeMs: getActiveClock().now() - startTime,
           };
         }
       }
@@ -451,7 +452,7 @@ class ConsensusThresholdBacktester {
         trades,
         equityCurve,
         status: 'completed',
-        executionTimeMs: Date.now() - startTime,
+        executionTimeMs: getActiveClock().now() - startTime,
       };
       
     } catch (error) {
@@ -463,7 +464,7 @@ class ConsensusThresholdBacktester {
         equityCurve,
         status: 'error',
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
-        executionTimeMs: Date.now() - startTime,
+        executionTimeMs: getActiveClock().now() - startTime,
       };
     }
   }
@@ -781,7 +782,7 @@ class ConsensusThresholdBacktester {
       maxIterations?: number;
     }
   ): Promise<ThresholdOptimizationResult> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const results: ThresholdBacktestResult[] = [];
     
     const thresholdRange = options.thresholdRange || { min: 0.15, max: 0.45, step: 0.05 };
@@ -901,7 +902,7 @@ class ConsensusThresholdBacktester {
         },
       })),
       suggestions,
-      executionTimeMs: Date.now() - startTime,
+      executionTimeMs: getActiveClock().now() - startTime,
       iterationsRun: iterations,
     };
   }

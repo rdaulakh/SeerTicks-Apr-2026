@@ -9,6 +9,7 @@
  */
 
 import { Candle } from '../WebSocketCandleCache';
+import { getActiveClock } from '../_core/clock';
 import { calculateRSI, calculateMACD } from '../utils/IndicatorCache';
 import { calculateStochastic, detectStochasticCrossover } from '../utils/AdvancedIndicators';
 
@@ -143,7 +144,7 @@ export class TradingSignalEngine {
         source: 'RSI',
         strength: Math.min(100, (this.config.rsi.oversold - rsi) * 3),
         confidence: 70,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         indicators: { rsi },
         reasoning: `RSI oversold at ${rsi.toFixed(2)} (< ${this.config.rsi.oversold})`,
         price: currentPrice,
@@ -157,7 +158,7 @@ export class TradingSignalEngine {
         source: 'RSI',
         strength: Math.min(100, (rsi - this.config.rsi.overbought) * 3),
         confidence: 70,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         indicators: { rsi },
         reasoning: `RSI overbought at ${rsi.toFixed(2)} (> ${this.config.rsi.overbought})`,
         price: currentPrice,
@@ -189,7 +190,7 @@ export class TradingSignalEngine {
         source: 'MACD',
         strength: Math.min(100, Math.abs(macd.histogram) * 10),
         confidence: 75,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         indicators: { macd },
         reasoning: `MACD bullish crossover (histogram: ${macd.histogram.toFixed(4)})`,
         price: currentPrice,
@@ -204,7 +205,7 @@ export class TradingSignalEngine {
         source: 'MACD',
         strength: Math.min(100, Math.abs(macd.histogram) * 10),
         confidence: 75,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         indicators: { macd },
         reasoning: `MACD bearish crossover (histogram: ${macd.histogram.toFixed(4)})`,
         price: currentPrice,
@@ -243,7 +244,7 @@ export class TradingSignalEngine {
         source: 'STOCHASTIC',
         strength: Math.min(100, (this.config.stochastic.oversold - stochastic.k) * 4),
         confidence: 72,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         indicators: { stochastic: { k: stochastic.k, d: stochastic.d } },
         reasoning: `Stochastic bullish crossover in oversold zone (%K: ${stochastic.k.toFixed(2)}, %D: ${stochastic.d.toFixed(2)})`,
         price: currentPrice,
@@ -258,7 +259,7 @@ export class TradingSignalEngine {
         source: 'STOCHASTIC',
         strength: Math.min(100, (stochastic.k - this.config.stochastic.overbought) * 4),
         confidence: 72,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         indicators: { stochastic: { k: stochastic.k, d: stochastic.d } },
         reasoning: `Stochastic bearish crossover in overbought zone (%K: ${stochastic.k.toFixed(2)}, %D: ${stochastic.d.toFixed(2)})`,
         price: currentPrice,
@@ -286,7 +287,7 @@ export class TradingSignalEngine {
         source: 'COMBINED',
         strength: Math.min(100, avgStrength * 1.2), // Boost combined signal strength
         confidence: Math.min(100, avgConfidence + 10), // Higher confidence when multiple agree
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         indicators: {
           rsi: buySignals.find(s => s.source === 'RSI')?.indicators.rsi,
           macd: buySignals.find(s => s.source === 'MACD')?.indicators.macd,
@@ -308,7 +309,7 @@ export class TradingSignalEngine {
         source: 'COMBINED',
         strength: Math.min(100, avgStrength * 1.2),
         confidence: Math.min(100, avgConfidence + 10),
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         indicators: {
           rsi: sellSignals.find(s => s.source === 'RSI')?.indicators.rsi,
           macd: sellSignals.find(s => s.source === 'MACD')?.indicators.macd,

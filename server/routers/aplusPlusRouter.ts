@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod';
+import { getActiveClock } from '../_core/clock';
 import { router, protectedProcedure } from '../_core/trpc';
 import { APlusPlusBacktestEngine, BacktestResult } from '../backtest/APlusPlusBacktestEngine';
 import { LossRootCauseAnalyzer } from '../analysis/LossRootCauseAnalyzer';
@@ -41,7 +42,7 @@ export const aplusPlusRouter = router({
     .mutation(async ({ input }) => {
       const config = {
         symbols: input?.symbols || ['BTC-USD', 'ETH-USD'],
-        startDate: input?.startDate ? new Date(input.startDate) : new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
+        startDate: input?.startDate ? new Date(input.startDate) : new Date(getActiveClock().now() - 60 * 24 * 60 * 60 * 1000),
         endDate: input?.endDate ? new Date(input.endDate) : new Date(),
         consensusThreshold: input?.consensusThreshold || 0.70,
         confidenceThreshold: input?.confidenceThreshold || 0.65,

@@ -16,6 +16,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 export interface CircuitBreakerConfig {
   failureThreshold: number;  // Number of failures before opening
@@ -77,7 +78,7 @@ class CircuitBreaker {
     
     if (this.state === 'open') {
       // Check if reset timeout has passed
-      if (this.openedAt && Date.now() - this.openedAt > this.config.resetTimeout) {
+      if (this.openedAt && getActiveClock().now() - this.openedAt > this.config.resetTimeout) {
         this.transitionTo('half-open');
         return true;
       }
@@ -101,7 +102,7 @@ class CircuitBreaker {
   recordSuccess(): void {
     this.successCount++;
     this.totalSuccesses++;
-    this.lastSuccessTime = Date.now();
+    this.lastSuccessTime = getActiveClock().now();
     
     if (this.state === 'half-open') {
       // Success in half-open state closes the circuit
@@ -119,7 +120,7 @@ class CircuitBreaker {
    * Record a failed execution
    */
   recordFailure(error?: Error | string): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     this.failureCount++;
     this.totalFailures++;
     this.lastFailureTime = now;
@@ -150,7 +151,7 @@ class CircuitBreaker {
     this.state = newState;
     
     if (newState === 'open') {
-      this.openedAt = Date.now();
+      this.openedAt = getActiveClock().now();
       console.error(`[CircuitBreaker:${this.name}] 🔴 OPENED - ${this.failureCount} failures in ${this.config.monitorWindow}ms window`);
     } else if (newState === 'half-open') {
       this.halfOpenAttempts = 0;
@@ -169,7 +170,7 @@ class CircuitBreaker {
    * Clean up failures outside the monitoring window
    */
   private cleanupOldFailures(): void {
-    const cutoff = Date.now() - this.config.monitorWindow;
+    const cutoff = getActiveClock().now() - this.config.monitorWindow;
     this.failureTimestamps = this.failureTimestamps.filter(ts => ts > cutoff);
   }
   
@@ -298,12 +299,12 @@ class CircuitBreakerManagerImpl extends EventEmitter {
    * Handle state change events
    */
   private handleStateChange(name: string, oldState: string, newState: string): void {
-    this.emit('state_change', { name, oldState, newState, timestamp: Date.now() });
+    this.emit('state_change', { name, oldState, newState, timestamp: getActiveClock().now() });
     
     if (newState === 'open') {
-      this.emit('circuit_opened', { name, timestamp: Date.now() });
+      this.emit('circuit_opened', { name, timestamp: getActiveClock().now() });
     } else if (newState === 'closed' && oldState !== 'closed') {
-      this.emit('circuit_closed', { name, timestamp: Date.now() });
+      this.emit('circuit_closed', { name, timestamp: getActiveClock().now() });
     }
   }
   

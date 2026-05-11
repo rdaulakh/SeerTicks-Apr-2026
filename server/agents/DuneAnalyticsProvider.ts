@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * Dune Analytics Provider
  * 
@@ -124,7 +125,7 @@ export class DuneAnalyticsProvider {
   async getQueryResult(queryId: number): Promise<DuneQueryResult | null> {
     // Check cache first
     const cached = this.cache.get(queryId);
-    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+    if (cached && getActiveClock().now() - cached.timestamp < this.CACHE_TTL) {
       console.log(`[DuneAnalyticsProvider] Using cached result for query ${queryId}`);
       return cached.data;
     }
@@ -136,7 +137,7 @@ export class DuneAnalyticsProvider {
 
     // Check error cache — don't retry recently failed queries
     const cachedError = this.errorCache.get(queryId);
-    if (cachedError && Date.now() - cachedError.timestamp < this.ERROR_CACHE_TTL) {
+    if (cachedError && getActiveClock().now() - cachedError.timestamp < this.ERROR_CACHE_TTL) {
       return null; // Silently skip — already logged on first failure
     }
 
@@ -154,7 +155,7 @@ export class DuneAnalyticsProvider {
         const errorText = await response.text();
         console.error(`[DuneAnalyticsProvider] API error for query ${queryId}: ${response.status} - ${errorText}`);
         // Cache the error to prevent log spam
-        this.errorCache.set(queryId, { timestamp: Date.now(), status: response.status });
+        this.errorCache.set(queryId, { timestamp: getActiveClock().now(), status: response.status });
         return null;
       }
 
@@ -163,14 +164,14 @@ export class DuneAnalyticsProvider {
       const data = await response.json() as DuneQueryResult;
       
       // Cache the result
-      this.cache.set(queryId, { data, timestamp: Date.now() });
+      this.cache.set(queryId, { data, timestamp: getActiveClock().now() });
       
       console.log(`[DuneAnalyticsProvider] Fetched ${data.result?.rows?.length || 0} rows for query ${queryId}`);
       return data;
     } catch (error) {
       console.error(`[DuneAnalyticsProvider] Failed to fetch query ${queryId}:`, error);
       // Cache network errors too
-      this.errorCache.set(queryId, { timestamp: Date.now(), status: 0 });
+      this.errorCache.set(queryId, { timestamp: getActiveClock().now(), status: 0 });
       return null;
     }
   }
@@ -180,7 +181,7 @@ export class DuneAnalyticsProvider {
    */
   async getOnChainMetrics(symbol: string = 'BTC'): Promise<DuneOnChainMetrics> {
     // Check cache
-    if (this.metricsCache && Date.now() - this.lastMetricsFetch < this.METRICS_CACHE_TTL) {
+    if (this.metricsCache && getActiveClock().now() - this.lastMetricsFetch < this.METRICS_CACHE_TTL) {
       return this.metricsCache;
     }
 
@@ -210,7 +211,7 @@ export class DuneAnalyticsProvider {
 
     // Cache the metrics
     this.metricsCache = metrics;
-    this.lastMetricsFetch = Date.now();
+    this.lastMetricsFetch = getActiveClock().now();
 
     return metrics;
   }
@@ -225,7 +226,7 @@ export class DuneAnalyticsProvider {
 
     try {
       return result.result.rows.map(row => ({
-        timestamp: new Date(row.time || row.day || row.date || Date.now()),
+        timestamp: new Date(row.time || row.day || row.date || getActiveClock().now()),
         exchange: row.exchange || row.exchange_name || 'unknown',
         inflow: parseFloat(row.inflow || row.total_inflow || '0'),
         outflow: parseFloat(row.outflow || row.total_outflow || '0'),
@@ -248,7 +249,7 @@ export class DuneAnalyticsProvider {
 
     try {
       return result.result.rows.slice(0, 50).map(row => ({
-        timestamp: new Date(row.block_time || row.time || Date.now()),
+        timestamp: new Date(row.block_time || row.time || getActiveClock().now()),
         txHash: row.tx_hash || row.hash || 'unknown',
         amount: parseFloat(row.amount || row.value || '0'),
         amountUsd: parseFloat(row.amount_usd || row.value_usd || '0'),

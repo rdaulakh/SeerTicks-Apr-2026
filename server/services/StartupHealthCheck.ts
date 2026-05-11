@@ -1,4 +1,5 @@
 import { getDb } from "../db";
+import { getActiveClock } from '../_core/clock';
 import { serviceHealth, serviceHealthHistory, systemStartupLog } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
@@ -99,7 +100,7 @@ export class StartupHealthCheck {
    */
   private async checkDatabase(): Promise<void> {
     const serviceName = "database";
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       const db = await getDb();
@@ -110,7 +111,7 @@ export class StartupHealthCheck {
       // Test query to verify connection
       await db.select().from(serviceHealth).limit(1);
 
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
       this.results.push({
         serviceName,
         status: "healthy",
@@ -120,7 +121,7 @@ export class StartupHealthCheck {
 
       console.log(`[StartupHealthCheck] ✓ Database: healthy (${responseTime}ms)`);
     } catch (error) {
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
       this.results.push({
@@ -139,13 +140,13 @@ export class StartupHealthCheck {
    */
   private async checkCoinbaseAPI(): Promise<void> {
     const serviceName = "coinbase_api";
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Test Coinbase API with a simple public endpoint (no auth required)
       const response = await fetch("https://api.coinbase.com/api/v3/brokerage/products/BTC-USDT");
       
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
 
       if (!response.ok) {
         // 401 Unauthorized is expected if API keys are not configured
@@ -179,7 +180,7 @@ export class StartupHealthCheck {
         throw new Error("Invalid price returned");
       }
     } catch (error) {
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
       // Check if it's a rate limit error
@@ -203,7 +204,7 @@ export class StartupHealthCheck {
    */
   private async checkWhaleAlertAPI(): Promise<void> {
     const serviceName = "whale_alert_api";
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       const apiKey = process.env.WHALE_ALERT_API_KEY;
@@ -213,7 +214,7 @@ export class StartupHealthCheck {
 
       // Simple status check
       const response = await fetch(`https://api.whale-alert.io/v1/status?api_key=${apiKey}`);
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
 
       if (response.ok) {
         const data = await response.json();
@@ -237,7 +238,7 @@ export class StartupHealthCheck {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
     } catch (error) {
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
       this.results.push({
@@ -256,7 +257,7 @@ export class StartupHealthCheck {
    */
   private async checkPriceFeedWebSocket(): Promise<void> {
     const serviceName = "price_feed_websocket";
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Import dynamically
@@ -264,7 +265,7 @@ export class StartupHealthCheck {
 
       // Check if service is running
       const isRunning = (priceFeedService as any).isRunning;
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
 
       if (isRunning) {
         this.results.push({
@@ -286,7 +287,7 @@ export class StartupHealthCheck {
         console.log(`[StartupHealthCheck] ✓ Price Feed Service: available (will start on demand)`);
       }
     } catch (error) {
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
       this.results.push({
@@ -305,7 +306,7 @@ export class StartupHealthCheck {
    */
   private async checkMetaAPIConnection(): Promise<void> {
     const serviceName = "metaapi";
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       const apiToken = process.env.METAAPI_TOKEN;
@@ -314,7 +315,7 @@ export class StartupHealthCheck {
         this.results.push({
           serviceName,
           status: "unknown",
-          responseTime: Date.now() - startTime,
+          responseTime: getActiveClock().now() - startTime,
           metadata: { message: "MetaAPI not configured (paper trading only)" },
         });
         console.log(`[StartupHealthCheck] ⚠ MetaAPI: not configured (paper trading mode)`);
@@ -328,7 +329,7 @@ export class StartupHealthCheck {
         },
       });
 
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
 
       if (response.ok) {
         const data = await response.json();
@@ -353,7 +354,7 @@ export class StartupHealthCheck {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
     } catch (error) {
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
       this.results.push({
@@ -372,7 +373,7 @@ export class StartupHealthCheck {
    */
   private async checkBalanceTracker(): Promise<void> {
     const serviceName = "balance_tracker";
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Import dynamically
@@ -380,7 +381,7 @@ export class StartupHealthCheck {
 
       // BalanceTracker is a class that can be instantiated
       // Just verify it's importable
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
 
       this.results.push({
         serviceName,
@@ -391,7 +392,7 @@ export class StartupHealthCheck {
 
       console.log(`[StartupHealthCheck] ✓ BalanceTracker: healthy (${responseTime}ms)`);
     } catch (error) {
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
       this.results.push({
@@ -410,14 +411,14 @@ export class StartupHealthCheck {
    */
   private async checkPositionManager(): Promise<void> {
     const serviceName = "position_manager";
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Import dynamically
       const { PositionManager } = await import("../PositionManager");
 
       // PositionManager is instantiated per-user, so we just check if the class is available
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
 
       this.results.push({
         serviceName,
@@ -428,7 +429,7 @@ export class StartupHealthCheck {
 
       console.log(`[StartupHealthCheck] ✓ PositionManager: healthy (${responseTime}ms)`);
     } catch (error) {
-      const responseTime = Date.now() - startTime;
+      const responseTime = getActiveClock().now() - startTime;
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
       this.results.push({

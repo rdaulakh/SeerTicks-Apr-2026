@@ -25,6 +25,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface TakerFill {
   side: 'buy' | 'sell';
@@ -76,7 +77,7 @@ export class VWAPDivergenceAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     const ring = ((global as any).__binancePerpTakerFlow || {})[binSym] as TakerFill[] | undefined;
@@ -84,7 +85,7 @@ export class VWAPDivergenceAgent extends AgentBase {
     if (!ring || !book) {
       return this.neutralSignal(symbol, startTime, `Missing data (ring=${!!ring}, book=${!!book})`);
     }
-    const bookAge = Date.now() - book.eventTime;
+    const bookAge = getActiveClock().now() - book.eventTime;
     if (bookAge > STALE_MS) {
       return this.neutralSignal(symbol, startTime, `Book stale (${bookAge}ms)`);
     }
@@ -92,7 +93,7 @@ export class VWAPDivergenceAgent extends AgentBase {
       return this.neutralSignal(symbol, startTime, `Invalid mid`);
     }
 
-    const cutoff = Date.now() - VWAP_WINDOW_MS;
+    const cutoff = getActiveClock().now() - VWAP_WINDOW_MS;
     const recent = ring.filter(f => f.timestamp >= cutoff);
     if (recent.length < MIN_FILLS) {
       return this.neutralSignal(symbol, startTime, `Insufficient fills (${recent.length}/${MIN_FILLS}) for VWAP`);
@@ -148,7 +149,7 @@ export class VWAPDivergenceAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: Math.min(Math.abs(divergenceStds) / STDS_SAT, 1),
@@ -167,7 +168,7 @@ export class VWAPDivergenceAgent extends AgentBase {
         source: 'binance-perp-aggTrade-vwap',
       },
       qualityScore: 0.72,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: bookAge,
       executionScore: Math.round(45 + magFactor * 20 + volumeFactor * 10),
     };
@@ -177,14 +178,14 @@ export class VWAPDivergenceAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: {},
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

@@ -14,6 +14,7 @@
  */
 
 import { z } from 'zod';
+import { getActiveClock } from '../_core/clock';
 import { protectedProcedure, router } from '../_core/trpc';
 
 interface TakerFill {
@@ -26,7 +27,7 @@ interface TakerFill {
 
 function summarizeTakerRing(ring: TakerFill[] | undefined, lookbackMs: number) {
   if (!ring || ring.length === 0) return { fills: 0, totalNotional: 0, buyNotional: 0, sellNotional: 0, imbalance: 0, oldestAgeMs: null as number | null };
-  const cutoff = Date.now() - lookbackMs;
+  const cutoff = getActiveClock().now() - lookbackMs;
   const recent = ring.filter(f => f.timestamp >= cutoff);
   let buy = 0, sell = 0;
   for (const f of recent) {
@@ -40,7 +41,7 @@ function summarizeTakerRing(ring: TakerFill[] | undefined, lookbackMs: number) {
     buyNotional: buy,
     sellNotional: sell,
     imbalance: total > 0 ? (buy - sell) / total : 0,
-    oldestAgeMs: recent.length > 0 ? Date.now() - Math.min(...recent.map(f => f.timestamp)) : null,
+    oldestAgeMs: recent.length > 0 ? getActiveClock().now() - Math.min(...recent.map(f => f.timestamp)) : null,
   };
 }
 
@@ -66,7 +67,7 @@ export const leadInfoRouter = router({
       const spotFlow = (g.__binanceSpotTakerFlow || {})[input.binanceSymbol] || [];
       const liquidations: any[] = (g.__lastLiquidations || []).filter((l: any) => l.symbol === input.binanceSymbol).slice(-20);
 
-      const now = Date.now();
+      const now = getActiveClock().now();
       const perpSummary = summarizeTakerRing(perpFlow, input.lookbackMs);
       const spotSummary = summarizeTakerRing(spotFlow, input.lookbackMs);
 
@@ -139,7 +140,7 @@ export const leadInfoRouter = router({
     const g = global as any;
     const symbolsIn = (obj: any) => obj && typeof obj === 'object' ? Object.keys(obj) : [];
     return {
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       binanceFuturesBook: symbolsIn(g.__binanceFuturesBook),
       binanceSpotBook: symbolsIn(g.__binanceSpotBook),
       coinbaseTopOfBook: symbolsIn(g.__coinbaseTopOfBook),

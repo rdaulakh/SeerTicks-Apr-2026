@@ -1,4 +1,5 @@
 import { router, protectedProcedure } from "../_core/trpc";
+import { getActiveClock } from '../_core/clock';
 import { z } from "zod";
 import { getCandleCache } from "../WebSocketCandleCache";
 import { calculateRSI, calculateMACD, calculateBollingerBands } from "../utils/IndicatorCache";
@@ -44,7 +45,7 @@ export const technicalIndicatorsRouter = router({
         return {
           symbol,
           interval,
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
           indicators: null,
           error: "No candle data available for this symbol",
         };
@@ -61,7 +62,7 @@ export const technicalIndicatorsRouter = router({
       return {
         symbol,
         interval,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         currentPrice,
         indicators: {
           rsi: {
@@ -124,7 +125,7 @@ export const technicalIndicatorsRouter = router({
         period,
         value: rsi,
         signal: rsi > 70 ? 'overbought' : rsi < 30 ? 'oversold' : 'neutral',
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
       };
     }),
 
@@ -163,7 +164,7 @@ export const technicalIndicatorsRouter = router({
         signal: macd.signal,
         histogram: macd.histogram,
         crossover: macd.histogram > 0 ? 'bullish' : 'bearish',
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
       };
     }),
 
@@ -207,7 +208,7 @@ export const technicalIndicatorsRouter = router({
           ? 'below_lower'
           : 'within_bands',
         bandwidth: ((bb.upper - bb.lower) / bb.middle) * 100,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
       };
     }),
 

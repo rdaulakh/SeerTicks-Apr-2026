@@ -16,6 +16,7 @@
  *   });
  */
 import { storagePut } from "server/storage";
+import { getActiveClock } from '../_core/clock';
 import { ENV } from "./env";
 
 export type GenerateImageOptions = {
@@ -82,7 +83,7 @@ export async function generateImage(
 
   // Save to S3
   const { url } = await storagePut(
-    `generated/${Date.now()}.png`,
+    `generated/${getActiveClock().now()}.png`,
     buffer,
     result.image.mimeType
   );

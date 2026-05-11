@@ -669,7 +669,7 @@ export class AutomatedSignalProcessor extends EventEmitter {
       }
 
       // DIAGNOSTIC: Write to file for debugging
-      try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} consensus: strength=${(consensus.strength * 100).toFixed(1)}% dir=${consensus.direction} threshold=${(effectiveThreshold * 100).toFixed(0)}% signals=${actionableSignals.length} regime=${regime}\n`); } catch(e) {}
+      try { appendFileSync('/tmp/seer-diag.log', `${getActiveClock().date().toISOString()} | ${symbol} consensus: strength=${(consensus.strength * 100).toFixed(1)}% dir=${consensus.direction} threshold=${(effectiveThreshold * 100).toFixed(0)}% signals=${actionableSignals.length} regime=${regime}\n`); } catch(e) {}
 
       // Check consensus threshold
       if (consensus.strength < effectiveThreshold) {
@@ -719,8 +719,8 @@ export class AutomatedSignalProcessor extends EventEmitter {
 
       // DIAG: Log that consensus passed + signal details
       try {
-        appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} CONSENSUS PASSED: ${(consensus.strength * 100).toFixed(1)}% >= ${(effectiveThreshold * 100).toFixed(0)}%\n`);
-        appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} ACTIONABLE SIGNALS: ${actionableSignals.map(s => `${s.agentName}=${s.signal}@${(s.confidence*100).toFixed(1)}%`).join(', ')}\n`);
+        appendFileSync('/tmp/seer-diag.log', `${getActiveClock().date().toISOString()} | ${symbol} CONSENSUS PASSED: ${(consensus.strength * 100).toFixed(1)}% >= ${(effectiveThreshold * 100).toFixed(0)}%\n`);
+        appendFileSync('/tmp/seer-diag.log', `${getActiveClock().date().toISOString()} | ${symbol} ACTIONABLE SIGNALS: ${actionableSignals.map(s => `${s.agentName}=${s.signal}@${(s.confidence*100).toFixed(1)}%`).join(', ')}\n`);
       } catch(e) {}
 
       // Phase 40 + 21: PRICE TREND VALIDATION GATE.
@@ -740,7 +740,7 @@ export class AutomatedSignalProcessor extends EventEmitter {
         const lookbackMs = tradingConfig.entry?.contraTrendLookbackMs ?? 120_000;
         const noiseTolerance = tradingConfig.entry?.contraTrendNoiseTolerancePct ?? 0.15;
         const trend = pfs.getShortTermTrend(symbol, lookbackMs);
-        try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} TREND CHECK: ${trend.direction} (${trend.trendPct >= 0 ? '+' : ''}${trend.trendPct.toFixed(3)}%) samples=${trend.sampleCount} tolerance=${noiseTolerance}%\n`); } catch(e) {}
+        try { appendFileSync('/tmp/seer-diag.log', `${getActiveClock().date().toISOString()} | ${symbol} TREND CHECK: ${trend.direction} (${trend.trendPct >= 0 ? '+' : ''}${trend.trendPct.toFixed(3)}%) samples=${trend.sampleCount} tolerance=${noiseTolerance}%\n`); } catch(e) {}
 
         if (trend.sampleCount >= 3) {
           const consensusDir = consensus.direction; // 'bullish' or 'bearish'
@@ -752,7 +752,7 @@ export class AutomatedSignalProcessor extends EventEmitter {
           );
 
           if (isContratrend) {
-            try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} TREND BLOCKED: consensus=${consensusDir} but price=${priceDir} (${trend.trendPct.toFixed(3)}%)\n`); } catch(e) {}
+            try { appendFileSync('/tmp/seer-diag.log', `${getActiveClock().date().toISOString()} | ${symbol} TREND BLOCKED: consensus=${consensusDir} but price=${priceDir} (${trend.trendPct.toFixed(3)}%)\n`); } catch(e) {}
             logPipelineEvent('SIGNAL_REJECTED', {
               userId: this.userId,
               symbol,
@@ -804,11 +804,11 @@ export class AutomatedSignalProcessor extends EventEmitter {
             
             if (consensus.strength >= REGIME_OVERRIDE_THRESHOLD && priceConfirmsConsensus && hasStrongAgentCount) {
               // Very strong consensus + strong price confirmation + many agents = regime may be lagging
-              try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} REGIME OVERRIDE: consensus=${consensusDir}@${(consensus.strength*100).toFixed(1)}% overrides regime=${regime} (price=${priceDir} ${trend.trendPct.toFixed(3)}%, ${consensusEligibleSignals.length} eligible agents)\n`); } catch(e) {}
+              try { appendFileSync('/tmp/seer-diag.log', `${getActiveClock().date().toISOString()} | ${symbol} REGIME OVERRIDE: consensus=${consensusDir}@${(consensus.strength*100).toFixed(1)}% overrides regime=${regime} (price=${priceDir} ${trend.trendPct.toFixed(3)}%, ${consensusEligibleSignals.length} eligible agents)\n`); } catch(e) {}
               // Continue to next checks — don't block
             } else {
               // Regime says one direction, consensus says the other — block
-              try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} REGIME BLOCKED: consensus=${consensusDir}@${(consensus.strength*100).toFixed(1)}% but regime=${regime} (price=${priceDir} ${trend.trendPct.toFixed(3)}%, need >${(REGIME_OVERRIDE_THRESHOLD*100).toFixed(0)}% + >${REGIME_OVERRIDE_MIN_PRICE_MOVE}% price move + 4 eligible agents, have ${consensusEligibleSignals.length})\n`); } catch(e) {}
+              try { appendFileSync('/tmp/seer-diag.log', `${getActiveClock().date().toISOString()} | ${symbol} REGIME BLOCKED: consensus=${consensusDir}@${(consensus.strength*100).toFixed(1)}% but regime=${regime} (price=${priceDir} ${trend.trendPct.toFixed(3)}%, need >${(REGIME_OVERRIDE_THRESHOLD*100).toFixed(0)}% + >${REGIME_OVERRIDE_MIN_PRICE_MOVE}% price move + 4 eligible agents, have ${consensusEligibleSignals.length})\n`); } catch(e) {}
               logPipelineEvent('SIGNAL_REJECTED', {
                 userId: this.userId,
                 symbol,
@@ -830,7 +830,7 @@ export class AutomatedSignalProcessor extends EventEmitter {
 
       // Filter by minimum confidence
       const highConfidenceSignals = actionableSignals.filter(s => s.confidence >= this.minConfidence);
-      try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} CONFIDENCE FILTER: ${highConfidenceSignals.length}/${actionableSignals.length} pass (min ${(this.minConfidence * 100).toFixed(0)}%)\n`); } catch(e) {}
+      try { appendFileSync('/tmp/seer-diag.log', `${getActiveClock().date().toISOString()} | ${symbol} CONFIDENCE FILTER: ${highConfidenceSignals.length}/${actionableSignals.length} pass (min ${(this.minConfidence * 100).toFixed(0)}%)\n`); } catch(e) {}
       
       if (highConfidenceSignals.length === 0) {
         logPipelineEvent('SIGNAL_REJECTED', {
@@ -872,7 +872,7 @@ export class AutomatedSignalProcessor extends EventEmitter {
       // Log combined scores for debugging
       tradingLogger.debug('Combined scores', { symbol, scores: signalsWithCombinedScore.map(s => ({ agent: s.agentName, conf: (s.confidence*100).toFixed(1), exec: s.executionScore || 50, combined: (s.combinedScore*100).toFixed(1) })) });
       
-      try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} COMBINED SCORE FILTER: ${highQualitySignals.length}/${signalsWithCombinedScore.length} pass (min ${(minCombinedScore * 100).toFixed(0)}%)\n`); } catch(e) {}
+      try { appendFileSync('/tmp/seer-diag.log', `${getActiveClock().date().toISOString()} | ${symbol} COMBINED SCORE FILTER: ${highQualitySignals.length}/${signalsWithCombinedScore.length} pass (min ${(minCombinedScore * 100).toFixed(0)}%)\n`); } catch(e) {}
 
       if (highQualitySignals.length === 0) {
         logPipelineEvent('SIGNAL_REJECTED', {
@@ -940,9 +940,9 @@ export class AutomatedSignalProcessor extends EventEmitter {
 
           const rrRatio = riskDistance > 0 ? rewardDistance / riskDistance : 0;
 
-          try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} R:R CHECK: ratio=${rrRatio.toFixed(2)} minRR=${minRR} atr=${atr.toFixed(2)} reward=${rewardDistance.toFixed(2)} risk=${riskDistance.toFixed(2)}\n`); } catch(e) {}
+          try { appendFileSync('/tmp/seer-diag.log', `${getActiveClock().date().toISOString()} | ${symbol} R:R CHECK: ratio=${rrRatio.toFixed(2)} minRR=${minRR} atr=${atr.toFixed(2)} reward=${rewardDistance.toFixed(2)} risk=${riskDistance.toFixed(2)}\n`); } catch(e) {}
           if (rrRatio < minRR) {
-            try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} R:R BLOCKED: ${rrRatio.toFixed(2)} < ${minRR}\n`); } catch(e) {}
+            try { appendFileSync('/tmp/seer-diag.log', `${getActiveClock().date().toISOString()} | ${symbol} R:R BLOCKED: ${rrRatio.toFixed(2)} < ${minRR}\n`); } catch(e) {}
             tradingLogger.info('R:R too low', { symbol, rrRatio: rrRatio.toFixed(2), minRR, atr: atr.toFixed(2) });
             return {
               approved: false,
@@ -998,7 +998,7 @@ export class AutomatedSignalProcessor extends EventEmitter {
         const timeSinceFlip = getActiveClock().now() - lastFlipTime;
         if (timeSinceFlip < this.DIRECTION_FLIP_COOLDOWN_MS) {
           const remaining = ((this.DIRECTION_FLIP_COOLDOWN_MS - timeSinceFlip) / 1000).toFixed(1);
-          try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} DIRECTION FLIP BLOCKED: ${lastDir}→${consensus.direction}, cooldown ${remaining}s remaining\n`); } catch(e) {}
+          try { appendFileSync('/tmp/seer-diag.log', `${getActiveClock().date().toISOString()} | ${symbol} DIRECTION FLIP BLOCKED: ${lastDir}→${consensus.direction}, cooldown ${remaining}s remaining\n`); } catch(e) {}
           logPipelineEvent('SIGNAL_REJECTED', {
             userId: this.userId,
             symbol,
@@ -1040,7 +1040,7 @@ export class AutomatedSignalProcessor extends EventEmitter {
         },
       };
 
-      try { appendFileSync('/tmp/seer-diag.log', `${new Date().toISOString()} | ${symbol} SIGNAL APPROVED: ${consensus.direction} conf=${(avgConfidence * 100).toFixed(1)}% agents=${highQualitySignals.length}\n`); } catch(e) {}
+      try { appendFileSync('/tmp/seer-diag.log', `${getActiveClock().date().toISOString()} | ${symbol} SIGNAL APPROVED: ${consensus.direction} conf=${(avgConfidence * 100).toFixed(1)}% agents=${highQualitySignals.length}\n`); } catch(e) {}
       logPipelineEvent('SIGNAL_APPROVED', {
         userId: this.userId,
         symbol,

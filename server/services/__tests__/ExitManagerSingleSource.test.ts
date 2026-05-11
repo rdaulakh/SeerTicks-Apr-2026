@@ -19,6 +19,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { getActiveClock } from '../../_core/clock';
 
 // --- Mocks for UserTradingSession transitive imports --------------------------
 
@@ -107,7 +108,7 @@ describe('IntelligentExitManager — exit-lock primitives', () => {
       remainingQuantity: 1,
       unrealizedPnl: 1,
       unrealizedPnlPercent: 1,
-      entryTime: Date.now(),
+      entryTime: getActiveClock().now(),
       highestPrice: 101,
       lowestPrice: 100,
       breakevenActivated: false,

@@ -31,6 +31,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface TakerFill {
   side: 'buy' | 'sell';
@@ -86,13 +87,13 @@ export class TradeSizeOutlierAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
     const ring = ((global as any).__binancePerpTakerFlow || {})[binSym] as TakerFill[] | undefined;
 
     if (!ring) return this.neutralSignal(symbol, startTime, `No taker flow ring for ${binSym}`);
 
-    const cutoff = Date.now() - LOOKBACK_MS;
+    const cutoff = getActiveClock().now() - LOOKBACK_MS;
     const recent = ring.filter(f => f.timestamp >= cutoff);
     if (recent.length < MIN_FILLS_FOR_MED) {
       return this.neutralSignal(symbol, startTime, `Insufficient fills (${recent.length}/${MIN_FILLS_FOR_MED}) for stable median`);
@@ -167,7 +168,7 @@ export class TradeSizeOutlierAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: Math.min(Math.abs(imbalance) + sizeFactor * 0.3, 1),
@@ -191,8 +192,8 @@ export class TradeSizeOutlierAgent extends AgentBase {
         source: 'binance-perp-aggTrade-outliers',
       },
       qualityScore: 0.76,
-      processingTime: Date.now() - startTime,
-      dataFreshness: Date.now() - Math.max(...outliers.map(o => o.timestamp)),
+      processingTime: getActiveClock().now() - startTime,
+      dataFreshness: getActiveClock().now() - Math.max(...outliers.map(o => o.timestamp)),
       executionScore: Math.round(50 + stackFactor * 25 + sizeFactor * 15),
     };
   }
@@ -201,14 +202,14 @@ export class TradeSizeOutlierAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: {},
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

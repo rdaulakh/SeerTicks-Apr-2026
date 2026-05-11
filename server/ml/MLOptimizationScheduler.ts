@@ -9,6 +9,7 @@
  */
 
 import { SelfOptimizer, OptimizationType, StrategyParams, AgentWeights, RiskParams, MLHyperparams } from './optimization/SelfOptimizer';
+import { getActiveClock } from '../_core/clock';
 import { getDb } from '../db';
 import { sql, eq, desc } from 'drizzle-orm';
 import { paperPositions, agentAccuracy } from '../../drizzle/schema';
@@ -180,7 +181,7 @@ export class MLOptimizationScheduler extends EventEmitter {
     const nextRun = this.getNextRunTime(schedule.cronExpression);
     schedule.nextRun = nextRun;
 
-    const delay = nextRun.getTime() - Date.now();
+    const delay = nextRun.getTime() - getActiveClock().now();
     
     mlLogger.info('Scheduling optimization', { type, nextRun: nextRun.toISOString() });
 

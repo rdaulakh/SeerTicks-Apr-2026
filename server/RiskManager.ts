@@ -12,6 +12,7 @@
  */
 
 import { getDb } from "./db";
+import { getActiveClock } from './_core/clock';
 import { trades, positions, riskLimitBreaches, type InsertRiskLimitBreach } from "../drizzle/schema";
 import { eq, and, gte } from "drizzle-orm";
 import { LRUCache } from './utils/LRUCache';
@@ -170,7 +171,7 @@ export class RiskManager {
   isTradingHalted(): boolean {
     // Check if halt period has expired
     if (this.drawdownState.isHalted && this.drawdownState.haltedUntil) {
-      if (Date.now() > this.drawdownState.haltedUntil) {
+      if (getActiveClock().now() > this.drawdownState.haltedUntil) {
         console.log("[RiskManager] Halt period expired, resuming trading");
         this.drawdownState.isHalted = false;
         this.drawdownState.haltReason = null;
@@ -179,9 +180,9 @@ export class RiskManager {
     }
 
     // Phase 15A: Check consecutive loss pause
-    if (this.pausedUntil > 0 && Date.now() < this.pausedUntil) {
+    if (this.pausedUntil > 0 && getActiveClock().now() < this.pausedUntil) {
       return true;
-    } else if (this.pausedUntil > 0 && Date.now() >= this.pausedUntil) {
+    } else if (this.pausedUntil > 0 && getActiveClock().now() >= this.pausedUntil) {
       this.pausedUntil = 0;
       console.log("[RiskManager] Consecutive loss pause expired, resuming");
     }
@@ -248,7 +249,7 @@ export class RiskManager {
     if (pnl < 0) {
       this.consecutiveLosses++;
       if (this.consecutiveLosses >= this.MAX_CONSECUTIVE_LOSSES_PAUSE) {
-        this.pausedUntil = Date.now() + this.CONSECUTIVE_LOSS_PAUSE_MS;
+        this.pausedUntil = getActiveClock().now() + this.CONSECUTIVE_LOSS_PAUSE_MS;
         console.warn(`[RiskManager] ⏸️ ${this.consecutiveLosses} consecutive losses — pausing trades for ${this.CONSECUTIVE_LOSS_PAUSE_MS / 60000} minutes`);
       }
     } else {

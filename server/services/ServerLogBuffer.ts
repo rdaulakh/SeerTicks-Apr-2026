@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * Server Log Buffer — Ring buffer for server-side log capture
  * 
@@ -77,7 +78,7 @@ class ServerLogBuffer {
 
     const entry: LogEntry = {
       id: this.nextId++,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       level,
       category,
       message: message.substring(0, 2000), // Limit message size
@@ -184,7 +185,7 @@ class ServerLogBuffer {
     errorsLast5Min: number;
     warningsLast5Min: number;
   } {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const fiveMinAgo = now - 5 * 60 * 1000;
 
     const byLevel: Record<string, number> = { info: 0, warn: 0, error: 0, debug: 0 };

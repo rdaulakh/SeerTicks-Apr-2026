@@ -37,6 +37,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface TakerFill {
   side: 'buy' | 'sell';
@@ -105,7 +106,7 @@ export class PriceImpactAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     const ring = ((global as any).__binancePerpTakerFlow || {})[binSym] as TakerFill[] | undefined;
@@ -113,12 +114,12 @@ export class PriceImpactAgent extends AgentBase {
     if (!ring || !book) {
       return this.neutralSignal(symbol, startTime, `Missing data (ring=${!!ring}, book=${!!book})`);
     }
-    const bookAge = Date.now() - book.eventTime;
+    const bookAge = getActiveClock().now() - book.eventTime;
     if (bookAge > STALE_MS) {
       return this.neutralSignal(symbol, startTime, `Book stale (${bookAge}ms)`);
     }
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     const shortCutoff = now - SHORT_MS;
     const longCutoff = now - LONG_MS;
     const allFills = ring.filter(f => f.timestamp >= longCutoff)
@@ -193,7 +194,7 @@ export class PriceImpactAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: imbalanceFactor,
@@ -215,7 +216,7 @@ export class PriceImpactAgent extends AgentBase {
         source: 'binance-perp-aggTrade-impact',
       },
       qualityScore: 0.74,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: bookAge,
       executionScore: Math.round(50 + ratioFactor * 20 + imbalanceFactor * 15),
     };
@@ -225,14 +226,14 @@ export class PriceImpactAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: {},
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

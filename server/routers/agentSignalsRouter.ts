@@ -1,4 +1,5 @@
 import { protectedProcedure, router } from "../_core/trpc";
+import { getActiveClock } from '../_core/clock';
 import { z } from "zod";
 import { getDb } from "../db";
 import { agentSignals } from "../../drizzle/schema";
@@ -151,7 +152,7 @@ export const agentSignalsRouter = router({
         throw new Error("Database not available");
       }
 
-      const cutoffTime = new Date(Date.now() - input.hoursAgo * 60 * 60 * 1000);
+      const cutoffTime = new Date(getActiveClock().now() - input.hoursAgo * 60 * 60 * 1000);
 
       const signals = await db
         .select()

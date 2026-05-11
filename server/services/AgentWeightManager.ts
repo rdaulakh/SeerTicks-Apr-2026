@@ -10,6 +10,7 @@
  */
 
 import { EventEmitter } from "events";
+import { getActiveClock } from '../_core/clock';
 import * as fs from "fs";
 import * as path from "path";
 import { getDb } from "../db";
@@ -555,7 +556,7 @@ export class AgentWeightManager extends EventEmitter {
       detailed.push({
         wasCorrect,
         predictedConfidence: predictedConfidence ?? 0.5,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
       });
       if (detailed.length > this.PERFORMANCE_WINDOW) {
         detailed.shift();

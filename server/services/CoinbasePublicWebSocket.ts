@@ -26,6 +26,7 @@
  */
 
 import WebSocket from 'ws';
+import { getActiveClock } from '../_core/clock';
 import EventEmitter from 'eventemitter3';
 import { priceFeedService } from './priceFeedService';
 import { wsHealthMonitor } from '../monitoring/WebSocketHealthMonitor';
@@ -129,7 +130,7 @@ class CoinbasePublicWebSocketService extends EventEmitter {
     }
 
     this.isConnecting = true;
-    this.connectionStartTime = Date.now();
+    this.connectionStartTime = getActiveClock().now();
 
     try {
       console.log(`[CoinbasePublicWS] Connecting to ${WS_URL}...`);
@@ -154,7 +155,7 @@ class CoinbasePublicWebSocketService extends EventEmitter {
     this.isConnecting = false;
     this.reconnectAttempts = 0;
     this.reconnectDelay = RECONNECT_BASE_DELAY;
-    this.lastMessageTime = Date.now();
+    this.lastMessageTime = getActiveClock().now();
 
     // Phase 11C: Eagerly load PriceFabric so it's ready before first tick
     if (!this._priceFabric) this._loadPriceFabric();
@@ -174,7 +175,7 @@ class CoinbasePublicWebSocketService extends EventEmitter {
     // Report health
     try { wsHealthMonitor.updateStatus('CoinbaseWS', 'connected'); } catch (e) { /* non-critical */ }
 
-    this.emit('connected', { timestamp: Date.now() });
+    this.emit('connected', { timestamp: getActiveClock().now() });
   }
 
   /**
@@ -202,7 +203,7 @@ class CoinbasePublicWebSocketService extends EventEmitter {
    */
   private handleMessage(data: WebSocket.Data): void {
     try {
-      this.lastMessageTime = Date.now();
+      this.lastMessageTime = getActiveClock().now();
       this.messageCount++;
 
       // Report to wsHealthMonitor
@@ -302,7 +303,7 @@ class CoinbasePublicWebSocketService extends EventEmitter {
       product_id: symbol,
       bids,
       asks,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
     });
 
   }
@@ -336,8 +337,8 @@ class CoinbasePublicWebSocketService extends EventEmitter {
         volume: parseFloat(ticker.last_size) || 0,
         bid: bestBid,
         ask: bestAsk,
-        timestampMs: new Date(ticker.time).getTime() || Date.now(),
-        receivedAtMs: Date.now(),
+        timestampMs: new Date(ticker.time).getTime() || getActiveClock().now(),
+        receivedAtMs: getActiveClock().now(),
         source: 'coinbase' as const,
         sequenceNumber: ticker.sequence,
       });
@@ -449,7 +450,7 @@ class CoinbasePublicWebSocketService extends EventEmitter {
     }
 
     this.heartbeatTimer = setInterval(() => {
-      const timeSinceLastMessage = Date.now() - this.lastMessageTime;
+      const timeSinceLastMessage = getActiveClock().now() - this.lastMessageTime;
       if (timeSinceLastMessage > HEARTBEAT_TIMEOUT) {
         console.warn(`[CoinbasePublicWS] No data for ${Math.round(timeSinceLastMessage / 1000)}s, reconnecting...`);
         this.forceReconnect();
@@ -526,7 +527,7 @@ class CoinbasePublicWebSocketService extends EventEmitter {
       messageCount: this.messageCount,
       tickCount: this.tickCount,
       reconnectAttempts: this.reconnectAttempts,
-      uptimeMs: this.connectionStartTime > 0 ? Date.now() - this.connectionStartTime : 0,
+      uptimeMs: this.connectionStartTime > 0 ? getActiveClock().now() - this.connectionStartTime : 0,
     };
   }
 
@@ -535,7 +536,7 @@ class CoinbasePublicWebSocketService extends EventEmitter {
    */
   isHealthy(): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
-    const timeSinceLastMessage = Date.now() - this.lastMessageTime;
+    const timeSinceLastMessage = getActiveClock().now() - this.lastMessageTime;
     return timeSinceLastMessage < HEARTBEAT_TIMEOUT;
   }
 }

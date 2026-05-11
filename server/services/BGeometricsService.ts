@@ -13,6 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // API Response types
 interface BGeometricsResponse<T> {
@@ -152,7 +153,7 @@ export class BGeometricsService extends EventEmitter {
       // Cache the result
       this.cache.set(endpoint, {
         data,
-        expiry: new Date(Date.now() + this.cacheTTL),
+        expiry: new Date(getActiveClock().now() + this.cacheTTL),
       });
 
       return data;

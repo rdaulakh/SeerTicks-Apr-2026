@@ -29,6 +29,7 @@
  */
 
 import { saveCandlesToDatabase, getCandleCount } from '../db/candleStorage';
+import { getActiveClock } from '../_core/clock';
 import type { Candle } from '../WebSocketCandleCache';
 
 // Coinbase Exchange API granularity is specified in SECONDS (not the enum used
@@ -127,7 +128,7 @@ async function fetchContiguousCandles(
   const windowMs = granularitySec * 1000 * COINBASE_MAX_PER_REQUEST;
   const collected: Candle[] = [];
   const maxPages = Math.ceil(targetCount / COINBASE_MAX_PER_REQUEST) + 2;
-  let endMs = Date.now();
+  let endMs = getActiveClock().now();
 
   for (let page = 0; page < maxPages && collected.length < targetCount; page++) {
     const startMs = endMs - windowMs;
@@ -272,7 +273,7 @@ export async function backfillIfEmpty(
   // 4h is synthesized from 1h inside backfillSymbolInterval.
   intervals: string[] = ['1d', '4h', '1h', '5m', '1m'],
 ): Promise<void> {
-  const startedAt = Date.now();
+  const startedAt = getActiveClock().now();
   let filled = 0;
   let skipped = 0;
 
@@ -298,7 +299,7 @@ export async function backfillIfEmpty(
     }
   }
 
-  const elapsedMs = Date.now() - startedAt;
+  const elapsedMs = getActiveClock().now() - startedAt;
   console.log(
     `[CoinbaseBackfill] backfillIfEmpty complete: filled ${filled}, skipped ${skipped} (${elapsedMs}ms)`,
   );

@@ -13,6 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // ============================================================================
 // Types & Interfaces
@@ -336,7 +337,7 @@ export class UltraLowLatencyTickProcessor extends EventEmitter {
 
   private processAllSymbols(): void {
     const startTime = performance.now();
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     for (const [symbol, buffer] of this.tickBuffers.entries()) {
       // Generate signals for each symbol

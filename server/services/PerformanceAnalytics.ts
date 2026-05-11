@@ -10,6 +10,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // ============================================================================
 // TYPES AND INTERFACES
@@ -220,7 +221,7 @@ export class PerformanceAnalytics extends EventEmitter {
     this.currentEquity = initialEquity;
     this.peakEquity = initialEquity;
     this.equityCurve.push({
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       equity: initialEquity,
       drawdown: 0,
       drawdownPercent: 0,
@@ -229,7 +230,7 @@ export class PerformanceAnalytics extends EventEmitter {
   }
 
   recordTradeEntry(trade: Omit<TradeJournalEntry, 'id' | 'exitPrice' | 'exitTime' | 'holdTimeMs' | 'pnlAbsolute' | 'pnlPercent' | 'exitReason' | 'maxFavorableExcursion' | 'maxAdverseExcursion'>): string {
-    const id = `trade_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const id = `trade_${getActiveClock().now()}_${Math.random().toString(36).substr(2, 9)}`;
     const entry: TradeJournalEntry = {
       ...trade,
       id,
@@ -268,7 +269,7 @@ export class PerformanceAnalytics extends EventEmitter {
       console.warn(`[PerformanceAnalytics] Trade ${tradeId} not found`);
       return null;
     }
-    const exitTime = Date.now();
+    const exitTime = getActiveClock().now();
     const holdTimeMs = exitTime - trade.entryTime;
     const pnlPercent = trade.direction === 'long'
       ? ((exitPrice - trade.entryPrice) / trade.entryPrice) * 100
@@ -299,7 +300,7 @@ export class PerformanceAnalytics extends EventEmitter {
       if (this.currentDrawdownStart !== null) {
         const lastPeriod = this.drawdownPeriods[this.drawdownPeriods.length - 1];
         if (lastPeriod && !lastPeriod.recovered) {
-          lastPeriod.end = Date.now();
+          lastPeriod.end = getActiveClock().now();
           lastPeriod.durationMs = lastPeriod.end - lastPeriod.start;
           lastPeriod.recovered = true;
         }
@@ -307,7 +308,7 @@ export class PerformanceAnalytics extends EventEmitter {
       }
     } else {
       if (this.currentDrawdownStart === null) {
-        this.currentDrawdownStart = Date.now();
+        this.currentDrawdownStart = getActiveClock().now();
         this.drawdownPeriods.push({
           start: this.currentDrawdownStart,
           end: null,
@@ -330,7 +331,7 @@ export class PerformanceAnalytics extends EventEmitter {
     const drawdown = this.peakEquity - this.currentEquity;
     const drawdownPercent = this.peakEquity > 0 ? (drawdown / this.peakEquity) * 100 : 0;
     this.equityCurve.push({
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       equity: this.currentEquity,
       drawdown,
       drawdownPercent,
@@ -500,7 +501,7 @@ export class PerformanceAnalytics extends EventEmitter {
       ? negativeReturns.reduce((sum, r) => sum + Math.pow(r, 2), 0) / negativeReturns.length : 0;
     const downsideVol = Math.sqrt(downsideVariance);
     const firstTradeTime = closedTrades[0].entryTime;
-    const lastTradeTime = closedTrades[closedTrades.length - 1].exitTime || Date.now();
+    const lastTradeTime = closedTrades[closedTrades.length - 1].exitTime || getActiveClock().now();
     const tradingDays = (lastTradeTime - firstTradeTime) / (24 * 60 * 60 * 1000);
     const annualizationFactor = tradingDays > 0 ? this.config.tradingDaysPerYear / tradingDays : 1;
     const annualizedReturn = totalReturnPercent * annualizationFactor;

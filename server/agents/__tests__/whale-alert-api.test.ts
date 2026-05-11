@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { getActiveClock } from '../../_core/clock';
 
 const hasApiKey = !!process.env.WHALE_ALERT_API_KEY;
 
@@ -18,7 +19,7 @@ describe.skipIf(!hasApiKey)('Whale Alert API Integration', () => {
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const now = Math.floor(Date.now() / 1000);
+        const now = Math.floor(getActiveClock().now() / 1000);
         const start = now - 3600;
         
         const url = `https://api.whale-alert.io/v1/transactions?api_key=${API_KEY}&start=${start}&end=${now}&min_value=1000000`;

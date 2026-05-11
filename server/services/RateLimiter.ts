@@ -4,6 +4,7 @@
  */
 
 import { rateLimit, type RateLimitRequestHandler } from 'express-rate-limit';
+import { getActiveClock } from '../_core/clock';
 import RedisStore from 'rate-limit-redis';
 import { createClient } from 'redis';
 import { ENV } from '../_core/env';
@@ -167,7 +168,7 @@ export async function getRateLimitStatus(
 
     const currentCount = current ? parseInt(current, 10) : 0;
     const remaining = Math.max(0, config.max - currentCount);
-    const resetTime = new Date(Date.now() + ttl * 1000);
+    const resetTime = new Date(getActiveClock().now() + ttl * 1000);
 
     return {
       type,

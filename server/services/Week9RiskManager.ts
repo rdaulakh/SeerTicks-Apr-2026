@@ -357,7 +357,7 @@ export class CircuitBreaker {
     
     // Symbol-specific circuit breaker
     if (symbolLosses >= this.config.maxConsecutiveLosses) {
-      const cooldownUntil = new Date();
+      const cooldownUntil = getActiveClock().date();
       cooldownUntil.setMinutes(cooldownUntil.getMinutes() + this.config.cooldownMinutes);
       this.cooldownUntil.set(symbol, cooldownUntil);
       console.log(`[CircuitBreaker] Symbol ${symbol} tripped: ${symbolLosses} consecutive losses. Cooldown until ${cooldownUntil.toISOString()}`);
@@ -365,7 +365,7 @@ export class CircuitBreaker {
     
     // Global circuit breaker
     if (this.globalConsecutiveLosses >= this.config.maxGlobalConsecutiveLosses) {
-      this.globalCooldownUntil = new Date();
+      this.globalCooldownUntil = getActiveClock().date();
       this.globalCooldownUntil.setMinutes(this.globalCooldownUntil.getMinutes() + this.config.cooldownMinutes * 2);
       console.log(`[CircuitBreaker] GLOBAL tripped: ${this.globalConsecutiveLosses} consecutive losses. Cooldown until ${this.globalCooldownUntil.toISOString()}`);
     }
@@ -375,7 +375,7 @@ export class CircuitBreaker {
    * Check if trading is allowed for a symbol
    */
   checkStatus(symbol: string): CircuitBreakerStatus {
-    const now = new Date();
+    const now = getActiveClock().date();
     
     // Check global cooldown first
     if (this.globalCooldownUntil && now < this.globalCooldownUntil) {
@@ -438,7 +438,7 @@ export class CircuitBreaker {
    * Get all active cooldowns
    */
   getActiveCooldowns(): { symbol: string; until: Date }[] {
-    const now = new Date();
+    const now = getActiveClock().date();
     const active: { symbol: string; until: Date }[] = [];
     
     for (const [symbol, until] of this.cooldownUntil.entries()) {
@@ -609,7 +609,7 @@ export class DailyDrawdownTracker {
   }
 
   resetForNewDay(startingEquity?: number): void {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getActiveClock().date().toISOString().split('T')[0];
     if (this.tradingDate !== today) {
       this.tradingDate = today;
       this.startOfDayEquity = startingEquity || this.currentEquity || 10000;
@@ -621,7 +621,7 @@ export class DailyDrawdownTracker {
   }
 
   updateEquity(newEquity: number): DailyDrawdownStatus {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getActiveClock().date().toISOString().split('T')[0];
     if (this.tradingDate !== today) {
       this.resetForNewDay(newEquity);
     }
@@ -647,7 +647,7 @@ export class DailyDrawdownTracker {
   }
 
   isTradingHalted(): boolean {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getActiveClock().date().toISOString().split('T')[0];
     if (this.tradingDate !== today) {
       this.resetForNewDay();
     }

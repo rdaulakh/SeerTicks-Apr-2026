@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { getActiveClock } from '../_core/clock';
 import { router, protectedProcedure } from '../_core/trpc';
 import { getDb } from '../db';
 import { tcaLog } from '../../drizzle/schema';
@@ -28,7 +29,7 @@ export const tcaRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return null;
-      const since = new Date(Date.now() - input.windowHours * 60 * 60 * 1000);
+      const since = new Date(getActiveClock().now() - input.windowHours * 60 * 60 * 1000);
 
       const rows = await db
         .select()
@@ -85,7 +86,7 @@ export const tcaRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
-      const since = new Date(Date.now() - input.windowHours * 60 * 60 * 1000);
+      const since = new Date(getActiveClock().now() - input.windowHours * 60 * 60 * 1000);
 
       const rows = await db
         .select({

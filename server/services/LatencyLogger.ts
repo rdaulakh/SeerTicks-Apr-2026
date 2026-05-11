@@ -13,6 +13,7 @@
  */
 
 import { logExecutionLatency, ExecutionLatencyEntry } from '../db';
+import { getActiveClock } from '../_core/clock';
 
 export interface LatencyContext {
   userId: number;
@@ -50,12 +51,12 @@ class LatencyLoggerService {
    * Start tracking latency for a new signal
    */
   startSignal(userId: number, symbol: string, agentCount: number, priceAtSignal?: number): string {
-    const contextId = `${userId}_${symbol}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const contextId = `${userId}_${symbol}_${getActiveClock().now()}_${Math.random().toString(36).substr(2, 6)}`;
     
     this.activeContexts.set(contextId, {
       userId,
       symbol,
-      signalGeneratedAt: Date.now(),
+      signalGeneratedAt: getActiveClock().now(),
       agentCount,
       priceAtSignal,
     });
@@ -69,7 +70,7 @@ class LatencyLoggerService {
   recordConsensus(contextId: string, consensusStrength: number): void {
     const ctx = this.activeContexts.get(contextId);
     if (ctx) {
-      ctx.consensusCalculatedAt = Date.now();
+      ctx.consensusCalculatedAt = getActiveClock().now();
       ctx.consensusStrength = consensusStrength;
     }
   }
@@ -80,7 +81,7 @@ class LatencyLoggerService {
   recordDecision(contextId: string, signalId?: string): void {
     const ctx = this.activeContexts.get(contextId);
     if (ctx) {
-      ctx.decisionMadeAt = Date.now();
+      ctx.decisionMadeAt = getActiveClock().now();
       if (signalId) {
         ctx.signalId = signalId;
       }
@@ -93,7 +94,7 @@ class LatencyLoggerService {
   recordOrderPlaced(contextId: string): void {
     const ctx = this.activeContexts.get(contextId);
     if (ctx) {
-      ctx.orderPlacedAt = Date.now();
+      ctx.orderPlacedAt = getActiveClock().now();
     }
   }
   
@@ -111,7 +112,7 @@ class LatencyLoggerService {
       return;
     }
     
-    ctx.orderFilledAt = Date.now();
+    ctx.orderFilledAt = getActiveClock().now();
     ctx.priceAtExecution = priceAtExecution;
     
     const totalLatencyMs = ctx.orderFilledAt - ctx.signalGeneratedAt;
@@ -166,7 +167,7 @@ class LatencyLoggerService {
       return; // Silent fail for rejected signals without context
     }
     
-    const endTime = Date.now();
+    const endTime = getActiveClock().now();
     const totalLatencyMs = endTime - ctx.signalGeneratedAt;
     
     // Persist to database
@@ -216,7 +217,7 @@ class LatencyLoggerService {
    * Clean up stale contexts (older than 5 minutes)
    */
   cleanupStaleContexts(): number {
-    const staleThreshold = Date.now() - 5 * 60 * 1000;
+    const staleThreshold = getActiveClock().now() - 5 * 60 * 1000;
     let cleaned = 0;
     
     for (const [id, ctx] of this.activeContexts) {

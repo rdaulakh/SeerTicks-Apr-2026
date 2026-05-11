@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * Price Feed Manager
  * Manages batch price fetching with multi-source failover
@@ -27,7 +28,7 @@ class PriceFeedManager {
       try {
         // Check cache first
         const cached = this.priceCache.get(symbol);
-        if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+        if (cached && getActiveClock().now() - cached.timestamp < this.CACHE_TTL) {
           return {
             symbol,
             price: cached.price,
@@ -42,14 +43,14 @@ class PriceFeedManager {
         // Update cache
         this.priceCache.set(symbol, {
           price,
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
         });
 
         return {
           symbol,
           price,
           source: 'binance' as const,
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
         };
       } catch (error) {
         console.error(`[PriceFeedManager] Failed to fetch price for ${symbol}:`, error);

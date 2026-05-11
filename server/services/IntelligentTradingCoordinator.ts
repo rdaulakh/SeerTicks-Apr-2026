@@ -15,6 +15,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { getServiceIntegrationManager, updatePriceCache, updateVolumeCache } from './ServiceIntegration';
 import type { PositionManager } from '../PositionManager';
 import type { RiskManager } from '../RiskManager';
@@ -183,7 +184,7 @@ export class IntelligentTradingCoordinator extends EventEmitter {
           const sharedMemory = getSharedAgentMemory();
           if (sharedMemory.isVetoActive(symbol)) {
             const vetoState = sharedMemory.getVetoState();
-            exitSignals.push({ agentName: 'SharedMemory', signal: 'exit' as const, confidence: 1.0, reason: `VETO ACTIVE: ${vetoState.reason}`, timestamp: Date.now() });
+            exitSignals.push({ agentName: 'SharedMemory', signal: 'exit' as const, confidence: 1.0, reason: `VETO ACTIVE: ${vetoState.reason}`, timestamp: getActiveClock().now() });
             return exitSignals;
           }
           
@@ -206,10 +207,10 @@ export class IntelligentTradingCoordinator extends EventEmitter {
           if (this.strategyOrchestrator) {
             const recommendation = await this.strategyOrchestrator.getRecommendation(symbol);
             if (recommendation.action === 'exit' || recommendation.action === 'sell') {
-              exitSignals.push({ agentName: 'StrategyOrchestrator', signal: 'exit' as const, confidence: recommendation.confidence, reason: recommendation.reasoning, timestamp: Date.now() });
+              exitSignals.push({ agentName: 'StrategyOrchestrator', signal: 'exit' as const, confidence: recommendation.confidence, reason: recommendation.reasoning, timestamp: getActiveClock().now() });
             }
             if (recommendation.vetoActive) {
-              exitSignals.push({ agentName: 'MacroAnalyst', signal: 'exit' as const, confidence: 1.0, reason: `VETO: ${recommendation.vetoReason}`, timestamp: Date.now() });
+              exitSignals.push({ agentName: 'MacroAnalyst', signal: 'exit' as const, confidence: 1.0, reason: `VETO: ${recommendation.vetoReason}`, timestamp: getActiveClock().now() });
             }
           }
           
@@ -242,7 +243,7 @@ export class IntelligentTradingCoordinator extends EventEmitter {
           positionId,
           quantity,
           reason,
-          timestamp: Date.now(),
+          timestamp: getActiveClock().now(),
         });
         
         // Execute through paper trading engine
@@ -294,7 +295,7 @@ export class IntelligentTradingCoordinator extends EventEmitter {
               exitPrice: currentPrice,
               isPartialExit,
               reason,
-              timestamp: Date.now(),
+              timestamp: getActiveClock().now(),
             });
           } else {
             console.warn(`[IntelligentTradingCoordinator] Position ${positionId} not found for exit`);
@@ -394,7 +395,7 @@ export class IntelligentTradingCoordinator extends EventEmitter {
           remainingQuantity: position.quantity,
           unrealizedPnl: 0,
           unrealizedPnlPercent: 0,
-          entryTime: Date.now(),
+          entryTime: getActiveClock().now(),
           marketRegime: 'unknown',
           originalConsensus: position.confidence || 0.5,
           atr: positionATR, // Phase 3: ATR for dynamic trailing
@@ -603,7 +604,7 @@ export class IntelligentTradingCoordinator extends EventEmitter {
       isRunning: this.isRunning,
       servicesConnected: connected,
       servicesFailed: failed,
-      lastUpdate: Date.now(),
+      lastUpdate: getActiveClock().now(),
       intelligentExitsActive: this.config.enableIntelligentExits && !!serviceManager.getIntelligentExitManager(),
       smartRoutingActive: this.config.enableSmartRouting && !!serviceManager.getSmartOrderRouter(),
       hftActive: this.config.enableHFT && !!serviceManager.getHighFrequencyOrchestrator(),

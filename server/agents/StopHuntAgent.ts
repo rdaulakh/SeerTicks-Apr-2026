@@ -44,6 +44,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface PriceSample {
   price: number;
@@ -113,12 +114,12 @@ export class StopHuntAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     const book = ((global as any).__binanceFuturesBook || {})[binSym] as BookSnapshot | undefined;
     if (!book) return this.neutralSignal(symbol, startTime, `No futures book for ${binSym}`);
-    const age = Date.now() - book.eventTime;
+    const age = getActiveClock().now() - book.eventTime;
     if (age > STALE_MS) return this.neutralSignal(symbol, startTime, `Book stale (${age}ms)`);
     if (!isFinite(book.midPrice) || book.midPrice <= 0) {
       return this.neutralSignal(symbol, startTime, `Invalid mid`);
@@ -127,7 +128,7 @@ export class StopHuntAgent extends AgentBase {
     const step = ROUND_STEPS[binSym];
     if (!step) return this.neutralSignal(symbol, startTime, `No round-step config for ${binSym}`);
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     let ring = this.samples.get(symbol);
     if (!ring) { ring = []; this.samples.set(symbol, ring); }
     ring.push({ price: book.midPrice, timestamp: now });
@@ -276,7 +277,7 @@ export class StopHuntAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: Math.min(spikeFactor + reversalFactor * 0.5, 1),
@@ -294,7 +295,7 @@ export class StopHuntAgent extends AgentBase {
         source: 'binance-perp-mid-stophunt',
       },
       qualityScore: 0.78,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: bookAgeMs,
       executionScore: Math.round(50 + spikeFactor * 25 + recencyBonus * 15),
     };
@@ -304,14 +305,14 @@ export class StopHuntAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: { ringSize: this.samples.get(symbol)?.length || 0 },
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

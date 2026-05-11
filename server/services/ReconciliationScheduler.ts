@@ -1,4 +1,5 @@
 import { PositionReconciliationService } from "./PositionReconciliationService";
+import { getActiveClock } from '../_core/clock';
 
 /**
  * Reconciliation Scheduler
@@ -89,13 +90,13 @@ export class ReconciliationScheduler {
     }
 
     console.log(`[ReconciliationScheduler] Running reconciliation for ${this.userIds.size} users`);
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     const results = await Promise.allSettled(
       Array.from(this.userIds).map(userId => this.reconcileUser(userId))
     );
 
-    const executionTimeMs = Date.now() - startTime;
+    const executionTimeMs = getActiveClock().now() - startTime;
 
     // Log summary
     const succeeded = results.filter(r => r.status === "fulfilled").length;

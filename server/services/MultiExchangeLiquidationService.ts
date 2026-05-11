@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * Multi-Exchange Liquidation Data Service
  * 
@@ -55,7 +56,7 @@ class MultiExchangeLiquidationService {
     
     // Check cache
     const cached = this.cache.get(normalizedSymbol);
-    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+    if (cached && getActiveClock().now() - cached.timestamp < this.CACHE_TTL) {
       return cached.data;
     }
 
@@ -96,7 +97,7 @@ class MultiExchangeLiquidationService {
     const aggregated = this.aggregateResults(normalizedSymbol, openInterestData, longShortData);
     
     // Cache the result
-    this.cache.set(normalizedSymbol, { data: aggregated, timestamp: Date.now() });
+    this.cache.set(normalizedSymbol, { data: aggregated, timestamp: getActiveClock().now() });
     
     return aggregated;
   }
@@ -129,7 +130,7 @@ class MultiExchangeLiquidationService {
         symbol: bybitSymbol,
         openInterest: parseFloat(item.openInterest || '0'),
         openInterestValue: parseFloat(item.openInterestValue || '0'),
-        timestamp: parseInt(item.timestamp || Date.now().toString()),
+        timestamp: parseInt(item.timestamp || getActiveClock().now().toString()),
       };
     } catch (error) {
       return null;
@@ -167,7 +168,7 @@ class MultiExchangeLiquidationService {
         longShortRatio: sellRatio > 0 ? buyRatio / sellRatio : 1,
         longPercentage: buyRatio * 100,
         shortPercentage: sellRatio * 100,
-        timestamp: parseInt(item.timestamp || Date.now().toString()),
+        timestamp: parseInt(item.timestamp || getActiveClock().now().toString()),
       };
     } catch (error) {
       return null;
@@ -202,7 +203,7 @@ class MultiExchangeLiquidationService {
         symbol: okxSymbol,
         openInterest: parseFloat(item.oi || '0'),
         openInterestValue: parseFloat(item.oiCcy || '0'),
-        timestamp: parseInt(item.ts || Date.now().toString()),
+        timestamp: parseInt(item.ts || getActiveClock().now().toString()),
       };
     } catch (error) {
       return null;
@@ -243,7 +244,7 @@ class MultiExchangeLiquidationService {
         longShortRatio: ratio,
         longPercentage: longPct,
         shortPercentage: shortPct,
-        timestamp: parseInt(item[0] || Date.now().toString()),
+        timestamp: parseInt(item[0] || getActiveClock().now().toString()),
       };
     } catch (error) {
       return null;
@@ -271,7 +272,7 @@ class MultiExchangeLiquidationService {
         symbol: binanceSymbol,
         openInterest: parseFloat(data.openInterest || '0'),
         openInterestValue: 0, // Binance doesn't provide this directly
-        timestamp: data.time || Date.now(),
+        timestamp: data.time || getActiveClock().now(),
       };
     } catch (error) {
       return null;
@@ -305,7 +306,7 @@ class MultiExchangeLiquidationService {
         longShortRatio: ratio,
         longPercentage: parseFloat(item.longAccount || '50') * 100,
         shortPercentage: parseFloat(item.shortAccount || '50') * 100,
-        timestamp: item.timestamp || Date.now(),
+        timestamp: item.timestamp || getActiveClock().now(),
       };
     } catch (error) {
       return null;

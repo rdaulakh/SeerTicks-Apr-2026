@@ -16,6 +16,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { getDb } from '../db';
 import { historicalCandles, agentSignals, trades } from '../../drizzle/schema';
 import { sql, count, desc, and, gte, lte, eq, asc } from 'drizzle-orm';
@@ -294,7 +295,7 @@ export class OneMonthComprehensiveBacktest extends EventEmitter {
   // ============================================
   
   async fetchHistoricalData(): Promise<void> {
-    const stepStart = Date.now();
+    const stepStart = getActiveClock().now();
     const notes: string[] = [];
     const stepGaps: string[] = [];
     const stepImprovements: string[] = [];
@@ -351,7 +352,7 @@ export class OneMonthComprehensiveBacktest extends EventEmitter {
       timestamp: new Date(),
       input: { symbols: this.config.symbols, period: { start: this.config.startDate, end: this.config.endDate } },
       output: { candleCounts: Object.fromEntries([...this.historicalData.entries()].map(([k, v]) => [k, v.length])) },
-      duration: Date.now() - stepStart,
+      duration: getActiveClock().now() - stepStart,
       success: true,
       notes,
       gaps: stepGaps,
@@ -835,7 +836,7 @@ export class OneMonthComprehensiveBacktest extends EventEmitter {
       : candle.close * (1 - this.config.takeProfitPercent);
     
     const trade: BacktestTrade = {
-      id: `${consensus.symbol}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `${consensus.symbol}-${getActiveClock().now()}-${Math.random().toString(36).substr(2, 9)}`,
       symbol: consensus.symbol,
       direction,
       entryPrice: candle.close,

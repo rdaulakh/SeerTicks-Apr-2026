@@ -20,6 +20,7 @@
  */
 
 import type { AgentSignal } from '../agents/AgentBase';
+import { getActiveClock } from '../_core/clock';
 
 export interface CycleInsight {
   cycleId: string;           // Unique cycle identifier
@@ -80,7 +81,7 @@ export class CrossCycleMemory {
     regime: string,
     currentPrice: number
   ): void {
-    const timestamp = Date.now();
+    const timestamp = getActiveClock().now();
     const cycleId = `${symbol}-${timestamp}`;
 
     // Increment cycle counter
@@ -235,7 +236,7 @@ export class CrossCycleMemory {
 
     // Build regime history with durations
     const regimeHistoryWithDuration = regimes.map((r, i) => {
-      const nextTimestamp = i < regimes.length - 1 ? regimes[i + 1].timestamp : Date.now();
+      const nextTimestamp = i < regimes.length - 1 ? regimes[i + 1].timestamp : getActiveClock().now();
       return {
         regime: r.regime,
         timestamp: r.timestamp,

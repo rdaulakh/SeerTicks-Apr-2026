@@ -2,6 +2,7 @@
  * GridTradingEngine - Automated grid trading strategies
  */
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../../_core/clock';
 
 export interface GridLevel { price: number; type: 'buy' | 'sell'; status: 'pending' | 'filled' | 'cancelled'; orderId?: string; filledAt?: number; quantity: number; }
 export interface Grid { id: string; symbol: string; upperPrice: number; lowerPrice: number; gridCount: number; gridType: 'arithmetic' | 'geometric'; levels: GridLevel[]; totalInvestment: number; realizedPnL: number; unrealizedPnL: number; status: 'active' | 'paused' | 'stopped'; createdAt: number; lastUpdate: number; }
@@ -19,7 +20,7 @@ export class GridTradingEngine extends EventEmitter {
   stop(): void { this.isRunning = false; }
   
   createGrid(params: { symbol: string; upperPrice: number; lowerPrice: number; gridCount?: number; gridType?: 'arithmetic' | 'geometric'; totalInvestment: number }): Grid {
-    const id = `grid_${params.symbol}_${Date.now()}`;
+    const id = `grid_${params.symbol}_${getActiveClock().now()}`;
     const gridCount = params.gridCount || this.config.defaultGridCount;
     const gridType = params.gridType || 'arithmetic';
     
@@ -38,7 +39,7 @@ export class GridTradingEngine extends EventEmitter {
       levels.push({ price: Math.round(price * 100) / 100, type: i < gridCount / 2 ? 'buy' : 'sell', status: 'pending', quantity: quantityPerLevel / price });
     }
     
-    const grid: Grid = { id, symbol: params.symbol, upperPrice: params.upperPrice, lowerPrice: params.lowerPrice, gridCount, gridType, levels, totalInvestment: params.totalInvestment, realizedPnL: 0, unrealizedPnL: 0, status: 'active', createdAt: Date.now(), lastUpdate: Date.now() };
+    const grid: Grid = { id, symbol: params.symbol, upperPrice: params.upperPrice, lowerPrice: params.lowerPrice, gridCount, gridType, levels, totalInvestment: params.totalInvestment, realizedPnL: 0, unrealizedPnL: 0, status: 'active', createdAt: getActiveClock().now(), lastUpdate: getActiveClock().now() };
     this.grids.set(id, grid);
     this.emit('gridCreated', grid);
     return grid;
@@ -58,7 +59,7 @@ export class GridTradingEngine extends EventEmitter {
       if (level.status !== 'pending') continue;
       if (level.type === 'buy' && currentPrice <= level.price) {
         level.status = 'filled';
-        level.filledAt = Date.now();
+        level.filledAt = getActiveClock().now();
         updated = true;
         this.emit('levelFilled', { gridId: grid.id, level, type: 'buy', price: currentPrice });
         // Create corresponding sell level
@@ -67,7 +68,7 @@ export class GridTradingEngine extends EventEmitter {
         if (sellLevel) sellLevel.price = sellPrice;
       } else if (level.type === 'sell' && currentPrice >= level.price) {
         level.status = 'filled';
-        level.filledAt = Date.now();
+        level.filledAt = getActiveClock().now();
         updated = true;
         const profit = level.quantity * (currentPrice - level.price * 0.99);
         grid.realizedPnL += profit;
@@ -85,7 +86,7 @@ export class GridTradingEngine extends EventEmitter {
     }
     
     if (updated) {
-      grid.lastUpdate = Date.now();
+      grid.lastUpdate = getActiveClock().now();
       this.emit('gridUpdated', grid);
     }
   }

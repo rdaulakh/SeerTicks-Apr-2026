@@ -20,6 +20,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 import { fetchCandles, Candle } from "../metaapi";
 
 interface ForexAnalysis {
@@ -134,7 +135,7 @@ export class ForexCorrelationAgent extends AgentBase {
    * Analyze forex correlations and generate trading signal
    */
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     
     try {
       // Get forex analysis (use cache if fresh)
@@ -157,7 +158,7 @@ export class ForexCorrelationAgent extends AgentBase {
    * Get forex analysis (with caching)
    */
   private async getForexAnalysis(): Promise<ForexAnalysis> {
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     // Return cached analysis if fresh
     if (this.cachedAnalysis && (now - this.lastAnalysisTime) < this.CACHE_TTL_MS) {
@@ -362,7 +363,7 @@ export class ForexCorrelationAgent extends AgentBase {
     startTime: number,
     context?: any
   ): AgentSignal {
-    const processingTime = Date.now() - startTime;
+    const processingTime = getActiveClock().now() - startTime;
     
     // Calculate execution score
     const executionScore = this.calculateExecutionScore(analysis);
@@ -408,7 +409,7 @@ export class ForexCorrelationAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: analysis.correlationSignal,
       confidence: adjustedConfidence,
       strength,

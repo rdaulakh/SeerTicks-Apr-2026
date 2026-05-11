@@ -29,6 +29,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface DepthLevel { price: number; qty: number; }
 interface DepthSnapshot {
@@ -89,12 +90,12 @@ export class LiquidityVacuumAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     const depth = ((global as any).__binancePerpDepth5 || {})[binSym] as DepthSnapshot | undefined;
     if (!depth) return this.neutralSignal(symbol, startTime, `No depth5 for ${binSym}`);
-    const age = Date.now() - depth.receivedAt;
+    const age = getActiveClock().now() - depth.receivedAt;
     if (age > STALE_MS) return this.neutralSignal(symbol, startTime, `Depth stale (${age}ms)`);
     if (!depth.bids?.length || !depth.asks?.length) {
       return this.neutralSignal(symbol, startTime, `Empty depth (bids=${depth.bids?.length} asks=${depth.asks?.length})`);
@@ -187,7 +188,7 @@ export class LiquidityVacuumAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: vacuumFactor,
@@ -211,7 +212,7 @@ export class LiquidityVacuumAgent extends AgentBase {
         source: 'binance-perp-depth5-vacuum',
       },
       qualityScore: 0.74,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: age,
       executionScore: Math.round(45 + vacuumFactor * 25 + Math.max(0, cleanFactor) * 10),
     };
@@ -221,7 +222,7 @@ export class LiquidityVacuumAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
@@ -231,7 +232,7 @@ export class LiquidityVacuumAgent extends AgentBase {
         askRingSize: this.askRings.get(symbol)?.length || 0,
       },
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * Layered Profit Manager
  * Week 7-8 Implementation based on Claude AI recommendations
@@ -125,7 +126,7 @@ export class LayeredProfitManager {
         
         // Mark target as executed
         target.executed = true;
-        target.executedAt = Date.now();
+        target.executedAt = getActiveClock().now();
         target.executedPrice = currentPrice;
         
         // Special actions based on target level

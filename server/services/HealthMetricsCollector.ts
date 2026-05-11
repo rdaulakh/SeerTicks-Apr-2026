@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * Health Metrics Collector Service
  * Collects and aggregates system health metrics
@@ -58,7 +59,7 @@ class HealthMetricsCollector {
    * Get average metrics over time period
    */
   getAverageMetrics(minutes: number = 5): Partial<HealthMetrics> {
-    const cutoff = new Date(Date.now() - minutes * 60 * 1000);
+    const cutoff = new Date(getActiveClock().now() - minutes * 60 * 1000);
     const recentMetrics = this.metrics.filter(m => m.timestamp >= cutoff);
 
     if (recentMetrics.length === 0) {

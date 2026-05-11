@@ -12,6 +12,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { getDb } from '../db';
 import { winningPatterns, agentSignals } from '../../drizzle/schema';
 import { eq, and, gte, lte, desc, sql } from 'drizzle-orm';
@@ -156,7 +157,7 @@ export interface BacktestResult {
 }
 
 const DEFAULT_CONFIG: BacktestConfig = {
-  startDate: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000), // 60 days ago
+  startDate: new Date(getActiveClock().now() - 60 * 24 * 60 * 60 * 1000), // 60 days ago
   endDate: new Date(),
   symbols: ['BTC-USD', 'ETH-USD'],
   
@@ -723,7 +724,7 @@ export class ComprehensiveBacktestEngine extends EventEmitter {
    */
   calculateConsensus(signals: AgentSignalData[], regime: MarketRegime): ConsensusResult {
     const symbol = signals[0]?.symbol || 'UNKNOWN';
-    const timestamp = signals[0]?.timestamp || Date.now();
+    const timestamp = signals[0]?.timestamp || getActiveClock().now();
     
     // Separate fast and slow agents
     const fastSignals = signals.filter(s => FAST_AGENTS.includes(s.agentName));
@@ -1008,7 +1009,7 @@ export class ComprehensiveBacktestEngine extends EventEmitter {
       : candle.close * (1 - takeProfitPercent / 100);
     
     const trade: BacktestTrade = {
-      id: `${symbol}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `${symbol}-${getActiveClock().now()}-${Math.random().toString(36).substr(2, 9)}`,
       symbol,
       direction,
       entryPrice: candle.close,
@@ -1188,7 +1189,7 @@ export class ComprehensiveBacktestEngine extends EventEmitter {
     
     // Update trade record
     trade.exitPrice = exitPrice;
-    trade.exitTime = Date.now();
+    trade.exitTime = getActiveClock().now();
     trade.pnl = totalPnl;
     trade.pnlPercent = totalPnlPercent;
     trade.exitReason = reason;

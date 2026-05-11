@@ -14,6 +14,7 @@
  */
 
 import { ENV } from '../_core/env';
+import { getActiveClock } from '../_core/clock';
 
 // Types for on-chain data
 export interface ExchangeFlowMetrics {
@@ -119,9 +120,9 @@ class OnChainDataProviderClass {
       const dataSources: string[] = [];
       let metrics: Partial<ExchangeFlowMetrics> = {
         symbol: normalizedSymbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         dataSources: [],
-        lastUpdated: Date.now(),
+        lastUpdated: getActiveClock().now(),
       };
       
       // Fetch from multiple sources in parallel
@@ -228,11 +229,11 @@ class OnChainDataProviderClass {
     if (symbol !== 'BTC') return null; // Only BTC supported
     
     // Rate limiting
-    const now = Date.now();
+    const now = getActiveClock().now();
     if (now - this.lastBlockchainApiCall < this.BLOCKCHAIN_API_INTERVAL) {
       await this.sleep(this.BLOCKCHAIN_API_INTERVAL - (now - this.lastBlockchainApiCall));
     }
-    this.lastBlockchainApiCall = Date.now();
+    this.lastBlockchainApiCall = getActiveClock().now();
     
     try {
       // Fetch multiple endpoints
@@ -273,11 +274,11 @@ class OnChainDataProviderClass {
     reserveChange7d: number;
   } | null> {
     // Rate limiting
-    const now = Date.now();
+    const now = getActiveClock().now();
     if (now - this.lastCoinGeckoApiCall < this.COINGECKO_API_INTERVAL) {
       await this.sleep(this.COINGECKO_API_INTERVAL - (now - this.lastCoinGeckoApiCall));
     }
-    this.lastCoinGeckoApiCall = Date.now();
+    this.lastCoinGeckoApiCall = getActiveClock().now();
     
     try {
       const coinId = this.getCoinGeckoId(symbol);
@@ -426,7 +427,7 @@ class OnChainDataProviderClass {
     
     return {
       symbol: metrics.symbol || symbol,
-      timestamp: metrics.timestamp || Date.now(),
+      timestamp: metrics.timestamp || getActiveClock().now(),
       estimatedInflow: metrics.estimatedInflow ?? defaults.estimatedInflow ?? 0,
       estimatedOutflow: metrics.estimatedOutflow ?? defaults.estimatedOutflow ?? 0,
       netFlow: metrics.netFlow ?? defaults.netFlow ?? 0,
@@ -442,7 +443,7 @@ class OnChainDataProviderClass {
       avgBlockTime: metrics.avgBlockTime,
       activeAddresses: metrics.activeAddresses,
       dataSources: metrics.dataSources || [],
-      lastUpdated: metrics.lastUpdated || Date.now(),
+      lastUpdated: metrics.lastUpdated || getActiveClock().now(),
     };
   }
 
@@ -487,7 +488,7 @@ class OnChainDataProviderClass {
     
     return {
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       estimatedInflow: defaults.estimatedInflow || 0,
       estimatedOutflow: defaults.estimatedOutflow || 0,
       netFlow: defaults.netFlow || 0,
@@ -499,7 +500,7 @@ class OnChainDataProviderClass {
       largeTransactionVolume: 0,
       avgLargeTransactionSize: 0,
       dataSources: ['fallback'],
-      lastUpdated: Date.now(),
+      lastUpdated: getActiveClock().now(),
     };
   }
 
@@ -544,14 +545,14 @@ class OnChainDataProviderClass {
 
   private getFromCache<T>(key: string): T | null {
     const entry = this.cache.get(key);
-    if (entry && Date.now() - entry.timestamp < this.CACHE_TTL) {
+    if (entry && getActiveClock().now() - entry.timestamp < this.CACHE_TTL) {
       return entry.data as T;
     }
     return null;
   }
 
   private setCache<T>(key: string, data: T, ttl: number = this.CACHE_TTL): void {
-    this.cache.set(key, { data, timestamp: Date.now() });
+    this.cache.set(key, { data, timestamp: getActiveClock().now() });
   }
 
   private sleep(ms: number): Promise<void> {

@@ -10,6 +10,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // Types
 export interface BacktestConfig {
@@ -381,7 +382,7 @@ function generateAgentSignals(
   currentPrice: number
 ): AgentSignalRecord[] {
   const signals: AgentSignalRecord[] = [];
-  const timestamp = Date.now();
+  const timestamp = getActiveClock().now();
   
   // TechnicalAnalyst - adapts to regime
   let techSignal: 'bullish' | 'bearish' | 'neutral' = 'neutral';
@@ -859,7 +860,7 @@ export class BacktestEngineV2 extends EventEmitter {
   }
 
   private generateTradeId(): string {
-    return `BT-${Date.now()}-${++this.tradeIdCounter}`;
+    return `BT-${getActiveClock().now()}-${++this.tradeIdCounter}`;
   }
 
   private isDuplicateSignal(symbol: string, direction: string, timestamp: number): boolean {

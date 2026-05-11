@@ -1,3 +1,4 @@
+import { getActiveClock } from "./_core/clock";
 /**
  * Graceful Degradation System
  * Handles agent failures and ensures system continues operating with reduced functionality
@@ -50,7 +51,7 @@ export class GracefulDegradation {
       this.agentHealth.set(agent, {
         agentName: agent,
         isHealthy: true,
-        lastSuccessTime: Date.now(),
+        lastSuccessTime: getActiveClock().now(),
         consecutiveFailures: 0,
       });
     }
@@ -64,7 +65,7 @@ export class GracefulDegradation {
     if (!health) return;
 
     health.isHealthy = true;
-    health.lastSuccessTime = Date.now();
+    health.lastSuccessTime = getActiveClock().now();
     health.consecutiveFailures = 0;
     health.errorMessage = undefined;
 
@@ -191,7 +192,7 @@ export class GracefulDegradation {
    * Attempt to recover failed agents
    */
   async attemptRecovery(): Promise<void> {
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     for (const [agentName, health] of Array.from(this.agentHealth.entries())) {
       if (!health.isHealthy && (now - health.lastSuccessTime) > this.RECOVERY_TIMEOUT) {

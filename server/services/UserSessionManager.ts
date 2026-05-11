@@ -18,6 +18,7 @@
  */
 
 import { UserTradingSession, UserTradingSessionConfig } from './UserTradingSession';
+import { getActiveClock } from '../_core/clock';
 import { GlobalSignal } from './GlobalSymbolAnalyzer';
 import { priceFeedService } from './priceFeedService';
 
@@ -251,7 +252,7 @@ class UserSessionManager {
         }
       }
 
-      this.lastSyncMs = Date.now();
+      this.lastSyncMs = getActiveClock().now();
     } catch (err) {
       console.error('[UserSessionManager] User sync failed:', (err as Error)?.message);
     }

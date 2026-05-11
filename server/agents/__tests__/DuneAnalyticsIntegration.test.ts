@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { getActiveClock } from '../../_core/clock';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -182,7 +183,7 @@ describe('DuneAnalyticsProvider', () => {
             result: {
               metadata: { column_names: [], column_types: [], row_count: 7, datapoint_count: 28 },
               rows: Array.from({ length: 7 }, (_, i) => ({
-                time: new Date(Date.now() - i * 86400000).toISOString(),
+                time: new Date(getActiveClock().now() - i * 86400000).toISOString(),
                 exchange: 'aggregated',
                 inflow: 5000,
                 outflow: 6000, // Net outflow = bullish
@@ -200,7 +201,7 @@ describe('DuneAnalyticsProvider', () => {
             result: {
               metadata: { column_names: [], column_types: [], row_count: 10, datapoint_count: 40 },
               rows: Array.from({ length: 10 }, (_, i) => ({
-                block_time: new Date(Date.now() - i * 3600000).toISOString(),
+                block_time: new Date(getActiveClock().now() - i * 3600000).toISOString(),
                 tx_hash: `tx_${i}`,
                 amount: 200,
                 amount_usd: 8400000,

@@ -18,6 +18,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 export interface AgentTradeRecord {
   tradeId: number;
@@ -149,7 +150,7 @@ class AgentAlphaValidator extends EventEmitter {
     if (tradeRecords.length === 0) {
       console.log('[AgentAlphaValidator] No trade records found');
       const emptyResult: AlphaValidationResult = {
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         totalTradesAnalyzed: 0,
         agentReports: [],
         agentsWithAlpha: [],
@@ -185,7 +186,7 @@ class AgentAlphaValidator extends EventEmitter {
     const systemProfitFactor = grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? Infinity : 0;
 
     const result: AlphaValidationResult = {
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       totalTradesAnalyzed: tradeRecords.length,
       agentReports,
       agentsWithAlpha: agentReports.filter(r => r.hasAlpha).map(r => r.agentName),
@@ -458,7 +459,7 @@ class AgentAlphaValidator extends EventEmitter {
       recommendation,
       rollingWinRate,
       rollingSharpe,
-      validatedAt: Date.now(),
+      validatedAt: getActiveClock().now(),
     };
   }
 

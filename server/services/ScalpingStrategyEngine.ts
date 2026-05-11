@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import type { MomentumSignal, VolumeSignal } from './HighFrequencyTickProcessor';
 
 /**
@@ -61,7 +62,7 @@ export class ScalpingStrategyEngine extends EventEmitter {
    * Process momentum signal
    */
   processMomentumSignal(signal: MomentumSignal, currentPrice: number): void {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     
     // Store recent momentum signal
     this.recentMomentumSignals.set(signal.symbol, signal);
@@ -85,7 +86,7 @@ export class ScalpingStrategyEngine extends EventEmitter {
    * Process volume signal
    */
   processVolumeSignal(signal: VolumeSignal, currentPrice: number): void {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     
     // Store recent volume signal
     this.recentVolumeSignals.set(signal.symbol, signal);
@@ -117,7 +118,7 @@ export class ScalpingStrategyEngine extends EventEmitter {
     // Check if signals agree on direction
     if (momentumSignal.direction !== volumeSignal.direction) return;
 
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     // Combined confidence (average of both)
     const combinedStrength = (momentumSignal.strength + volumeSignal.strength) / 2;
@@ -171,7 +172,7 @@ export class ScalpingStrategyEngine extends EventEmitter {
       takeProfit = currentPrice * (1 - this.config.takeProfitPercent / 100);
     }
 
-    const latency = Date.now() - startTime;
+    const latency = getActiveClock().now() - startTime;
 
     const scalpingSignal: ScalpingSignal = {
       symbol,
@@ -180,7 +181,7 @@ export class ScalpingStrategyEngine extends EventEmitter {
       entryPrice: currentPrice,
       stopLoss,
       takeProfit,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signalSources: sources,
       latency,
     };
@@ -202,7 +203,7 @@ export class ScalpingStrategyEngine extends EventEmitter {
    * Clean up old signals (> 1 second)
    */
   private cleanOldSignals(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const maxAge = 1000; // 1 second
 
     // Clean momentum signals

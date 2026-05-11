@@ -35,6 +35,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface BookSnapshot {
   bidPrice: number;
@@ -100,7 +101,7 @@ export class PerpSpotPremiumAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     const futuresBook = (global as any).__binanceFuturesBook as Record<string, BookSnapshot> | undefined;
@@ -113,7 +114,7 @@ export class PerpSpotPremiumAgent extends AgentBase {
       return this.neutralSignal(symbol, startTime, `Missing books (perp=${!!perp}, spot=${!!spot}) for ${binSym}`);
     }
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     const perpAge = now - perp.eventTime;
     const spotAge = now - spot.eventTime;
     if (perpAge > STALE_MS || spotAge > STALE_MS) {
@@ -176,7 +177,7 @@ export class PerpSpotPremiumAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: Math.min(Math.abs(delta) / PREMIUM_CAP_BPS, 1),
@@ -197,7 +198,7 @@ export class PerpSpotPremiumAgent extends AgentBase {
         source: 'binance-spot+perp-bookTicker',
       },
       qualityScore: 0.75,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: Math.max(perpAge, spotAge),
       executionScore: Math.round(50 + magFactor * 30 + consistency * 10), // bigger + more consistent → better timing
     };
@@ -207,14 +208,14 @@ export class PerpSpotPremiumAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: { ringSize: this.premiumRings.get(symbol)?.length || 0 },
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

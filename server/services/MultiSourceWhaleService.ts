@@ -12,6 +12,7 @@
  */
 
 import { fetchWhaleAlerts, WhaleTransaction } from "./whaleAlertService";
+import { getActiveClock } from '../_core/clock';
 
 export interface WhaleFlowData {
   source: string;
@@ -51,7 +52,7 @@ async function fetchFromWhaleAlert(symbol: string): Promise<WhaleFlowData | null
     const whaleData = await fetchWhaleAlerts({
       symbol: coinSymbol,
       minValue: 500000,
-      startTime: Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000),
+      startTime: Math.floor((getActiveClock().now() - 24 * 60 * 60 * 1000) / 1000),
       limit: 100,
     });
 
@@ -98,7 +99,7 @@ async function fetchFromWhaleAlert(symbol: string): Promise<WhaleFlowData | null
       netFlow: exchangeInflow - exchangeOutflow,
       largeTransactions,
       totalVolume,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       confidence: 0.85,
     };
   } catch (error) {
@@ -148,7 +149,7 @@ function estimateFromOrderBook(
       netFlow: exchangeInflow - exchangeOutflow,
       largeTransactions: 0,
       totalVolume: totalVolume * 0.1,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       confidence: 0.5, // Lower confidence for estimates
     };
   } catch (error) {
@@ -198,7 +199,7 @@ function estimateFromTradeTape(
       netFlow: whaleSellVolume - whaleBuyVolume,
       largeTransactions,
       totalVolume: whaleBuyVolume + whaleSellVolume,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       confidence: 0.6,
     };
   } catch (error) {
@@ -255,7 +256,7 @@ function generatePriceBasedEstimate(
     netFlow: exchangeInflow - exchangeOutflow,
     largeTransactions: 0,
     totalVolume: estimatedWhaleVolume,
-    timestamp: Date.now(),
+    timestamp: getActiveClock().now(),
     confidence: 0.4, // Lowest confidence for price-based estimates
   };
 }

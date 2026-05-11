@@ -20,6 +20,7 @@
  */
 
 import EventEmitter from 'eventemitter3';
+import { getActiveClock } from '../_core/clock';
 import { priceFeedService } from './priceFeedService';
 import { wsHealthMonitor } from '../monitoring/WebSocketHealthMonitor';
 
@@ -85,7 +86,7 @@ class BinanceRestFallbackService extends EventEmitter {
     // Listen for Coinbase price updates to track health
     priceFeedService.on('price_update', (priceData: any) => {
       if (priceData.source === 'websocket' || priceData.source === 'coinbase') {
-        this.lastCoinbaseMessageTime = Date.now();
+        this.lastCoinbaseMessageTime = getActiveClock().now();
 
         // If fallback is active and Coinbase recovered, deactivate
         if (this.isActive) {
@@ -111,12 +112,12 @@ class BinanceRestFallbackService extends EventEmitter {
    * Activate fallback if stale.
    */
   // Phase 15D: Track startup time for grace period calculation
-  private startedAt: number = Date.now();
+  private startedAt: number = getActiveClock().now();
 
   private checkCoinbaseHealth(): void {
     if (!this.isRunning) return;
 
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     // Phase 15D FIX: Don't return early when lastCoinbaseMessageTime is null.
     // Previously this was a permanent early return — Binance fallback NEVER activated on startup.
@@ -146,7 +147,7 @@ class BinanceRestFallbackService extends EventEmitter {
 
     console.log('[BinanceRestFallback] 🔄 ACTIVATING Binance REST fallback');
     this.isActive = true;
-    this.activatedAt = Date.now();
+    this.activatedAt = getActiveClock().now();
 
     try { wsHealthMonitor.updateStatus('BinanceREST', 'connected'); } catch (e) { /* non-critical */ }
 
@@ -158,7 +159,7 @@ class BinanceRestFallbackService extends EventEmitter {
     // Do an immediate poll
     this.pollPrices();
 
-    this.emit('activated', { timestamp: Date.now() });
+    this.emit('activated', { timestamp: getActiveClock().now() });
   }
 
   /**
@@ -169,7 +170,7 @@ class BinanceRestFallbackService extends EventEmitter {
 
     console.log('[BinanceRestFallback] ✅ DEACTIVATING fallback, Coinbase recovered');
     this.isActive = false;
-    this.deactivatedAt = Date.now();
+    this.deactivatedAt = getActiveClock().now();
 
     try { wsHealthMonitor.updateStatus('BinanceREST', 'standby'); } catch (e) { /* non-critical */ }
 
@@ -178,7 +179,7 @@ class BinanceRestFallbackService extends EventEmitter {
       this.pollInterval = null;
     }
 
-    this.emit('deactivated', { timestamp: Date.now() });
+    this.emit('deactivated', { timestamp: getActiveClock().now() });
   }
 
   /**
@@ -209,7 +210,7 @@ class BinanceRestFallbackService extends EventEmitter {
 
       const data = await response.json() as Array<{ symbol: string; price: string }>;
 
-      this.lastPollTime = Date.now();
+      this.lastPollTime = getActiveClock().now();
       this.totalPolls++;
 
       try { wsHealthMonitor.recordMessage('BinanceREST'); } catch (e) { /* non-critical */ }
@@ -231,7 +232,7 @@ class BinanceRestFallbackService extends EventEmitter {
         }
       }
 
-      this.emit('poll_complete', { count: data.length, timestamp: Date.now() });
+      this.emit('poll_complete', { count: data.length, timestamp: getActiveClock().now() });
     } catch (error: any) {
       this.totalErrors++;
       // Don't spam logs - only log every 6th error (once per minute at 10s intervals)

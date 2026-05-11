@@ -14,6 +14,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 // API Response types
 interface Protocol {
@@ -131,7 +132,7 @@ export class DeFiLlamaService extends EventEmitter {
       // Cache the result
       this.cache.set(url, {
         data,
-        expiry: new Date(Date.now() + (cacheTTL || this.cacheTTL)),
+        expiry: new Date(getActiveClock().now() + (cacheTTL || this.cacheTTL)),
       });
 
       return data;

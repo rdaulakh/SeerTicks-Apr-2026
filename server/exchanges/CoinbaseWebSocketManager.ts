@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { getActiveClock } from '../_core/clock';
 import EventEmitter from 'eventemitter3';
 import { generateCoinbaseWebSocketJWT } from '../utils/coinbaseJWT.js';
 import { wsHealthMonitor } from '../monitoring/WebSocketHealthMonitor';
@@ -435,7 +436,7 @@ export class CoinbaseWebSocketManager extends EventEmitter {
     connectionUptime: number;
     isHealthy: boolean;
   } {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const connected = this.isConnected();
     const lastMsgAge = this.lastMessageTime ? now - this.lastMessageTime.getTime() : Infinity;
     const lastHbAge = this.lastHeartbeat ? now - this.lastHeartbeat.getTime() : Infinity;
@@ -464,7 +465,7 @@ export class CoinbaseWebSocketManager extends EventEmitter {
     this.heartbeatInterval = setInterval(() => {
       if (!this.lastHeartbeat) return;
 
-      const timeSinceLastHeartbeat = Date.now() - this.lastHeartbeat.getTime();
+      const timeSinceLastHeartbeat = getActiveClock().now() - this.lastHeartbeat.getTime();
       if (timeSinceLastHeartbeat > 30000) {
         // No heartbeat for 30 seconds
         console.warn('[CoinbaseWebSocket] No heartbeat received for 30 seconds, reconnecting...');
@@ -489,7 +490,7 @@ export class CoinbaseWebSocketManager extends EventEmitter {
    */
   getLatency(): number {
     if (!this.connectionStartTime) return 0;
-    return Date.now() - this.connectionStartTime.getTime();
+    return getActiveClock().now() - this.connectionStartTime.getTime();
   }
 
   /**

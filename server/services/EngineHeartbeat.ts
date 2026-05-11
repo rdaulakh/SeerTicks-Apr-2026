@@ -26,6 +26,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { executionLogger } from '../utils/logger';
 
 export interface HeartbeatConfig {
@@ -95,10 +96,10 @@ export class EngineHeartbeat extends EventEmitter {
   }
 
   // — Pulse recorders. Wire these from the existing event emitters. —
-  recordSignal(): void { this.lastSignalAt = Date.now(); }
-  recordDecision(): void { this.lastDecisionAt = Date.now(); }
-  recordFill(): void { this.lastFillAt = Date.now(); }
-  recordPriceTick(): void { this.lastPriceTickAt = Date.now(); }
+  recordSignal(): void { this.lastSignalAt = getActiveClock().now(); }
+  recordDecision(): void { this.lastDecisionAt = getActiveClock().now(); }
+  recordFill(): void { this.lastFillAt = getActiveClock().now(); }
+  recordPriceTick(): void { this.lastPriceTickAt = getActiveClock().now(); }
 
   setOpenPositionCount(n: number): void { this.openPositionCount = n; }
 
@@ -145,7 +146,7 @@ export class EngineHeartbeat extends EventEmitter {
       if (!wallet) {
         issues.push(`WALLET_MISSING for mode=${cfgMode}`);
       } else {
-        const ageHours = (Date.now() - new Date(wallet.updatedAt).getTime()) / 3600000;
+        const ageHours = (getActiveClock().now() - new Date(wallet.updatedAt).getTime()) / 3600000;
         if (ageHours > 1 && openPositions.length > 0) {
           issues.push(`WALLET_STALE: ${cfgMode} wallet not updated in ${ageHours.toFixed(1)}h despite ${openPositions.length} open positions`);
         }
@@ -166,7 +167,7 @@ export class EngineHeartbeat extends EventEmitter {
    * dayStartEquity * 100. Watchdog auto-halts if it crosses the threshold.
    */
   updateDailyPnl(currentEquity: number): void {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getActiveClock().date().toISOString().slice(0, 10);
     if (this.dailyPnlResetDate !== today) {
       this.dailyPnlResetDate = today;
       this.dailyPnlBaseEquity = currentEquity;
@@ -190,7 +191,7 @@ export class EngineHeartbeat extends EventEmitter {
   }
 
   status(): HeartbeatStatus {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const reasons = this.evaluateHealth(now).reasons;
     const idle = (t: number | null) => t == null ? null : Math.floor((now - t) / 1000);
     return {
@@ -211,7 +212,7 @@ export class EngineHeartbeat extends EventEmitter {
   }
 
   private tick(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const { reasons, halt, haltReason } = this.evaluateHealth(now);
     if (halt && !this.haltActive) {
       this.haltActive = true;

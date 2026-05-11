@@ -35,6 +35,7 @@
  */
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 
 interface PriceSample {
   price: number;
@@ -102,13 +103,13 @@ export class VelocityAgent extends AgentBase {
   }
 
   protected async analyze(symbol: string, _context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
     const book = ((global as any).__binanceFuturesBook || {})[binSym] as BookSnapshot | undefined;
     if (!book) return this.neutralSignal(symbol, startTime, `No futures book for ${binSym}`);
 
-    const now = Date.now();
+    const now = getActiveClock().now();
     const bookAge = now - book.eventTime;
     if (bookAge > STALE_MS) {
       return this.neutralSignal(symbol, startTime, `Book stale (${bookAge}ms)`);
@@ -192,7 +193,7 @@ export class VelocityAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal,
       confidence,
       strength: Math.min(accelFactor + magFactor * 0.5, 1),
@@ -213,7 +214,7 @@ export class VelocityAgent extends AgentBase {
         source: 'binance-perp-mid-velocity',
       },
       qualityScore: 0.74,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: bookAge,
       executionScore: Math.round(50 + accelFactor * 25 + magFactor * 15),
     };
@@ -223,14 +224,14 @@ export class VelocityAgent extends AgentBase {
     return {
       agentName: this.config.name,
       symbol,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
       signal: 'neutral',
       confidence: 0.5,
       strength: 0,
       reasoning: reason,
       evidence: { ringSize: this.samples.get(symbol)?.length || 0 },
       qualityScore: 0.5,
-      processingTime: Date.now() - startTime,
+      processingTime: getActiveClock().now() - startTime,
       dataFreshness: 0,
       executionScore: 0,
     };

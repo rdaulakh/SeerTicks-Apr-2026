@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * ScenarioEngine — Best / Worst / Realistic Outcome Projection
  * 
@@ -248,7 +249,7 @@ export class ScenarioEngine {
       projected,
       actual,
       regime: projected.regime,
-      timestamp: Date.now(),
+      timestamp: getActiveClock().now(),
     });
 
     if (this.historicalOutcomes.length > this.MAX_HISTORY) {

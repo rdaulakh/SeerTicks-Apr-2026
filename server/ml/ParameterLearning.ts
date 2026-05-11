@@ -11,6 +11,7 @@
  */
 
 import { getDb } from "../db";
+import { getActiveClock } from '../_core/clock';
 import { learnedParameters } from "../../drizzle/schema";
 import { eq, and, isNull } from "drizzle-orm";
 
@@ -734,7 +735,7 @@ export class ParameterLearningService {
    */
   private getFromCache(key: string): LearnedParameter | null {
     const expiry = this.cacheExpiry.get(key);
-    if (!expiry || Date.now() > expiry) {
+    if (!expiry || getActiveClock().now() > expiry) {
       this.cache.delete(key);
       this.cacheExpiry.delete(key);
       return null;
@@ -744,7 +745,7 @@ export class ParameterLearningService {
 
   private setCache(key: string, param: LearnedParameter): void {
     this.cache.set(key, param);
-    this.cacheExpiry.set(key, Date.now() + this.CACHE_TTL);
+    this.cacheExpiry.set(key, getActiveClock().now() + this.CACHE_TTL);
   }
 
   private buildCacheKey(param: LearnedParameter): string {

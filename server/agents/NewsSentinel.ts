@@ -6,6 +6,7 @@ async function _getAuditLoggerModule() {
 }
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
+import { getActiveClock } from '../_core/clock';
 import { getLLMRateLimiter } from '../utils/RateLimiter';
 import { fallbackManager, MarketDataInput } from './DeterministicFallback';
 
@@ -120,7 +121,7 @@ export class NewsSentinel extends AgentBase {
   }
 
   protected async analyze(symbol: string, context?: any): Promise<AgentSignal> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Fetch recent news
@@ -144,8 +145,8 @@ export class NewsSentinel extends AgentBase {
       // A++ Grade: Calculate execution score (0-100) for tactical timing quality
       const executionScore = this.calculateExecutionScore(news);
 
-      const processingTime = Date.now() - startTime;
-      const dataFreshness = Math.min(...news.map(n => Date.now() - n.publishedAt)) / 1000;
+      const processingTime = getActiveClock().now() - startTime;
+      const dataFreshness = Math.min(...news.map(n => getActiveClock().now() - n.publishedAt)) / 1000;
 
       // Phase 30: Apply MarketContext regime adjustments
       let adjustedConfidence = confidence;
@@ -172,7 +173,7 @@ export class NewsSentinel extends AgentBase {
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal,
         confidence: adjustedConfidence,
         strength,
@@ -210,7 +211,7 @@ export class NewsSentinel extends AgentBase {
       return {
         agentName: this.config.name,
         symbol,
-        timestamp: Date.now(),
+        timestamp: getActiveClock().now(),
         signal: fallbackResult.signal,
         confidence: fallbackResult.confidence,
         strength: fallbackResult.strength,
@@ -221,7 +222,7 @@ export class NewsSentinel extends AgentBase {
           originalError: error instanceof Error ? error.message : 'Unknown error',
         },
         qualityScore: 0.5, // Reduced quality for fallback
-        processingTime: Date.now() - startTime,
+        processingTime: getActiveClock().now() - startTime,
         dataFreshness: 0,
         executionScore: 40, // Lower execution score for fallback
       };
@@ -292,7 +293,7 @@ export class NewsSentinel extends AgentBase {
    * If primary source fails (429 rate limit), falls through to next source
    */
   private async fetchNews(symbol: string): Promise<NewsItem[]> {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const lastFetch = this.lastFetchTime.get(symbol) || 0;
 
     // Aggressive caching - return cached data immediately if available
@@ -383,7 +384,7 @@ export class NewsSentinel extends AgentBase {
   private async fetchFromCoinGecko(coinName: string): Promise<NewsItem[]> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
-    const startMs = Date.now();
+    const startMs = getActiveClock().now();
 
     try {
       const response = await fetch('https://api.coingecko.com/api/v3/news?page=1', {
@@ -398,7 +399,7 @@ export class NewsSentinel extends AgentBase {
           endpoint: '/api/v3/news',
           status: response.ok ? 'success' : 'error',
           httpStatusCode: response.status,
-          responseTimeMs: Date.now() - startMs,
+          responseTimeMs: getActiveClock().now() - startMs,
           callerAgent: 'NewsSentinel',
           symbol: coinName,
         });
@@ -450,7 +451,7 @@ export class NewsSentinel extends AgentBase {
 
     // Fetch from multiple RSS feeds in parallel with individual timeouts
     const feedPromises = this.RSS_FEEDS.map(async (feed) => {
-      const feedStartMs = Date.now();
+      const feedStartMs = getActiveClock().now();
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
@@ -469,7 +470,7 @@ export class NewsSentinel extends AgentBase {
             endpoint: feed.url.substring(0, 255),
             status: response.ok ? 'success' : 'error',
             httpStatusCode: response.status,
-            responseTimeMs: Date.now() - feedStartMs,
+            responseTimeMs: getActiveClock().now() - feedStartMs,
             callerAgent: 'NewsSentinel',
           });
         } catch { /* audit logger not ready */ }
@@ -486,7 +487,7 @@ export class NewsSentinel extends AgentBase {
             apiName: `RSS-${feed.source}`,
             endpoint: feed.url.substring(0, 255),
             status: 'timeout',
-            responseTimeMs: Date.now() - feedStartMs,
+            responseTimeMs: getActiveClock().now() - feedStartMs,
             errorMessage: (err as Error)?.message || 'Fetch failed',
             callerAgent: 'NewsSentinel',
           });
@@ -540,13 +541,13 @@ export class NewsSentinel extends AgentBase {
       const dateMatch = block.match(/<pubDate[^>]*>(.*?)<\/pubDate>/i) ||
         block.match(/<published[^>]*>(.*?)<\/published>/i) ||
         block.match(/<updated[^>]*>(.*?)<\/updated>/i);
-      const publishedAt = dateMatch ? new Date(dateMatch[1].trim()).getTime() : Date.now();
+      const publishedAt = dateMatch ? new Date(dateMatch[1].trim()).getTime() : getActiveClock().now();
 
       items.push({
         title,
         source,
         url,
-        publishedAt: isNaN(publishedAt) ? Date.now() : publishedAt,
+        publishedAt: isNaN(publishedAt) ? getActiveClock().now() : publishedAt,
         sentiment: 'neutral',
         relevance: 0.7,
         impact: 'medium',
@@ -602,7 +603,7 @@ export class NewsSentinel extends AgentBase {
             title: item.title || '',
             source: item.source?.title || 'CryptoPanic',
             url: item.url || '',
-            publishedAt: item.published_at ? new Date(item.published_at).getTime() : Date.now(),
+            publishedAt: item.published_at ? new Date(item.published_at).getTime() : getActiveClock().now(),
             sentiment,
             relevance: 0.7,
             impact: item.kind === 'media' ? 'high' : 'medium',
@@ -666,7 +667,7 @@ export class NewsSentinel extends AgentBase {
     const tierConfig = this.SOURCE_TIERS[sourceTier];
     
     // Calculate recency weight (exponential decay, half-life = 6 hours)
-    const ageInHours = (Date.now() - news.publishedAt) / (1000 * 60 * 60);
+    const ageInHours = (getActiveClock().now() - news.publishedAt) / (1000 * 60 * 60);
     const recencyWeight = Math.pow(0.5, ageInHours / 6);
     
     // Determine category (using simple keyword matching, can be enhanced with LLM)
@@ -747,7 +748,7 @@ export class NewsSentinel extends AgentBase {
    */
   public hasFedAnnouncement(symbol: string = 'BTC-USD'): boolean {
     const news = this.newsCache.get(symbol) || [];
-    const now = Date.now();
+    const now = getActiveClock().now();
     const sixHoursAgo = now - (6 * 60 * 60 * 1000); // Tightened from 24h to 6h
 
     const fedNews = news.filter(item => {
@@ -1053,7 +1054,7 @@ Provide your analysis:`;
 
     // 1. News Recency (0-25 points)
     // Most recent news age in seconds
-    const mostRecentAge = Math.min(...news.map(n => (Date.now() - n.publishedAt) / 1000));
+    const mostRecentAge = Math.min(...news.map(n => (getActiveClock().now() - n.publishedAt) / 1000));
     const recencyScore = Math.max(25 - (mostRecentAge / 3600) * 25, 0); // Decay over 1 hour
     score += recencyScore;
 
@@ -1167,7 +1168,7 @@ Provide your analysis:`;
       
       // Convert to dashboard format
       const items = news.map((item, index) => ({
-        id: `news-${Date.now()}-${index}`,
+        id: `news-${getActiveClock().now()}-${index}`,
         title: item.title,
         source: item.source,
         tier: item.sourceTier || 3 as 1 | 2 | 3,

@@ -22,6 +22,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 export interface ComponentHealth {
   name: string;
@@ -72,7 +73,7 @@ class PlatformHealthAggregator extends EventEmitter {
     if (this.isRunning) return;
 
     console.log('[PlatformHealthAggregator] Starting unified health monitoring...');
-    this.startedAt = Date.now();
+    this.startedAt = getActiveClock().now();
     this.isRunning = true;
 
     // Initial check
@@ -129,7 +130,7 @@ class PlatformHealthAggregator extends EventEmitter {
       components.push({
         name: 'GlobalMarketEngine',
         status: engineStatus,
-        lastCheck: Date.now(),
+        lastCheck: getActiveClock().now(),
         details: {
           isRunning: status.isRunning,
           symbols: status.symbols,
@@ -139,7 +140,7 @@ class PlatformHealthAggregator extends EventEmitter {
         },
       });
     } catch {
-      components.push({ name: 'GlobalMarketEngine', status: 'unknown', lastCheck: Date.now(), details: {} });
+      components.push({ name: 'GlobalMarketEngine', status: 'unknown', lastCheck: getActiveClock().now(), details: {} });
     }
 
     // 2. UserSessionManager health
@@ -151,7 +152,7 @@ class PlatformHealthAggregator extends EventEmitter {
       components.push({
         name: 'UserSessionManager',
         status: status.isInitialized ? 'healthy' : 'critical',
-        lastCheck: Date.now(),
+        lastCheck: getActiveClock().now(),
         details: {
           initialized: status.isInitialized,
           totalSessions: status.totalSessions,
@@ -164,7 +165,7 @@ class PlatformHealthAggregator extends EventEmitter {
         alerts.push('UserSessionManager not initialized');
       }
     } catch {
-      components.push({ name: 'UserSessionManager', status: 'unknown', lastCheck: Date.now(), details: {} });
+      components.push({ name: 'UserSessionManager', status: 'unknown', lastCheck: getActiveClock().now(), details: {} });
     }
 
     // 3. PriceFeedService health
@@ -186,14 +187,14 @@ class PlatformHealthAggregator extends EventEmitter {
       components.push({
         name: 'PriceFeedService',
         status: priceStatus,
-        lastCheck: Date.now(),
+        lastCheck: getActiveClock().now(),
         details: {
           btcPrice: prices.get('BTC-USD')?.price || 0,
           ethPrice: prices.get('ETH-USD')?.price || 0,
         },
       });
     } catch {
-      components.push({ name: 'PriceFeedService', status: 'unknown', lastCheck: Date.now(), details: {} });
+      components.push({ name: 'PriceFeedService', status: 'unknown', lastCheck: getActiveClock().now(), details: {} });
     }
 
     // 4. MemoryMonitor health
@@ -214,7 +215,7 @@ class PlatformHealthAggregator extends EventEmitter {
         components.push({
           name: 'MemoryMonitor',
           status: memStatus,
-          lastCheck: Date.now(),
+          lastCheck: getActiveClock().now(),
           details: {
             currentMB: status.currentMB,
             limitMB: status.limitMB,
@@ -224,7 +225,7 @@ class PlatformHealthAggregator extends EventEmitter {
         });
       }
     } catch {
-      components.push({ name: 'MemoryMonitor', status: 'unknown', lastCheck: Date.now(), details: {} });
+      components.push({ name: 'MemoryMonitor', status: 'unknown', lastCheck: getActiveClock().now(), details: {} });
     }
 
     // 5. PositionGuardian health
@@ -245,7 +246,7 @@ class PlatformHealthAggregator extends EventEmitter {
       components.push({
         name: 'PositionGuardian',
         status: guardianStatus,
-        lastCheck: Date.now(),
+        lastCheck: getActiveClock().now(),
         details: {
           isRunning: status.isRunning,
           uptimePercent: status.uptime.percent,
@@ -254,7 +255,7 @@ class PlatformHealthAggregator extends EventEmitter {
         },
       });
     } catch {
-      components.push({ name: 'PositionGuardian', status: 'unknown', lastCheck: Date.now(), details: {} });
+      components.push({ name: 'PositionGuardian', status: 'unknown', lastCheck: getActiveClock().now(), details: {} });
     }
 
     // 6. AgentAlphaValidator health (Phase 16)
@@ -264,7 +265,7 @@ class PlatformHealthAggregator extends EventEmitter {
       const lastResult = validator.getLastValidation();
 
       if (lastResult) {
-        const timeSinceValidation = Date.now() - lastResult.timestamp;
+        const timeSinceValidation = getActiveClock().now() - lastResult.timestamp;
         let alphaStatus: ComponentHealth['status'] = 'healthy';
         if (timeSinceValidation > 24 * 60 * 60 * 1000) {
           alphaStatus = 'degraded';
@@ -278,7 +279,7 @@ class PlatformHealthAggregator extends EventEmitter {
         components.push({
           name: 'AgentAlphaValidator',
           status: alphaStatus,
-          lastCheck: Date.now(),
+          lastCheck: getActiveClock().now(),
           details: {
             tradesAnalyzed: lastResult.totalTradesAnalyzed,
             agentsWithAlpha: lastResult.agentsWithAlpha.length,
@@ -290,7 +291,7 @@ class PlatformHealthAggregator extends EventEmitter {
         });
       }
     } catch {
-      components.push({ name: 'AgentAlphaValidator', status: 'unknown', lastCheck: Date.now(), details: {} });
+      components.push({ name: 'AgentAlphaValidator', status: 'unknown', lastCheck: getActiveClock().now(), details: {} });
     }
 
     // Determine overall status
@@ -306,8 +307,8 @@ class PlatformHealthAggregator extends EventEmitter {
 
     this.lastHealth = {
       overallStatus,
-      timestamp: Date.now(),
-      uptimeMs: this.startedAt > 0 ? Date.now() - this.startedAt : 0,
+      timestamp: getActiveClock().now(),
+      uptimeMs: this.startedAt > 0 ? getActiveClock().now() - this.startedAt : 0,
       components,
       alerts,
     };
@@ -472,7 +473,7 @@ class PlatformHealthAggregator extends EventEmitter {
    */
   private async sendWebhookAlerts(message: string, severity: 'degraded' | 'critical'): Promise<void> {
     // Deduplication check
-    const now = Date.now();
+    const now = getActiveClock().now();
     const recentDuplicate = this.alertHistory.find(
       a => a.message === message && (now - a.timestamp) < this.ALERT_COOLDOWN_MS
     );

@@ -20,6 +20,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import { getDb } from '../db';
 import { sql, and, gte, lte, asc, eq } from 'drizzle-orm';
 import {
@@ -902,7 +903,7 @@ export class ComprehensiveBacktestEngine extends EventEmitter {
   }
   
   async run(): Promise<BacktestResult> {
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
     console.log(`\n${'='.repeat(80)}`);
     console.log(`COMPREHENSIVE 1-YEAR BACKTEST - ${this.config.symbol}`);
     console.log(`${'='.repeat(80)}`);
@@ -952,7 +953,7 @@ export class ComprehensiveBacktestEngine extends EventEmitter {
         // Check drawdown limit
         if (this.maxDrawdown > this.config.maxDrawdownPercent) {
           console.log(`\n⚠️ MAX DRAWDOWN EXCEEDED (${(this.maxDrawdown * 100).toFixed(2)}%)`);
-          return this.buildResult('stopped_drawdown', Date.now() - startTime);
+          return this.buildResult('stopped_drawdown', getActiveClock().now() - startTime);
         }
         
         this.candlesProcessed++;
@@ -967,11 +968,11 @@ export class ComprehensiveBacktestEngine extends EventEmitter {
       // Close any remaining positions at end
       await this.closeAllPositions(primaryCandles[primaryCandles.length - 1]);
       
-      return this.buildResult('completed', Date.now() - startTime);
+      return this.buildResult('completed', getActiveClock().now() - startTime);
       
     } catch (error) {
       console.error('Backtest error:', error);
-      return this.buildResult('error', Date.now() - startTime, (error as Error).message);
+      return this.buildResult('error', getActiveClock().now() - startTime, (error as Error).message);
     }
   }
   

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 import {
   getPaperWallet,
   getPaperPositions,
@@ -76,7 +77,7 @@ export class AutomatedTradingEngine extends EventEmitter {
     }
 
     this.isProcessing = true;
-    const startTime = Date.now();
+    const startTime = getActiveClock().now();
 
     try {
       // Reload settings to ensure we have latest configuration
@@ -189,7 +190,7 @@ export class AutomatedTradingEngine extends EventEmitter {
         }
         
         const position = insertedPosition;
-        const executionLatency = Date.now() - startTime;
+        const executionLatency = getActiveClock().now() - startTime;
 
         // Update log with success
         await updateAutomatedTradeLog(logId, {
@@ -307,7 +308,7 @@ export class AutomatedTradingEngine extends EventEmitter {
 
     // Check 5: Cooldown period
     if (this.lastTradeTime && this.settings.cooldownMinutes > 0) {
-      const minutesSinceLastTrade = (Date.now() - this.lastTradeTime.getTime()) / 1000 / 60;
+      const minutesSinceLastTrade = (getActiveClock().now() - this.lastTradeTime.getTime()) / 1000 / 60;
       if (minutesSinceLastTrade < this.settings.cooldownMinutes) {
         return {
           allowed: false,

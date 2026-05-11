@@ -16,6 +16,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 interface GuardianConfig {
   /** Max seconds without a price tick before emergency exit (default: 120) */
@@ -65,11 +66,11 @@ class PositionGuardianService extends EventEmitter {
 
   // Uptime tracking
   private uptime: UptimeRecord = {
-    startTime: Date.now(),
+    startTime: getActiveClock().now(),
     totalUptime: 0,
     totalDowntime: 0,
     lastDownAt: null,
-    lastUpAt: Date.now(),
+    lastUpAt: getActiveClock().now(),
     crashCount: 0,
     emergencyExitCount: 0,
   };
@@ -96,8 +97,8 @@ class PositionGuardianService extends EventEmitter {
   start(): void {
     if (this.isRunning) return;
     this.isRunning = true;
-    this.uptime.startTime = Date.now();
-    this.uptime.lastUpAt = Date.now();
+    this.uptime.startTime = getActiveClock().now();
+    this.uptime.lastUpAt = getActiveClock().now();
 
     console.log('[PositionGuardian] 🛡️ Starting Position Guardian — positions will NEVER be left unmonitored');
     console.log(`[PositionGuardian] Dead man's switch: ${this.config.deadManSwitchSeconds}s without price data → emergency exit`);
@@ -129,7 +130,7 @@ class PositionGuardianService extends EventEmitter {
 
   /** Called by priceFeedService on every tick */
   onPriceTick(): void {
-    this.lastPriceTickTime = Date.now();
+    this.lastPriceTickTime = getActiveClock().now();
     // Reset dead man's switch if it was triggered
     if (this.deadManTriggered) {
       console.log('[PositionGuardian] ✅ Price feed recovered — dead man\'s switch reset');
@@ -139,19 +140,19 @@ class PositionGuardianService extends EventEmitter {
 
   /** Called by IntelligentExitManager when it processes a tick */
   onExitManagerTick(): void {
-    this.lastExitManagerTickTime = Date.now();
+    this.lastExitManagerTickTime = getActiveClock().now();
   }
 
   /** Called by engine to report its state */
   onEngineHeartbeat(isRunning: boolean): void {
-    this.lastEngineHeartbeat = Date.now();
+    this.lastEngineHeartbeat = getActiveClock().now();
     this.engineIsRunning = isRunning;
   }
 
   /** Record a crash event */
   recordCrash(): void {
     this.uptime.crashCount++;
-    this.uptime.lastDownAt = Date.now();
+    this.uptime.lastDownAt = getActiveClock().now();
     console.error(`[PositionGuardian] 💥 Crash recorded. Total crashes: ${this.uptime.crashCount}`);
   }
 
@@ -160,7 +161,7 @@ class PositionGuardianService extends EventEmitter {
   // =========================================================================
 
   private async performLivenessCheck(): Promise<void> {
-    const now = Date.now();
+    const now = getActiveClock().now();
 
     try {
       // 1. Check for open positions
@@ -405,7 +406,7 @@ class PositionGuardianService extends EventEmitter {
   }
 
   private updateUptime(isHealthy: boolean): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     if (isHealthy) {
       if (this.uptime.lastDownAt) {
         // Recovering from downtime
@@ -427,7 +428,7 @@ class PositionGuardianService extends EventEmitter {
       const db = await getDb();
       if (!db) return;
 
-      const totalElapsed = Date.now() - this.uptime.startTime;
+      const totalElapsed = getActiveClock().now() - this.uptime.startTime;
       const uptimePercent = totalElapsed > 0
         ? ((totalElapsed - this.uptime.totalDowntime) / totalElapsed * 100)
         : 100;
@@ -476,7 +477,7 @@ class PositionGuardianService extends EventEmitter {
   // =========================================================================
 
   getStatus() {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const totalElapsed = now - this.uptime.startTime;
     const uptimePercent = totalElapsed > 0
       ? ((totalElapsed - this.uptime.totalDowntime) / totalElapsed * 100)

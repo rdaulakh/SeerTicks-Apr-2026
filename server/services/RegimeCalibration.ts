@@ -1,3 +1,4 @@
+import { getActiveClock } from '../_core/clock';
 /**
  * RegimeCalibration — Centralized, Data-Driven Regime Threshold Configuration
  * 
@@ -687,7 +688,7 @@ export function recordCalibrationOutcome(outcome: {
   getCalibrator().recordOutcome({
     ...outcome,
     regime: outcome.regime as MarketRegime,
-    timestamp: Date.now(),
+    timestamp: getActiveClock().now(),
   });
 }
 
@@ -782,7 +783,7 @@ class RegimeTransitionSmoother {
       symbol,
       fromRegime: from,
       toRegime: to,
-      transitionStartMs: Date.now(),
+      transitionStartMs: getActiveClock().now(),
       gracePeriodMs,
     });
     console.log(`[RegimeTransitionSmoother] ${symbol}: ${from} → ${to}, grace period ${(gracePeriodMs / 1000).toFixed(0)}s`);
@@ -797,7 +798,7 @@ class RegimeTransitionSmoother {
     const state = this.transitions.get(symbol);
     if (!state) return null;
 
-    const elapsed = Date.now() - state.transitionStartMs;
+    const elapsed = getActiveClock().now() - state.transitionStartMs;
     if (elapsed >= state.gracePeriodMs) {
       // Grace period expired — clean up and return null (fully new regime)
       this.transitions.delete(symbol);
@@ -829,7 +830,7 @@ class RegimeTransitionSmoother {
     const state = this.transitions.get(symbol);
     if (!state) return null;
 
-    const elapsed = Date.now() - state.transitionStartMs;
+    const elapsed = getActiveClock().now() - state.transitionStartMs;
     if (elapsed >= state.gracePeriodMs) {
       this.transitions.delete(symbol);
       return null;
@@ -841,7 +842,7 @@ class RegimeTransitionSmoother {
    * Get all active transitions (for dashboard display).
    */
   getAllTransitions(): TransitionState[] {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const active: TransitionState[] = [];
     for (const [symbol, state] of this.transitions.entries()) {
       if (now - state.transitionStartMs < state.gracePeriodMs) {

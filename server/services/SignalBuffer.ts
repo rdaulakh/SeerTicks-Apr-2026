@@ -13,6 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getActiveClock } from '../_core/clock';
 
 export interface BufferedSignal {
   id: string;
@@ -107,7 +108,7 @@ export class SignalBuffer extends EventEmitter {
    * Add a signal to the buffer
    */
   addSignal(signal: Omit<BufferedSignal, 'id' | 'expiresAt' | 'retryCount'>): boolean {
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     // Generate unique ID
     const id = `${signal.symbol}_${signal.type}_${signal.direction}_${now}_${Math.random().toString(36).substr(2, 9)}`;
@@ -171,7 +172,7 @@ export class SignalBuffer extends EventEmitter {
       this.buffer.splice(index, 1);
       
       // Track processed signals for deduplication
-      this.processedSignals.set(signalId, Date.now());
+      this.processedSignals.set(signalId, getActiveClock().now());
       
       // Update stats
       this.stats.totalProcessed++;
@@ -238,7 +239,7 @@ export class SignalBuffer extends EventEmitter {
    * Get buffer statistics
    */
   getStats(): SignalBufferStats {
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     // Calculate oldest signal age
     if (this.buffer.length > 0) {
@@ -255,7 +256,7 @@ export class SignalBuffer extends EventEmitter {
    * Check if a signal is a duplicate
    */
   private isDuplicate(signal: Omit<BufferedSignal, 'id' | 'expiresAt' | 'retryCount'>): boolean {
-    const now = Date.now();
+    const now = getActiveClock().now();
     
     // Check against buffered signals
     const duplicateInBuffer = this.buffer.some(s => 
@@ -323,7 +324,7 @@ export class SignalBuffer extends EventEmitter {
    * Clean up expired signals
    */
   private cleanupExpiredSignals(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const expiredCount = this.buffer.filter(s => s.expiresAt <= now).length;
     
     if (expiredCount > 0) {
@@ -345,7 +346,7 @@ export class SignalBuffer extends EventEmitter {
    * Clean up old processed signal history
    */
   private cleanupProcessedHistory(): void {
-    const now = Date.now();
+    const now = getActiveClock().now();
     const cutoff = now - this.config.deduplicationWindowMs * 2;
     
     for (const [id, timestamp] of this.processedSignals.entries()) {
