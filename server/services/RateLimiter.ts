@@ -3,7 +3,7 @@
  * Redis-based rate limiting for API endpoints
  */
 
-import { rateLimit, type RateLimitRequestHandler } from 'express-rate-limit';
+import { rateLimit, ipKeyGenerator, type RateLimitRequestHandler } from 'express-rate-limit';
 import { getActiveClock } from '../_core/clock';
 import RedisStore from 'rate-limit-redis';
 import { createClient } from 'redis';
@@ -115,13 +115,15 @@ export async function createRateLimiter(
           sendCommand: (...args: string[]) => redis.sendCommand(args),
         })
       : undefined,
-    // Key generator: use user ID for authenticated requests, IP for unauthenticated
+    // Key generator: use user ID for authenticated requests, IPv6-safe IP for unauthenticated.
+    // Phase 82 hotfix — express-rate-limit v8 throws ERR_ERL_KEY_GEN_IPV6 at startup
+    // if `req.ip` is returned raw without ipKeyGenerator normalisation.
     keyGenerator: options?.keyGenerator || ((req: any) => {
       const user = req.user;
       if (user?.id) {
         return `user:${user.id}`;
       }
-      return req.ip || req.connection.remoteAddress || 'unknown';
+      return ipKeyGenerator(req.ip || req.connection?.remoteAddress || 'unknown');
     }),
     // Skip function: allow admins to bypass rate limits
     skip: options?.skip || ((req: any) => {

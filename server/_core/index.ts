@@ -65,15 +65,24 @@ async function startServer() {
   // ============================================
   // RATE LIMITING (HTTP endpoints ONLY — never WebSocket/trading pipeline)
   // ============================================
-  // Auth endpoints: strict limit (5 req/min per IP) to prevent brute force
+  // Auth endpoints: strict limit per IP to prevent brute force.
+  //
+  // Phase 82 hotfix — express-rate-limit v8 throws ERR_ERL_KEY_GEN_IPV6 at
+  // startup if a custom keyGenerator uses `req.ip` raw (every IPv6 address
+  // is unique per-client by default, defeating per-IP buckets). The
+  // exported `ipKeyGenerator` helper normalises IPv6 to /64 prefixes so a
+  // single mobile carrier-NAT host can't bypass the limit. Without this,
+  // the server died on startup → pm2 crash-looped (353 restarts) →
+  // every browser request returned 502 → agents flashed and disappeared.
   const { createRateLimiter } = await import('../services/RateLimiter');
+  const { ipKeyGenerator } = await import('express-rate-limit');
   const authLimiter = await createRateLimiter('auth', {
-    keyGenerator: (req: any) => req.ip || req.connection?.remoteAddress || 'unknown',
+    keyGenerator: (req: any) => ipKeyGenerator(req.ip || req.connection?.remoteAddress || 'unknown'),
   });
   // General API limiter for tRPC and REST endpoints
   const generalLimiter = await createRateLimiter('general', {
     keyGenerator: (req: any) => {
-      // Use userId from cookie if available, otherwise IP
+      // Use userId from cookie if available, otherwise IPv6-safe IP key
       try {
         const token = req.cookies?.[require('@shared/const').COOKIE_NAME];
         if (token) {
@@ -81,7 +90,7 @@ async function startServer() {
           if (decoded?.userId) return `user:${decoded.userId}`;
         }
       } catch {}
-      return req.ip || req.connection?.remoteAddress || 'unknown';
+      return ipKeyGenerator(req.ip || req.connection?.remoteAddress || 'unknown');
     },
   });
 

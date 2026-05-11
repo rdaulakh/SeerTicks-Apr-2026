@@ -270,25 +270,43 @@ export default function AgentActivity() {
   const [orchestrator, setOrchestrator] = useState<OrchestratorState | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch real agent data
+  // Fetch real agent data.
+  // Phase 82 hotfix — `placeholderData: keepPreviousData` keeps the panel
+  // populated while a refetch is in flight or briefly fails (502 during
+  // server restart). Without it the agents would render, then a single
+  // failed poll would return undefined / empty and the panel would blank.
   const { data: agentsData, isLoading: agentsLoading } = trpc.seerMulti.getAllAgents.useQuery(undefined, {
     refetchInterval: 5000, // Refresh every 5 seconds
+    placeholderData: (prev) => prev,
+    retry: 3,
+    staleTime: 10_000,
   });
 
   // Fetch orchestrator consensus data
   const { data: orchestratorData } = trpc.seerMulti.getOrchestratorState.useQuery(undefined, {
     refetchInterval: 5000,
+    placeholderData: (prev) => prev,
+    retry: 3,
+    staleTime: 10_000,
   });
 
   // Fetch activity feed
   const { data: activityData } = trpc.seerMulti.getActivityFeed.useQuery({ limit: 50 }, {
     refetchInterval: 3000, // More frequent for activity feed
+    placeholderData: (prev) => prev,
+    retry: 3,
+    staleTime: 10_000,
   });
 
   useEffect(() => {
-    if (agentsData) {
+    // Phase 82 hotfix — only overwrite local state when we have a non-empty
+    // response. A transient 502 / empty array shouldn't blank the panel
+    // (the user reported agents "showing in UI then hiding away"). If we
+    // genuinely have zero agents we keep the previous list until either
+    // a valid populated response arrives or the user reloads.
+    if (agentsData && agentsData.length > 0) {
       console.log('[AgentActivity] Received agents data:', agentsData);
-      
+
       // Deduplicate agents (safety measure in case backend returns duplicates)
       const agentMap = new Map<string, AgentStatus>();
       agentsData.forEach(agent => {
@@ -300,12 +318,14 @@ export default function AgentActivity() {
           console.warn(`[AgentActivity] ⚠️ Skipping duplicate agent: ${uniqueKey}`);
         }
       });
-      
+
       const uniqueAgents = Array.from(agentMap.values());
       console.log(`[AgentActivity] Total agents: ${agentsData.length}, Unique agents: ${uniqueAgents.length}`);
-      
+
       setAgents(uniqueAgents);
       setLoading(false);
+    } else if (agentsData && agentsData.length === 0) {
+      console.warn('[AgentActivity] Received empty agents array — keeping previous list to avoid blanking');
     }
   }, [agentsData]);
 
