@@ -945,6 +945,29 @@ async function startServer() {
         console.error(`[Boot] 🚨 EngineHeartbeat AUTO-HALT fired: ${info.reason}`);
       });
       console.log(`[${new Date().toLocaleTimeString()}] 🫀 EngineHeartbeat started at boot (Phase 73)`);
+
+      // Phase 74 — Periodic data-consistency check across all users with
+      // open positions. Surfaces tradingMode mismatches and stale wallet
+      // rows that produce the "header says 39% / DB says 70%" symptom.
+      setInterval(async () => {
+        try {
+          const { getDb } = await import('../db');
+          const { users, paperPositions } = await import('../../drizzle/schema');
+          const { sql } = await import('drizzle-orm');
+          const db = await getDb();
+          if (!db) return;
+          const activeUsers: { userId: number }[] = await db
+            .selectDistinct({ userId: paperPositions.userId })
+            .from(paperPositions)
+            .where(sql`status = 'open'`);
+          for (const { userId } of activeUsers) {
+            await hb.runDataConsistencyCheck(userId);
+          }
+        } catch (e) {
+          // Best-effort
+        }
+      }, 5 * 60 * 1000); // Every 5 min
+      console.log(`[${new Date().toLocaleTimeString()}] 🔍 Phase 74 data-consistency watchdog active (5min cadence)`);
     } catch (error) {
       console.error(`[${new Date().toLocaleTimeString()}] ❌ Failed to start EngineHeartbeat at boot:`, error);
     }

@@ -56,17 +56,14 @@ const primaryNavItems = [
   { path: "/performance", label: "Performance", icon: TrendingUp },
 ];
 
-// Secondary navigation items - under "More" dropdown
+// Phase 74: Trimmed "More" dropdown — only operational/decision-making pages.
+// Removed info-dump duplicates (Signals/Patterns/Whale-Alerts duplicate the
+// Agents/Dashboard panels), backtest/journal/ML tools (admin-only, accessed
+// via deep links when needed), and Regime Intelligence (info already on
+// Dashboard ribbon). Routes still exist — only the nav clutter is removed.
 const moreNavItems = [
-  { path: "/signals", label: "Signals", icon: Zap },
-  { path: "/patterns", label: "Patterns", icon: Crosshair },
-  { path: "/whale-alerts", label: "Whale Alerts", icon: Fish },
   { path: "/order-history", label: "Order History", icon: ClipboardList },
-  { path: "/trade-journal", label: "Journal", icon: BookOpen },
-  { path: "/ml-dashboard", label: "ML Intelligence", icon: Brain },
   { path: "/risk-dashboard", label: "Risk Management", icon: Shield },
-  { path: "/backtesting", label: "Backtesting", icon: FlaskConical },
-  { path: "/regime-dashboard", label: "Regime Intelligence", icon: Gauge },
   { path: "/system", label: "System Health", icon: Heart },
 ];
 
@@ -110,13 +107,20 @@ export function Navigation() {
     enabled: !!user,
   });
 
+  // Phase 74: Derive isPaper from the user's actual tradingModeConfig.
+  // Previously this was hardcoded `isPaper: true`, which caused the header
+  // win-rate/stats to always come from the (stale) paper wallet even when
+  // the user was actively trading live — producing the mismatch between
+  // header stats and the live positions on the same page.
+  const isPaperMode = tradingModeConfig?.mode !== 'real';
+
   // Fetch order history analytics for accurate win rate from closed trades
   const { data: orderAnalytics } = trpc.orderHistory.getAnalytics.useQuery(
-    { isPaper: true },
+    { isPaper: isPaperMode },
     {
       refetchInterval: 10000, // Refresh every 10 seconds
       staleTime: 8000,
-      enabled: !!user,
+      enabled: !!user && tradingModeConfig !== undefined,
     }
   );
 

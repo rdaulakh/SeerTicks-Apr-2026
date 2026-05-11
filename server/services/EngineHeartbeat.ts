@@ -103,6 +103,65 @@ export class EngineHeartbeat extends EventEmitter {
   setOpenPositionCount(n: number): void { this.openPositionCount = n; }
 
   /**
+   * Phase 74 — Data consistency watchdog. Periodically checks that:
+   *  - tradingModeConfig.mode aligns with the actual tradingMode of open positions
+   *  - paperWallets row for the active mode is being updated (not stale)
+   *
+   * When the engine writes positions tagged 'live' but the user config is
+   * 'paper', the UI reads the wrong wallet and surfaces inconsistent stats.
+   * This is exactly what happened on 2026-05-11 (header 39.58% vs DB 70%).
+   */
+  async runDataConsistencyCheck(userId: number): Promise<{ ok: boolean; issues: string[] }> {
+    const issues: string[] = [];
+    try {
+      const { getDb } = await import('../db');
+      const { paperWallets, paperPositions, tradingModeConfig } = await import('../../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) return { ok: true, issues: [] };
+
+      const [cfg] = await db.select().from(tradingModeConfig).where(eq(tradingModeConfig.userId, userId)).limit(1);
+      if (!cfg) return { ok: true, issues: [] };
+      const cfgMode = cfg.mode === 'real' ? 'live' : 'paper';
+
+      const openPositions = await db
+        .select()
+        .from(paperPositions)
+        .where(and(eq(paperPositions.userId, userId), eq(paperPositions.status, 'open')));
+
+      // Check 1: All open positions match the user's config mode
+      const mismatched = openPositions.filter((p: any) => p.tradingMode !== cfgMode);
+      if (mismatched.length > 0) {
+        const symbols = mismatched.map((p: any) => `${p.symbol}(${p.tradingMode})`).join(', ');
+        issues.push(`MODE_MISMATCH: cfg=${cfgMode} but positions tagged differently: ${symbols}`);
+      }
+
+      // Check 2: Wallet for the active mode exists and isn't stale (>1h)
+      const [wallet] = await db
+        .select()
+        .from(paperWallets)
+        .where(and(eq(paperWallets.userId, userId), eq(paperWallets.tradingMode, cfgMode)))
+        .limit(1);
+      if (!wallet) {
+        issues.push(`WALLET_MISSING for mode=${cfgMode}`);
+      } else {
+        const ageHours = (Date.now() - new Date(wallet.updatedAt).getTime()) / 3600000;
+        if (ageHours > 1 && openPositions.length > 0) {
+          issues.push(`WALLET_STALE: ${cfgMode} wallet not updated in ${ageHours.toFixed(1)}h despite ${openPositions.length} open positions`);
+        }
+      }
+
+      if (issues.length > 0) {
+        executionLogger.warn(`[DataConsistency] User ${userId}: ${issues.join(' | ')}`);
+      }
+    } catch (err) {
+      // Best-effort — never crash the watchdog
+      executionLogger.warn(`[DataConsistency] Check failed: ${(err as Error).message}`);
+    }
+    return { ok: issues.length === 0, issues };
+  }
+
+  /**
    * Daily PnL update. Caller computes (currentEquity - dayStartEquity) /
    * dayStartEquity * 100. Watchdog auto-halts if it crosses the threshold.
    */
