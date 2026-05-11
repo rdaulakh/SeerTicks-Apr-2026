@@ -128,10 +128,21 @@ async function loadCandlesForSymbol(symbol: string, startMs: number, endMs: numb
 }
 
 async function main() {
-  const windowHours = parseInt(process.argv[2] ?? '1', 10);
-  const now = Date.now();
-  const windowEnd = new Date(now);
-  const windowStart = new Date(now - windowHours * 60 * 60 * 1000);
+  // Usage: parity_validate.ts <windowHours>
+  //    OR: parity_validate.ts --start <ISO> --end <ISO>
+  let windowStart: Date;
+  let windowEnd: Date;
+  const startFlag = process.argv.indexOf('--start');
+  const endFlag = process.argv.indexOf('--end');
+  if (startFlag >= 0 && endFlag >= 0) {
+    windowStart = new Date(process.argv[startFlag + 1]);
+    windowEnd = new Date(process.argv[endFlag + 1]);
+  } else {
+    const windowHours = parseInt(process.argv[2] ?? '1', 10);
+    const now = Date.now();
+    windowEnd = new Date(now);
+    windowStart = new Date(now - windowHours * 60 * 60 * 1000);
+  }
 
   console.log(`Phase 68 — Parity validation`);
   console.log(`Window: ${windowStart.toISOString()} → ${windowEnd.toISOString()} (${windowHours}h)`);

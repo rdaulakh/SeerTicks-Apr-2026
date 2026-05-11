@@ -213,8 +213,14 @@ function getConfiguredGate(): GateConfig {
     return Number.isFinite(v) ? v : d;
   };
   return {
+    // Phase 79 calibration based on Tokyo live A/B data (300+ entries):
+    // - 2-3 voter scenarios are common; with Phase-40 confidence scale
+    //   (0.05–0.20), Beta posterior shifts modestly off 0.5
+    // - minDistance 0.05 = posterior ≥ 0.55 or ≤ 0.45 (real directional bias
+    //   for small-sample Beta)
+    // - maxUncertainty 0.30 = reject only when Beta variance dominates
     maxUncertainty: envFloat('BAYESIAN_MAX_UNCERTAINTY', 0.30),
-    minDistanceFromHalf: envFloat('BAYESIAN_MIN_DISTANCE', 0.10),
+    minDistanceFromHalf: envFloat('BAYESIAN_MIN_DISTANCE', 0.05),
     minEffectiveN: envFloat('BAYESIAN_MIN_EFF_N', 1.5),
   };
 }
