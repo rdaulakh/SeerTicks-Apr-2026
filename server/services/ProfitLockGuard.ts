@@ -94,6 +94,22 @@ const CATASTROPHIC_REASON_PATTERNS: readonly string[] = [
   // "Agent decides, not just SL/TP".
   'agent_unanimous_exit',
   'agent_exit_consensus',
+  // Phase 82.2 — consensus-flip exits MUST bypass ProfitLockGuard.
+  // HardExitRules emits "🔄 CONSENSUS FLIP: Entered LONG, now BEARISH..."
+  // when agents flip against the position. PriorityExitManager emits
+  // "Direction flipped from long to bearish (PnL: ...)". Pre-Phase-82.2
+  // these were treated as ordinary exit reasons and got blocked by the
+  // cost-drag floor — so a trade with peak +0.8% net could see agents
+  // flip and the exit blocked, bleeding back to 0%. Now flipped consensus
+  // is treated as catastrophic (in the "trade thesis dead" sense) and the
+  // exit fires regardless of current net PnL state.
+  'consensus flip',
+  'consensus_flip',
+  'direction flipped',
+  'direction_flipped',
+  'direction flip',
+  'direction_flip',
+  'trade thesis invalidated',
 ];
 
 export function isCatastrophicReason(exitReason: string | undefined | null): boolean {

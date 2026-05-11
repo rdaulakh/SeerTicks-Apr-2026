@@ -1413,10 +1413,56 @@ export class IntelligentExitManager extends EventEmitter {
     if (position.peakPnlPercent === undefined || position.unrealizedPnlPercent > position.peakPnlPercent) {
       position.peakPnlPercent = position.unrealizedPnlPercent;
     }
-    
-    // Check for breakeven activation — Phase 5: actually moves position.stopLoss
-    // Called in the HOT sync path (onPriceTick), so activateBreakeven's single
-    // console.log fires exactly once per position (guarded by breakevenActivated).
+
+    // Phase 82.2 — ProfitRatchet: a real-trader's stop-loss ladder. As peak
+    // PnL crosses each rung, ratchet the stop UP (never down). First rung at
+    // +0.30% gross locks in zero-loss; subsequent rungs lock in increasing
+    // realised profit. The hard-stop check above then fires at the new
+    // protected level — that path is in CATASTROPHIC_REASON_PATTERNS, so it
+    // bypasses ProfitLockGuard. No more "winner becomes a loser" bleed.
+    try {
+      const { applyRatchet } = require('./ProfitRatchet') as typeof import('./ProfitRatchet');
+      const ratchetResult = applyRatchet(
+        {
+          id: position.id,
+          symbol: position.symbol,
+          side: position.side,
+          entryPrice: position.entryPrice,
+          stopLoss: position.stopLoss,
+          peakPnlPercent: position.peakPnlPercent,
+          ratchetStep: (position as any).ratchetStep,
+          marketRegime: position.marketRegime,
+        },
+        position.unrealizedPnlPercent,
+      );
+      if (ratchetResult) {
+        // Mutate the IEM-side position to reflect the new stop + step.
+        position.stopLoss = ratchetResult.newStopLoss;
+        (position as any).ratchetStep = ratchetResult.stepIndex;
+        // First rung crossing ALSO marks breakeven activated so legacy
+        // pnl-back-to-breakeven exits (line ~808) remain wired without
+        // double-emitting the 'breakeven_activated' event.
+        if (!position.breakevenActivated && ratchetResult.lockedProfitPct >= 0) {
+          position.breakevenActivated = true;
+        }
+        this.emit('ratchet_step', {
+          positionId: position.id,
+          stepIndex: ratchetResult.stepIndex,
+          newStopLoss: ratchetResult.newStopLoss,
+          lockedProfitPct: ratchetResult.lockedProfitPct,
+          entryPrice: position.entryPrice,
+          side: position.side,
+        });
+      }
+    } catch (err) {
+      // Ratchet failure NEVER blocks the hot path; log and continue.
+      console.warn('[IntelligentExitManager] ProfitRatchet error:', (err as Error)?.message);
+    }
+
+    // Legacy breakeven activation — kept as fallback in case ProfitRatchet
+    // is disabled. With ratchet enabled, this is a no-op because the
+    // ratchet's first rung (+0.30%) sets breakevenActivated=true before
+    // the +0.80% legacy threshold is reached.
     if (!position.breakevenActivated && position.unrealizedPnlPercent >= this.config.breakevenActivationPercent) {
       this.activateBreakeven(position);
     }
