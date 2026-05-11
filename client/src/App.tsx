@@ -10,6 +10,7 @@ import { PortfolioProvider } from "./contexts/PortfolioContext";
 // Core Pages - Autonomous Architecture (7 main routes)
 import Dashboard from "./pages/Dashboard";
 import AgentActivity from "./pages/AgentActivity";
+import AgentScorecard from "./pages/AgentScorecard";
 import Positions from "./pages/Positions";
 import Performance from "./pages/Performance";
 import SystemHealth from "./pages/SystemHealth";
@@ -77,6 +78,7 @@ function Router() {
                 
                 {/* Agent Intelligence */}
                 <Route path="/agents" component={AgentActivity} />
+                <Route path="/agent-scorecard" component={AgentScorecard} />
                 <Route path="/patterns" component={Patterns} />
                 <Route path="/signals" component={Signals} />
                 <Route path="/strategy" component={Strategy} />

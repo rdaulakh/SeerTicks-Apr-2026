@@ -385,6 +385,37 @@ export function shouldAllowClose(
     };
   }
 
+  // 5a. Phase 82.1 — Peak-giveback escape. The trade WAS clearly profitable
+  //     (peak net ≥ 0.40%) and has now given back ≥ 50% of that peak. The
+  //     other guards (net_profit_ok needs CURRENT net positive; catastrophic
+  //     needs CURRENT gross deeply negative; thesis/stuck both require peak <
+  //     0.30% i.e. "never worked") don't cover this case — so a winner that
+  //     reverses bleeds all the way back to 0 without firing any exit.
+  //     This hatch locks in some realised profit on agent-driven exits when
+  //     a meaningful giveback has occurred.
+  const peakCfg = config.peakGivebackExit;
+  if (peakCfg?.enabled && position.peakUnrealizedPnlPercent !== undefined) {
+    const peakNetPnlPercent = position.peakUnrealizedPnlPercent - totalCostPercent;
+    const holdMin = position.holdMinutes ?? 0;
+    const giveback = peakNetPnlPercent - netPnlPercent; // positive = retraced
+    const givebackPct = peakNetPnlPercent > 0 ? (giveback / peakNetPnlPercent) * 100 : 0;
+    if (
+      peakNetPnlPercent >= peakCfg.peakNetProfitReachedPct &&
+      givebackPct >= peakCfg.givebackPercent &&
+      holdMin >= peakCfg.minHoldMinutes
+    ) {
+      return {
+        allow: true,
+        reason:
+          `peak_giveback:peakNet=${peakNetPnlPercent.toFixed(3)}%>=` +
+          `${peakCfg.peakNetProfitReachedPct}% giveback=${givebackPct.toFixed(1)}%>=` +
+          `${peakCfg.givebackPercent}% (exit="${exitReason}")`,
+        netPnlPercent,
+        grossPnlPercent,
+      };
+    }
+  }
+
   // 5b. Phase 54.1 — Absolute hard time cap. If a position has been held this
   //     many hours regardless of P&L state, close it. This is the final
   //     backstop for the case where a trade sits perfectly flat (gross ≈ 0%)

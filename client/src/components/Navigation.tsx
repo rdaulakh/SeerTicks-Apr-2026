@@ -45,12 +45,13 @@ import { trpc } from "@/lib/trpc";
 import { usePositions } from "@/contexts/PositionContext";
 import { Badge } from "@/components/ui/badge";
 
-import { HeartPulse, Brain, BookOpen, MoreHorizontal, Shield, Crosshair, Fish, ClipboardList, FlaskConical, Zap, Gauge, Heart } from "lucide-react";
+import { HeartPulse, Brain, BookOpen, MoreHorizontal, Shield, Crosshair, Fish, ClipboardList, FlaskConical, Zap, Gauge, Heart, Trophy } from "lucide-react";
 
 // Primary navigation items - always visible in header
 const primaryNavItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { path: "/agents", label: "Agents", icon: Activity },
+  { path: "/agent-scorecard", label: "Scorecard", icon: Trophy },
   { path: "/strategy", label: "Strategy", icon: Target },
   { path: "/positions", label: "Positions", icon: Wallet },
   { path: "/performance", label: "Performance", icon: TrendingUp },

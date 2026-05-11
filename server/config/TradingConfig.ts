@@ -210,6 +210,32 @@ export interface TradingConfiguration {
     // so genuinely-recoverable trades still get their chance, but a trade open
     // for 8h+ with 0% PnL is structurally dead and must be released.
     absoluteMaxHoldHours?: number;
+
+    // Phase 82.1 — Peak-giveback escape hatch.
+    //
+    // The original ProfitLockGuard treats "current netPnl ≥ minNetProfit" as the
+    // only positive-profit allow path. But it doesn't account for the trade's
+    // *history*. A position that reached peak net +0.80% and is now sitting at
+    // -0.05% net is structurally a winner that's giving back profit — the agents
+    // can scream EXIT and the guard will still block until either it recovers
+    // back above the cost-drag floor, or it hits the catastrophic stop. Result:
+    // ~$27 of unrealized profit can bleed back to ~$7 with no exit firing
+    // (observed live 2026-05-11 on three positions).
+    //
+    // This escape allows close when:
+    //   - peakNetPnlPercent ≥ peakNetProfitReachedPct (the trade WAS in clear profit)
+    //   - currentGivebackPercent ≥ givebackPercent OF peak (e.g. given back ≥40%)
+    //   - exit reason is an agent-consensus / trailing-stop signal (not random noise)
+    //
+    // This is NOT a betrayal of the prime directive — it's locking in realised
+    // profit on a winner that's reversing, rather than letting the winner turn
+    // into a loser. The catastrophic stop still owns the deep-loss case.
+    peakGivebackExit?: {
+      enabled: boolean;
+      peakNetProfitReachedPct: number;   // peak NET pnl must have been ≥ this (default 0.40%)
+      givebackPercent: number;           // % of peak given back to trigger (default 50 = 50%)
+      minHoldMinutes: number;            // don't fire on flash spikes (default 5)
+    };
   };
 
   // ── Entry-Gate Hardening (audit restoration) ──
@@ -501,6 +527,16 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
     // dead. Found 3 positions stuck 25h+ at flat 0% PnL because no other
     // escape hatch could fire on a perfectly-flat trade.
     absoluteMaxHoldHours: 8,
+    // Phase 82.1 — Peak-giveback escape (see interface comment for full rationale).
+    // Calibrated for the observed bleed pattern: trades reaching peak net ≥ 0.40%
+    // and giving back ≥ 50% of peak should release on agent-consensus exit signal.
+    // minHoldMinutes=5 prevents flash-spike false fires.
+    peakGivebackExit: {
+      enabled: true,
+      peakNetProfitReachedPct: 0.40,   // peak net pnl must have crossed +0.40%
+      givebackPercent: 50,             // current pulled back ≥ 50% from that peak
+      minHoldMinutes: 5,
+    },
     // Phase 7 — tightened to match exits.hardStopLossPercent (-1.2%).
     //   Prior value (-2.5%) created a broken hand-off: the ProfitLockGuard
     //   blocked the -1.2% hard-SL hit because gross PnL > catastrophic floor,
