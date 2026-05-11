@@ -972,6 +972,17 @@ async function startServer() {
       console.error(`[${new Date().toLocaleTimeString()}] ❌ Failed to start EngineHeartbeat at boot:`, error);
     }
 
+    // Phase 70 — Boot AgentCorrelationTracker. Computes the pairwise agent
+    // correlation matrix every 6h and serves it to BayesianAggregator. Without
+    // this, the Bayesian path falls back to identity correlation (= naive).
+    try {
+      const { schedulePeriodicRecompute } = await import('../services/AgentCorrelationTracker');
+      schedulePeriodicRecompute(6 * 60 * 60 * 1000);
+      console.log(`[${new Date().toLocaleTimeString()}] 🔗 Phase 70 AgentCorrelationTracker active (6h cadence)`);
+    } catch (error) {
+      console.error(`[${new Date().toLocaleTimeString()}] ❌ Failed to start AgentCorrelationTracker:`, error);
+    }
+
     // Phase 14A: Start GlobalMarketEngine — always-on market observation
     // This runs 29 agents per symbol ONCE for ALL users (vs N duplicated per-user engines)
     // Must start BEFORE background engine manager so global signals are available

@@ -663,19 +663,27 @@ export async function closePaperPosition(
   positionId: number,
   exitPrice: number,
   realizedPnl: number,
-  exitReason: 'manual' | 'stop_loss' | 'take_profit' | 'liquidation' | 'system'
+  // Phase 77 — widened from a narrow 5-value enum to free-form string.
+  // The DB column is varchar(100) — the enum constraint was a TS-side
+  // artifact that forced rich reasons like "AGENT_EXIT_CONSENSUS 62/100"
+  // to be flattened to "system", losing the actual decision provenance.
+  // Now the audit trail preserves what the IEM/PEM/agents actually said.
+  exitReason: string,
 ) {
   const db = await getDb();
   if (!db) return;
-  
+
   // Phase 23: Always set exitPrice when closing a position
+  // Defensive truncation: column is varchar(100).
+  const safeReason = (exitReason || 'system').slice(0, 100);
+
   await db.update(paperPositions)
     .set({
       status: 'closed',
       currentPrice: exitPrice.toString(),
       exitPrice: exitPrice.toString(),
       realizedPnl: realizedPnl.toString(),
-      exitReason,
+      exitReason: safeReason,
       exitTime: new Date(),
       updatedAt: new Date(),
     })

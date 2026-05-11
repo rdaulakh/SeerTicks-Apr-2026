@@ -281,5 +281,25 @@ export class SmartExecutor {
       breach: tca.exceededCap,
       traceId: tca.traceId,
     });
+
+    // Phase 69 — persist to tcaLog for dashboard querying.
+    // Fire-and-forget; persistTca handles its own errors.
+    import('../services/TcaLogger').then(({ persistTca }) => {
+      persistTca({
+        traceId: tca.traceId,
+        symbol: tca.symbol,
+        side: tca.side,
+        quantity: tca.quantity,
+        refPrice: tca.refPrice,
+        executedPrice: tca.executedPrice,
+        executedQty: tca.executedQty,
+        slippageBps: tca.slippageBps,
+        bookSpreadBps: tca.bookSpreadBps,
+        stageReached: tca.stageReached,
+        totalLatencyMs: tca.totalLatencyMs,
+        partialFill: tca.partialFill,
+        exceededCap: tca.exceededCap,
+      }).catch(() => {/* persistTca already swallows internally */});
+    }).catch(() => {/* import failure → already covered by logger above */});
   }
 }

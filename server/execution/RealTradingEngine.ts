@@ -1064,13 +1064,17 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
 
       // Close position in database
       if (position.dbPositionId) {
+        // Phase 77 — pass the strategy/reason through to the DB so the
+        // audit trail preserves WHY (e.g. AGENT_EXIT_CONSENSUS,
+        // PROFIT_TARGET, HARD_STOP_LOSS) instead of the legacy "system".
+        const richReason = (order.strategy || '').replace(/^exit:/, '') || 'system';
         await closePaperPosition(
           position.dbPositionId,
           order.filledPrice!,
           pnl,
-          'system'
+          richReason,
         );
-        executionLogger.info('Position closed in database', { dbPositionId: position.dbPositionId });
+        executionLogger.info('Position closed in database', { dbPositionId: position.dbPositionId, exitReason: richReason });
       }
     } catch (error) {
       executionLogger.error('Failed to persist exit trade to database', { error: (error as Error)?.message });
@@ -1337,9 +1341,10 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
     try {
       if (position.dbPositionId) {
         const { closePaperPosition } = await import('../db');
-        // closePaperPosition's exitReason enum is narrow; the rich reason
-        // text goes into the audit log + position_closed event payload.
-        await closePaperPosition(position.dbPositionId, exitPrice, 0, 'system');
+        // Phase 77 — closePaperPosition now accepts free-form strings, so
+        // the rich reason (e.g. "AGENT_EXIT_CONSENSUS:exchange_already_closed")
+        // is preserved in the DB audit trail.
+        await closePaperPosition(position.dbPositionId, exitPrice, 0, exitReason);
         executionLogger.info('Position DB-closed directly (no order)', {
           positionId: position.id, dbPositionId: position.dbPositionId, exitReason,
         });

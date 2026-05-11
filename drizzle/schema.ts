@@ -1,4 +1,4 @@
-import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, varchar, json, decimal, uniqueIndex, index, mediumtext, bigint } from "drizzle-orm/mysql-core";
+import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, varchar, json, decimal, uniqueIndex, index, mediumtext, bigint, tinyint } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -3970,3 +3970,83 @@ export const tradingPipelineLog = mysqlTable("tradingPipelineLog", {
 }));
 export type TradingPipelineLog = typeof tradingPipelineLog.$inferSelect;
 export type InsertTradingPipelineLog = typeof tradingPipelineLog.$inferInsert;
+
+
+// ─── Phase 69 — TCA (Transaction Cost Analysis) Log ──────────────────────
+// Persists every SmartExecutor fill report so the post-trade dashboard can
+// show slippage trends, breach rate, stage-distribution, latency P50/P95/P99.
+// Pre-Phase-69 these were only logged to pm2 — not queryable.
+export const tcaLog = mysqlTable("tcaLog", {
+  id: int("id").autoincrement().primaryKey(),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  userId: int("userId"),
+  traceId: varchar("traceId", { length: 32 }),
+  symbol: varchar("symbol", { length: 20 }).notNull(),
+  side: varchar("side", { length: 4 }).notNull(),
+  quantity: decimal("quantity", { precision: 20, scale: 10 }).notNull(),
+  refPrice: decimal("refPrice", { precision: 20, scale: 8 }).notNull(),
+  executedPrice: decimal("executedPrice", { precision: 20, scale: 8 }).notNull(),
+  executedQty: decimal("executedQty", { precision: 20, scale: 10 }).notNull(),
+  slippageBps: decimal("slippageBps", { precision: 10, scale: 4 }).notNull(),
+  bookSpreadBps: decimal("bookSpreadBps", { precision: 10, scale: 4 }),
+  stageReached: int("stageReached").notNull(),
+  totalLatencyMs: int("totalLatencyMs").notNull(),
+  partialFill: tinyint("partialFill").default(0).notNull(),
+  exceededCap: tinyint("exceededCap").default(0).notNull(),
+}, (table) => ({
+  timestampIdx: index("idx_tca_timestamp").on(table.timestamp),
+  symbolIdx: index("idx_tca_symbol").on(table.symbol),
+  traceIdx: index("idx_tca_trace").on(table.traceId),
+  breachIdx: index("idx_tca_breach").on(table.exceededCap),
+  symbolTimeIdx: index("idx_tca_symbol_time").on(table.symbol, table.timestamp),
+}));
+export type TcaLog = typeof tcaLog.$inferSelect;
+export type InsertTcaLog = typeof tcaLog.$inferInsert;
+
+
+// ─── Phase 70 — Agent Correlation Matrix ──────────────────────────────────
+// Pairwise direction correlation between agents over historical windows.
+// Powers Bayesian aggregation's effective-N: 5 perfectly-correlated agents
+// behave as ~1 effective agent. Recomputed periodically (daily) from
+// agentSignals timeseries.
+export const agentCorrelations = mysqlTable("agentCorrelations", {
+  id: int("id").autoincrement().primaryKey(),
+  agentA: varchar("agentA", { length: 60 }).notNull(),
+  agentB: varchar("agentB", { length: 60 }).notNull(),
+  symbol: varchar("symbol", { length: 20 }).notNull(),
+  correlation: decimal("correlation", { precision: 6, scale: 4 }).notNull(),
+  sampleSize: int("sampleSize").notNull(),
+  windowDays: int("windowDays").notNull(),
+  lastUpdated: timestamp("lastUpdated").defaultNow().notNull(),
+}, (table) => ({
+  pairSymIdx: index("idx_agentcorr_pair_sym").on(table.agentA, table.agentB, table.symbol),
+  symbolIdx: index("idx_agentcorr_symbol").on(table.symbol),
+  updatedIdx: index("idx_agentcorr_updated").on(table.lastUpdated),
+}));
+export type AgentCorrelation = typeof agentCorrelations.$inferSelect;
+export type InsertAgentCorrelation = typeof agentCorrelations.$inferInsert;
+
+
+// ─── Phase 70 — Bayesian Consensus Log ────────────────────────────────────
+// Per-signal record of posterior so we A/B against naive weighted average
+// and detect calibration drift. Surfaces posteriorStd to the trade gate.
+export const bayesianConsensusLog = mysqlTable("bayesianConsensusLog", {
+  id: int("id").autoincrement().primaryKey(),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  userId: int("userId"),
+  signalId: varchar("signalId", { length: 64 }),
+  symbol: varchar("symbol", { length: 20 }).notNull(),
+  naiveMean: decimal("naiveMean", { precision: 8, scale: 6 }).notNull(),
+  posteriorMean: decimal("posteriorMean", { precision: 8, scale: 6 }).notNull(),
+  posteriorStd: decimal("posteriorStd", { precision: 8, scale: 6 }).notNull(),
+  effectiveN: decimal("effectiveN", { precision: 8, scale: 4 }).notNull(),
+  rawN: int("rawN").notNull(),
+  avgCorrelation: decimal("avgCorrelation", { precision: 6, scale: 4 }),
+  gateDecision: varchar("gateDecision", { length: 24 }).notNull(),
+}, (table) => ({
+  timestampIdx: index("idx_bayes_timestamp").on(table.timestamp),
+  symbolIdx: index("idx_bayes_symbol").on(table.symbol),
+  signalIdx: index("idx_bayes_signal").on(table.signalId),
+}));
+export type BayesianConsensusLog = typeof bayesianConsensusLog.$inferSelect;
+export type InsertBayesianConsensusLog = typeof bayesianConsensusLog.$inferInsert;

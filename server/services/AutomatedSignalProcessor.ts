@@ -504,9 +504,83 @@ export class AutomatedSignalProcessor extends EventEmitter {
       // Phase 30: Correlation-aware intelligent signal aggregation
       // Replaces old calculateConsensus with family-based deduplication
       const consensus = aggregateSignals(consensusEligibleSignals, this.agentWeights, marketContext);
-      
+
       // Update consensus cache for millisecond access by exit system
       updateConsensusCache(symbol, consensus);
+
+      // ── Phase 70 — Bayesian aggregation with covariance (A/B alongside naive) ──
+      // Compute the Bayesian posterior in parallel with the naive aggregator. When
+      // BAYESIAN_AGGREGATION_ENABLED=1, the gate decision USES the posterior;
+      // otherwise we just record A/B data for later validation. Either way, the
+      // posteriorStd ends up in the consensus payload so dashboards can surface
+      // "high mean / high uncertainty" warnings.
+      let bayesianResult: import('./BayesianAggregator').BayesianResult | undefined;
+      try {
+        const { aggregate, applyGate, DEFAULT_GATE_CONFIG } = await import('./BayesianAggregator');
+        const { getCorrelationMap } = await import('./AgentCorrelationTracker');
+        const correlations = await getCorrelationMap(symbol);
+        const votes = consensusEligibleSignals
+          .filter(s => s.signal !== 'neutral')
+          .map(s => ({
+            agentName: s.agentName,
+            direction: (s.signal === 'bullish' ? 1 : -1) as 1 | -1,
+            confidence: Math.max(0, Math.min(1, s.confidence)),
+            weight: (this.agentWeights as any)?.[s.agentName] ?? 1,
+          }));
+        bayesianResult = aggregate(votes, correlations);
+        const bayesGate = applyGate(bayesianResult, DEFAULT_GATE_CONFIG);
+
+        tradingLogger.info('Bayesian consensus', {
+          symbol,
+          naiveMean: bayesianResult.naiveMean.toFixed(4),
+          posteriorMean: bayesianResult.posteriorMean.toFixed(4),
+          posteriorStd: bayesianResult.posteriorStd.toFixed(4),
+          effectiveN: bayesianResult.effectiveN.toFixed(2),
+          rawN: bayesianResult.rawN,
+          avgCorrelation: bayesianResult.avgCorrelation.toFixed(3),
+          gate: bayesGate.approved ? `APPROVE(${(bayesGate as any).direction})` : `REJECT(${bayesGate.reason})`,
+        });
+
+        // Persist A/B data for later validation
+        try {
+          const { getDb } = await import('../db');
+          const { bayesianConsensusLog } = await import('../../drizzle/schema');
+          const db = await getDb();
+          if (db) {
+            await db.insert(bayesianConsensusLog).values({
+              userId: this.userId,
+              symbol,
+              naiveMean: bayesianResult.naiveMean.toFixed(6),
+              posteriorMean: bayesianResult.posteriorMean.toFixed(6),
+              posteriorStd: bayesianResult.posteriorStd.toFixed(6),
+              effectiveN: bayesianResult.effectiveN.toFixed(4),
+              rawN: bayesianResult.rawN,
+              avgCorrelation: bayesianResult.avgCorrelation.toFixed(4),
+              gateDecision: bayesGate.approved ? 'approved' : (bayesGate.reason.includes('uncertain') ? 'rejected_uncertainty' : (bayesGate.reason.includes('effectiveN') ? 'rejected_strength' : 'rejected_strength')),
+            });
+          }
+        } catch {/* fire-and-forget */}
+
+        // Surface posterior on the consensus object so downstream code & UI can see it.
+        (consensus as any).posteriorMean = bayesianResult.posteriorMean;
+        (consensus as any).posteriorStd = bayesianResult.posteriorStd;
+        (consensus as any).effectiveN = bayesianResult.effectiveN;
+        (consensus as any).avgCorrelation = bayesianResult.avgCorrelation;
+
+        // Feature flag — once verified against naive in A/B, the Bayesian gate replaces the naive strength check.
+        if (process.env.BAYESIAN_AGGREGATION_ENABLED === '1' && bayesGate.approved === false) {
+          tradingLogger.info('Bayesian gate REJECTED signal', {
+            symbol,
+            reason: bayesGate.reason,
+            naiveWouldHaveApproved: consensus.strength >= this.consensusThreshold,
+          });
+          // Drop strength to zero — downstream threshold check will reject.
+          // We don't mutate `direction` because the type narrows to bullish|bearish.
+          consensus.strength = 0;
+        }
+      } catch (err) {
+        tradingLogger.warn('Bayesian aggregation skipped', { error: (err as Error)?.message });
+      }
       
       // Phase 15B: Enhanced consensus logging with directional breakdown for debugging
       const bullishCount = actionableSignals.filter(s => s.signal === 'bullish').length;
@@ -1180,7 +1254,15 @@ export class AutomatedSignalProcessor extends EventEmitter {
   }
 
   /**
-   * Get latest price from signals
+   * Get latest price from signals.
+   *
+   * Phase 77 — Previously returned 0 when no agent in the batch carried
+   * embedded price (e.g. ETH-USD trace logs showed `price:0` because the
+   * Phase 2 / on-chain agents don't populate signal.evidence.price). The
+   * downstream MonteCarlo/VaR math then divides by 0 and emits NaN.
+   *
+   * Fix: fall back to priceFeedService.getLatestPrice(symbol) — that's
+   * the canonical real-time price source — before defaulting to 0.
    */
   private getLatestPrice(signals: AgentSignal[]): number {
     // Try to get price from signal recommendation or evidence
@@ -1195,6 +1277,18 @@ export class AutomatedSignalProcessor extends EventEmitter {
       }
       if (signal.evidence?.price && signal.evidence.price > 0) {
         return signal.evidence.price;
+      }
+    }
+    // Phase 77 — fall back to real-time price feed using the signal's symbol
+    const sym = signals[0]?.symbol;
+    if (sym) {
+      try {
+        const priceData = priceFeedService.getLatestPrice(sym);
+        if (priceData && Number.isFinite(priceData.price) && priceData.price > 0) {
+          return priceData.price;
+        }
+      } catch {
+        // Best-effort
       }
     }
     return 0; // Default if no price available

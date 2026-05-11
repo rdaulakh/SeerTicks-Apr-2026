@@ -185,6 +185,28 @@ export class MonteCarloSimulator {
     atrPercent?: number,
     seed?: number
   ): MonteCarloResult {
+    // Phase 77 — defensive guard: a 0/negative/NaN currentPrice will divide
+    // by zero in the return calc on every path, producing all-NaN metrics
+    // (the "P(profit)=0% | EV=NaN% | VaR95=NaN%" pattern seen in logs).
+    // Return a degenerate-but-valid result instead of poisoning downstream.
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
+      return {
+        p10: 0, p25: 0, p50: 0, p75: 0, p90: 0,
+        probabilityOfProfit: 0,
+        expectedReturn: 0,
+        maxDrawdown: 0,
+        valueAtRisk95: 0,
+        conditionalVaR95: 0,
+        sharpeRatio: 0,
+        skewness: 0,
+        kurtosis: 0,
+        avgHoldingPeriodMinutes: 0,
+        optimalExitStep: 0,
+        samplePaths: [],
+        returnDistribution: new Array(20).fill(0),
+      };
+    }
+
     const params = { ...(REGIME_PARAMS[regime] || DEFAULT_PARAMS) };
     const rng = mulberry32(seed || Date.now());
     const dirMult = direction === 'long' ? 1 : -1;
