@@ -55,15 +55,16 @@ module.exports = {
       exp_backoff_restart_delay: 1000, // Phase 16: Exponential backoff starting at 1s (1, 2, 4, 8, 16s...)
 
       // Memory management — Phase 82 (was Phase 16: 1500M, too tight)
-      // Observed working-set after Phase 80 candle-cache backfill + Phase 70
-      // BayesianAggregator + 33 agents × 3 symbols routinely lands around
-      // 1.5–2 GB. Previous 1500M ceiling triggered restart-loops every ~30s
-      // (368 restarts observed) which manifested as 502 Bad Gateway storms in
-      // the frontend and "agents appear-then-vanish". Bumped to 3 GB to give
-      // real headroom; MemoryMonitor still acts at 80% (= 2.4 GB) for soft
-      // remediation, PM2 kills at 3 GB as last resort.
-      max_memory_restart: '3000M',
-      node_args: '--max-old-space-size=3072 --expose-gc',
+      // Observed working-set: server grows ~70 MiB/s during startup +
+      // first signal cycle (candle backfill, agent init, BayesianAggregator
+      // warmup) and lands somewhere around 2.5–4 GB before stabilising.
+      // Previous 1500M ceiling triggered restart-loops every ~30s (368
+      // restarts observed in production) which surfaced as 502 storms on
+      // the frontend and "agents appear-then-vanish". 3GB still restarted
+      // every ~45s. Bumped to 5GB to push restarts past startup phase.
+      // Real fix (memory leak in init path) is Phase 83 follow-up.
+      max_memory_restart: '5000M',
+      node_args: '--max-old-space-size=5120 --expose-gc',
 
       // Logging — Phase 16: JSON structured for ELK/Datadog
       log_date_format: 'YYYY-MM-DD HH:mm:ss.SSS Z',
