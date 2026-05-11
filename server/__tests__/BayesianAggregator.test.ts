@@ -205,13 +205,16 @@ describe('BayesianAggregator', () => {
     });
 
     it('rejects mean too close to 0.5', () => {
+      // Phase 79 — gate now cares only about 0.05 distance (calibrated for
+      // 2-voter Beta posteriors). Use a closer value to make this test
+      // actually exercise the distance check.
       const result = {
-        posteriorMean: 0.58,  // distance from 0.5 = 0.08 < 0.15
+        posteriorMean: 0.52,  // distance = 0.02 < 0.05
         posteriorStd: 0.10,
         effectiveN: 5,
         rawN: 5,
         avgCorrelation: 0.1,
-        naiveMean: 0.6,
+        naiveMean: 0.55,
         bullishWeight: 3,
         bearishWeight: 2,
       };
