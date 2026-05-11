@@ -62,16 +62,19 @@ export const positionConsensusRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
       
-      // Get the position
+      // Phase 75: Query paperPositions — the table the engine actually
+      // writes to. The legacy `positions` table is empty in current
+      // architecture, which is why this endpoint was returning null and
+      // the UI showed "0 agents voting" for every position.
       const [position] = await db
         .select()
-        .from(positions)
+        .from(paperPositions)
         .where(and(
-          eq(positions.id, input.positionId),
-          eq(positions.userId, ctx.user.id)
+          eq(paperPositions.id, input.positionId),
+          eq(paperPositions.userId, ctx.user.id)
         ))
         .limit(1);
-      
+
       if (!position) {
         return null;
       }
@@ -218,13 +221,13 @@ export const positionConsensusRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
       
-      // Get all open positions
+      // Phase 75: Use paperPositions (legacy positions table is empty)
       const userPositions = await db
         .select()
-        .from(positions)
+        .from(paperPositions)
         .where(and(
-          eq(positions.userId, ctx.user.id),
-          eq(positions.status, 'open')
+          eq(paperPositions.userId, ctx.user.id),
+          eq(paperPositions.status, 'open')
         ));
       
       if (userPositions.length === 0) {
@@ -551,15 +554,15 @@ export const positionConsensusRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
       
-      // Get positions that were closed via manual override
+      // Phase 75: Use paperPositions (engine writes to this table)
       const overridePositions = await db
         .select()
-        .from(positions)
+        .from(paperPositions)
         .where(and(
-          eq(positions.userId, ctx.user.id),
-          eq(positions.status, 'closed')
+          eq(paperPositions.userId, ctx.user.id),
+          eq(paperPositions.status, 'closed')
         ))
-        .orderBy(desc(positions.exitTime))
+        .orderBy(desc(paperPositions.exitTime))
         .limit(input.limit);
       
       // Filter for manual overrides (check exitReason field)
