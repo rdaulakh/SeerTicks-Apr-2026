@@ -591,7 +591,10 @@ export class AgentWeightManager extends EventEmitter {
     agentSignals: Array<{ agentName: string; signal: 'bullish' | 'bearish' | 'neutral'; confidence: number }>,
     tradeSide: 'long' | 'short',
     wasProfit: boolean,
-    pnlAfterCosts?: number // Phase 5: cost-aware profitability
+    pnlAfterCosts?: number, // Phase 5: cost-aware profitability
+    // Phase 82 — pass userId + symbol so we can persist to agentAccuracy table
+    // for the scorecard. Optional for back-compat with existing call sites.
+    context?: { userId?: number; symbol?: string },
   ): void {
     // Phase 5: Use pnlAfterCosts as the primary profitability signal when available.
     // Small winners that become losers after fees (commission + slippage) should penalize agents.
@@ -615,6 +618,19 @@ export class AgentWeightManager extends EventEmitter {
       if (agentSignal.signal === 'neutral') continue;
 
       this.recordPerformance(agentName, wasCorrect, agentSignal.confidence);
+
+      // Phase 82 — persist per-agent accuracy to DB for the scorecard view.
+      // Fire-and-forget; failure to persist must NOT block the in-memory update.
+      if (context?.userId && context?.symbol) {
+        const userId = context.userId;
+        const symbol = context.symbol;
+        const correct = wasCorrect;
+        import('../db').then(({ updateAgentAccuracy }) => {
+          updateAgentAccuracy(userId, agentName, symbol, correct).catch((err: any) => {
+            agentLogger.warn('AgentAccuracy persist failed', { agentName, err: err?.message });
+          });
+        }).catch(() => { /* best-effort */ });
+      }
     }
   }
 

@@ -61,7 +61,9 @@ export class DecisionEvaluator extends EventEmitter {
   private performanceWindow: PerformanceWindow;
   private recentDecisions: Array<{ score: number; outcome?: 'win' | 'loss'; timestamp: number }> = [];
   private readonly MAX_RECENT_DECISIONS = 100;
-  
+  // Phase 82 — track userId so we can persist per-agent accuracy to DB
+  private readonly userId: number;
+
   // Configurable thresholds
   private readonly MIN_QUALITY_SCORE = 0.35;         // Minimum score to approve
   private readonly HIGH_QUALITY_THRESHOLD = 0.70;     // Score for full position size
@@ -71,8 +73,9 @@ export class DecisionEvaluator extends EventEmitter {
   private readonly RECENT_PERFORMANCE_WEIGHT = 0.15;  // How much recent performance matters
   private readonly DISSENT_WEIGHT = 0.15;             // How much dissent analysis matters
 
-  constructor() {
+  constructor(userId: number = 0) {
     super();
+    this.userId = userId;
     this.performanceWindow = this.createEmptyWindow();
   }
 
@@ -324,7 +327,10 @@ export class DecisionEvaluator extends EventEmitter {
         })),
         trade.direction,
         wasProfit,
-        pnl // Pass actual PnL for cost-aware evaluation
+        pnl, // Pass actual PnL for cost-aware evaluation
+        // Phase 82 — pass userId + symbol so per-agent accuracy persists
+        // to the agentAccuracy DB table for scorecard view + auto-tuning.
+        { userId: this.userId, symbol },
       );
     } catch (err) {
       console.warn('[DecisionEvaluator] Failed to record outcome to AgentWeightManager:', (err as Error)?.message);
@@ -493,7 +499,8 @@ const evaluators = new Map<number, DecisionEvaluator>();
 export function getDecisionEvaluator(userId?: number): DecisionEvaluator {
   const id = userId || 0;
   if (!evaluators.has(id)) {
-    evaluators.set(id, new DecisionEvaluator());
+    // Phase 82 — pass userId so the evaluator can persist per-agent accuracy
+    evaluators.set(id, new DecisionEvaluator(id));
   }
   return evaluators.get(id)!;
 }
