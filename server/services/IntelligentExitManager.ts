@@ -42,6 +42,7 @@ import {
 } from './PriorityExitManager';
 import { getTradingConfig } from '../config/TradingConfig';
 import { logPipelineEvent, PipelineEventType } from './TradingPipelineLogger';
+import { applyRatchet as applyProfitRatchet } from './ProfitRatchet';
 import {
   shouldAllowClose as profitLockShouldAllowClose,
   evaluateThesisInvalidation,
@@ -1421,8 +1422,7 @@ export class IntelligentExitManager extends EventEmitter {
     // protected level — that path is in CATASTROPHIC_REASON_PATTERNS, so it
     // bypasses ProfitLockGuard. No more "winner becomes a loser" bleed.
     try {
-      const { applyRatchet } = require('./ProfitRatchet') as typeof import('./ProfitRatchet');
-      const ratchetResult = applyRatchet(
+      const ratchetResult = applyProfitRatchet(
         {
           id: position.id,
           symbol: position.symbol,
