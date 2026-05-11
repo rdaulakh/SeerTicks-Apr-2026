@@ -933,6 +933,22 @@ async function startServer() {
       console.error(`[${new Date().toLocaleTimeString()}] ❌ Failed to start silence watchdog:`, error);
     }
 
+    // Phase 73: Start EngineHeartbeat watchdog at BOOT — never gated on a
+    // specific user session. Previously start() was inside UserTradingSession's
+    // init try-block, so if that block threw early the watchdog never started.
+    // The watchdog now runs unconditionally for the lifetime of the process.
+    try {
+      const { getEngineHeartbeat } = await import('../services/EngineHeartbeat');
+      const hb = getEngineHeartbeat();
+      hb.start();
+      hb.on('auto_halt', (info: { reason: string }) => {
+        console.error(`[Boot] 🚨 EngineHeartbeat AUTO-HALT fired: ${info.reason}`);
+      });
+      console.log(`[${new Date().toLocaleTimeString()}] 🫀 EngineHeartbeat started at boot (Phase 73)`);
+    } catch (error) {
+      console.error(`[${new Date().toLocaleTimeString()}] ❌ Failed to start EngineHeartbeat at boot:`, error);
+    }
+
     // Phase 14A: Start GlobalMarketEngine — always-on market observation
     // This runs 29 agents per symbol ONCE for ALL users (vs N duplicated per-user engines)
     // Must start BEFORE background engine manager so global signals are available

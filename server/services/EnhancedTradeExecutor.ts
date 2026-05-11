@@ -105,15 +105,25 @@ export class EnhancedTradeExecutor extends EventEmitter {
   private readonly MAX_QUEUE_SIZE = 100;
 
   // Phase 15A: Circuit breaker state — prevents catastrophic loss events
+  // Phase 73: Halts are now TIME-BOUNDED, not permanent. Each halt sets a
+  // cooldown window (haltedUntil) after which trading auto-resumes with
+  // optionally reduced sizing (wasRecentlyHalted). This prevents the engine
+  // from getting wedged for hours on a stale peak-equity reading like it
+  // did on 2026-05-10 (SOL #48 held 10h under permanent halt).
   private dailyTradeCount: number = 0;
   private dailyTradeCountResetDate: string = '';
   private consecutiveLosses: number = 0;
   private pausedUntil: number = 0; // Timestamp — if > Date.now(), trading paused
-  private isHalted: boolean = false; // Hard halt — requires manual reset
+  private isHalted: boolean = false; // Halt flag — cleared automatically when haltedUntil elapses
+  private haltedUntil: number = 0; // Phase 73 — timestamp at which a triggered halt auto-clears
+  private wasRecentlyHalted: boolean = false; // Phase 73 — set true on auto-resume; flagged to size reducer
   private haltReason: string = '';
   private dailyPnL: number = 0;
   private dailyPnLResetDate: string = '';
   private peakEquity: number = 0;
+  // Phase 73 — cooldown windows. Conservative for drawdown (1h), longer for daily-loss (until reset).
+  private readonly DRAWDOWN_HALT_COOLDOWN_MS = 60 * 60 * 1000;       // 1 hour
+  private readonly DAILY_LOSS_HALT_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
 
   // Phase 17: Limits now sourced from unified TradingConfig (no more scattered constants)
   private get MAX_DAILY_TRADES() { return getTradingConfig().circuitBreakers.maxDailyTrades; }
@@ -286,13 +296,26 @@ export class EnhancedTradeExecutor extends EventEmitter {
     // These checks prevent catastrophic loss events like Feb 17 (-$293K)
     // ============================================================
 
-    // Check 1: Hard halt (requires manual reset)
+    // Check 1: Hard halt — Phase 73: time-bounded auto-resume
     if (this.isHalted) {
-      console.warn(`[EnhancedTradeExecutor] 🛑 HALTED: ${this.haltReason}. Trading blocked until manual reset.`);
-      const reason = `HALTED: ${this.haltReason}`;
-      if (signal.signalId) tradeDecisionLogger.markFailed(signal.signalId, reason).catch(() => {});
-      this.emit('trade_rejected', { symbol: signal.symbol, reason });
-      return;
+      // Auto-clear once cooldown window elapses. Reset peakEquity so we don't
+      // immediately re-trigger off the same stale ceiling that caused the halt.
+      if (this.haltedUntil > 0 && Date.now() >= this.haltedUntil) {
+        const heldFor = ((Date.now() - (this.haltedUntil - this.DRAWDOWN_HALT_COOLDOWN_MS)) / 60000).toFixed(0);
+        console.log(`[EnhancedTradeExecutor] ✅ Halt auto-cleared after cooldown (held ${heldFor}min). Reason was: ${this.haltReason}`);
+        this.isHalted = false;
+        this.haltReason = '';
+        this.haltedUntil = 0;
+        this.peakEquity = 0; // Reset peak so we don't immediately re-trigger
+        this.wasRecentlyHalted = true; // Will reduce position size on next trade
+      } else {
+        const remainingMin = this.haltedUntil > 0 ? Math.ceil((this.haltedUntil - Date.now()) / 60000) : 0;
+        console.warn(`[EnhancedTradeExecutor] 🛑 HALTED: ${this.haltReason}. Auto-resume in ${remainingMin}min`);
+        const reason = `HALTED: ${this.haltReason} (${remainingMin}min remaining)`;
+        if (signal.signalId) tradeDecisionLogger.markFailed(signal.signalId, reason).catch(() => {});
+        this.emit('trade_rejected', { symbol: signal.symbol, reason });
+        return;
+      }
     }
 
     // Phase 66 — heartbeat watchdog auto-halt.
@@ -341,8 +364,9 @@ export class EnhancedTradeExecutor extends EventEmitter {
         const dailyLossLimit = wallet.balance * this.MAX_DAILY_LOSS_PERCENT;
         if (this.dailyPnL < -dailyLossLimit) {
           this.isHalted = true;
+          this.haltedUntil = Date.now() + this.DAILY_LOSS_HALT_COOLDOWN_MS; // Phase 73
           this.haltReason = `Daily loss limit breached: $${Math.abs(this.dailyPnL).toFixed(2)} > $${dailyLossLimit.toFixed(2)} (${(this.MAX_DAILY_LOSS_PERCENT * 100).toFixed(0)}%)`;
-          console.error(`[EnhancedTradeExecutor] 🚨 ${this.haltReason}`);
+          console.error(`[EnhancedTradeExecutor] 🚨 ${this.haltReason} — auto-resume in ${this.DAILY_LOSS_HALT_COOLDOWN_MS / 60000}min`);
           this.emit('circuit_breaker_triggered', { reason: this.haltReason, type: 'daily_loss' });
           return;
         }
@@ -354,8 +378,9 @@ export class EnhancedTradeExecutor extends EventEmitter {
         const drawdownFromPeak = (this.peakEquity - currentEquity) / this.peakEquity;
         if (drawdownFromPeak > this.MAX_DRAWDOWN_PERCENT) {
           this.isHalted = true;
-          this.haltReason = `Max drawdown breached: ${(drawdownFromPeak * 100).toFixed(1)}% > ${(this.MAX_DRAWDOWN_PERCENT * 100).toFixed(0)}%`;
-          console.error(`[EnhancedTradeExecutor] 🚨 ${this.haltReason}`);
+          this.haltedUntil = Date.now() + this.DRAWDOWN_HALT_COOLDOWN_MS; // Phase 73
+          this.haltReason = `Max drawdown breached: ${(drawdownFromPeak * 100).toFixed(1)}% > ${(this.MAX_DRAWDOWN_PERCENT * 100).toFixed(0)}% (peak=$${this.peakEquity.toFixed(2)}, now=$${currentEquity.toFixed(2)})`;
+          console.error(`[EnhancedTradeExecutor] 🚨 ${this.haltReason} — auto-resume in ${this.DRAWDOWN_HALT_COOLDOWN_MS / 60000}min`);
           this.emit('circuit_breaker_triggered', { reason: this.haltReason, type: 'max_drawdown' });
           return;
         }
@@ -1611,8 +1636,9 @@ export class EnhancedTradeExecutor extends EventEmitter {
         const dailyLossLimit = wallet.balance * this.MAX_DAILY_LOSS_PERCENT;
         if (this.dailyPnL < -dailyLossLimit) {
           this.isHalted = true;
+          this.haltedUntil = Date.now() + this.DAILY_LOSS_HALT_COOLDOWN_MS; // Phase 73
           this.haltReason = `Daily loss limit: $${Math.abs(this.dailyPnL).toFixed(2)} > $${dailyLossLimit.toFixed(2)}`;
-          console.error(`[EnhancedTradeExecutor] 🚨 CIRCUIT BREAKER: ${this.haltReason}`);
+          console.error(`[EnhancedTradeExecutor] 🚨 CIRCUIT BREAKER: ${this.haltReason} — auto-resume in ${this.DAILY_LOSS_HALT_COOLDOWN_MS / 60000}min`);
           this.emit('circuit_breaker_triggered', { reason: this.haltReason, type: 'daily_loss' });
         }
       }
@@ -1621,12 +1647,16 @@ export class EnhancedTradeExecutor extends EventEmitter {
 
   /**
    * Manually reset the halt state (admin/operator action).
+   * Phase 73: Also clears auto-resume timer and stale peak-equity ceiling.
    */
   resetHalt(): void {
     this.isHalted = false;
     this.haltReason = '';
+    this.haltedUntil = 0;
     this.consecutiveLosses = 0;
     this.pausedUntil = 0;
+    this.peakEquity = 0; // Reset stale peak so we don't immediately re-trigger
+    this.wasRecentlyHalted = false;
     console.log(`[EnhancedTradeExecutor] ✅ Circuit breaker reset by operator`);
   }
 

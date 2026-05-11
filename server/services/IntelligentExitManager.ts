@@ -301,7 +301,22 @@ export class IntelligentExitManager extends EventEmitter {
   constructor(config?: Partial<IntelligentExitConfig>) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
-    
+
+    // Phase 73 — Read maxHoldTimeHours from TradingConfig instead of a stale
+    // hardcoded 4h default. Previously positions could be held 10h+ without
+    // a time exit firing (SOL #48 on 2026-05-10). The TradingConfig value
+    // is the single source of truth for hold time across the system.
+    if (config?.maxHoldTimeHours === undefined) {
+      try {
+        const tc = getTradingConfig();
+        const cfgHoldHours = (tc.exits?.maxWinnerTimeMinutes ?? 25) / 60;
+        this.config.maxHoldTimeHours = cfgHoldHours;
+        console.log(`[IntelligentExitManager] Phase 73: maxHoldTimeHours sourced from TradingConfig = ${cfgHoldHours.toFixed(2)}h (${(cfgHoldHours * 60).toFixed(0)}min)`);
+      } catch {
+        // Fall back to DEFAULT_CONFIG value if TradingConfig unavailable
+      }
+    }
+
     // Initialize memory-optimized price buffer (Phase 4.2)
     // 10,000 ticks per symbol = ~160KB per symbol (vs 1MB+ for object arrays)
     this.priceBufferManager = getPriceBufferManager(10000);
