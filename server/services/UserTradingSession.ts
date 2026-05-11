@@ -934,8 +934,19 @@ export class UserTradingSession extends EventEmitter {
           if (!position?.symbol) return;
           try {
             const evaluator = getDecisionEvaluator(this.userId);
+            // Phase 82 — forward DB row id + tradingMode so AgentPnlAttributor
+            // can write one signed-contribution row per (trade, agent).
+            const tradeId: number | undefined = position?.dbPositionId ?? position?.tradeId;
+            // UserTradingSession stores 'paper' | 'real'; attributor expects 'paper' | 'live'.
+            const tradingMode: 'paper' | 'live' = this.tradingMode === 'real' ? 'live' : 'paper';
             evaluator
-              .recordTradeOutcome(position.symbol, pnl, exitPrice, position.exitReason || 'engine_close')
+              .recordTradeOutcome(
+                position.symbol,
+                pnl,
+                exitPrice,
+                position.exitReason || 'engine_close',
+                { tradeId, tradingMode },
+              )
               .catch((err: Error) => {
                 console.warn(`[UserTradingSession] feedback recordTradeOutcome failed:`, err?.message);
               });

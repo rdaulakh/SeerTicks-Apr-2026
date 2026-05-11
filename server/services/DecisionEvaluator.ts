@@ -262,7 +262,12 @@ export class DecisionEvaluator extends EventEmitter {
     symbol: string,
     pnl: number,
     exitPrice: number,
-    exitReason: string
+    exitReason: string,
+    // Phase 82 — optional metadata for per-agent signed-P&L attribution.
+    // Caller (UserTradingSession) passes the position's DB row id + trading
+    // mode; we forward to AgentPnlAttributor so the operator can see each
+    // agent's dollar contribution per trade.
+    meta?: { tradeId?: number; tradingMode?: 'paper' | 'live'; tradeQualityScore?: string },
   ): Promise<void> {
     const trade = this.pendingTrades.get(symbol);
     if (!trade) {
@@ -334,6 +339,39 @@ export class DecisionEvaluator extends EventEmitter {
       );
     } catch (err) {
       console.warn('[DecisionEvaluator] Failed to record outcome to AgentWeightManager:', (err as Error)?.message);
+    }
+
+    // Phase 82 — signed-PnL attribution per agent. Lets operator see each
+    // agent's dollar contribution to the trade (not just accuracy %). Runs
+    // fire-and-forget; attribution failure NEVER blocks the outcome path.
+    if (meta?.tradeId !== undefined && meta.tradeId !== null) {
+      const tradeIdForAttr = meta.tradeId;
+      const tradingModeForAttr = meta.tradingMode;
+      const tradeQualityForAttr = meta.tradeQualityScore;
+      const tradeSignalsForAttr = trade.agentSignals;
+      const tradeSideForAttr = trade.direction;
+      import('./AgentPnlAttributor')
+        .then(({ getAgentPnlAttributor }) => {
+          return getAgentPnlAttributor().attribute({
+            userId: this.userId,
+            tradeId: tradeIdForAttr,
+            symbol,
+            tradeSide: tradeSideForAttr,
+            agentSignals: tradeSignalsForAttr.map(s => ({
+              agentName: s.agentName,
+              signal: s.signal,
+              confidence: s.confidence,
+            })),
+            pnl,
+            exitReason,
+            tradeQualityScore: tradeQualityForAttr,
+            tradingMode: tradingModeForAttr,
+            closedAt: new Date(),
+          });
+        })
+        .catch((err: Error) => {
+          console.warn('[DecisionEvaluator] Attribution failed:', err?.message);
+        });
     }
 
     // Emit outcome event for monitoring

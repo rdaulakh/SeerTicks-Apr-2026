@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../_core/trpc';
 import { getDb } from '../db';
-import { agentSignals, agentAccuracy } from '../../drizzle/schema';
+import { agentSignals, agentAccuracy, agentPnlAttribution } from '../../drizzle/schema';
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
 
 const WINDOW_HOURS = z.number().int().min(1).max(168).default(24);
@@ -408,5 +408,109 @@ export const agentScorecardRouter = router({
         topContributors: records.slice(0, 10),
         bottlenecks: records.slice(-10).reverse(),
       };
+    }),
+
+  /**
+   * Phase 82 — signed-$ P&L contribution per agent over a window.
+   *
+   * Sums pnlContribution from the agentPnlAttribution table (one row per
+   * closed trade per agent). Tells the operator, in dollars, which agents
+   * earned vs cost the book — the truest "who matters" view.
+   *
+   *   contribution per trade = alignment × confidence × pnlAfterCosts
+   *   sum across trades       = the agent's marginal $-impact on the book
+   */
+  getSignedPnlByAgent: protectedProcedure
+    .input(z.object({
+      windowHours: WINDOW_HOURS,
+      minTrades: z.number().int().min(1).default(1),
+      tradingMode: z.enum(['paper', 'live']).optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return { topContributors: [], bottlenecks: [], totalTrades: 0, agents: [] };
+      const since = new Date(Date.now() - input.windowHours * 60 * 60 * 1000);
+
+      const whereClauses = [
+        eq(agentPnlAttribution.userId, ctx.user.id),
+        gte(agentPnlAttribution.closedAt, since),
+      ];
+      if (input.tradingMode) {
+        whereClauses.push(eq(agentPnlAttribution.tradingMode, input.tradingMode));
+      }
+
+      const rows = await db
+        .select({
+          agentName: agentPnlAttribution.agentName,
+          totalContribution: sql<string>`sum(cast(pnlContribution as decimal(18,6)))`,
+          tradeCount: sql<number>`count(*)`,
+          correctCount: sql<number>`sum(case when wasCorrect = true then 1 else 0 end)`,
+          avgConfidence: sql<string>`avg(cast(agentConfidence as decimal(8,4)))`,
+          maxGain: sql<string>`max(cast(pnlContribution as decimal(18,6)))`,
+          maxLoss: sql<string>`min(cast(pnlContribution as decimal(18,6)))`,
+        })
+        .from(agentPnlAttribution)
+        .where(and(...whereClauses))
+        .groupBy(agentPnlAttribution.agentName);
+
+      const distinctTrades = await db
+        .select({ count: sql<number>`count(distinct tradeId)` })
+        .from(agentPnlAttribution)
+        .where(and(...whereClauses));
+
+      const agents = rows
+        .map((r: any) => ({
+          agentName: r.agentName,
+          netContribution: parseFloat(r.totalContribution ?? '0'),
+          tradeCount: Number(r.tradeCount ?? 0),
+          correctCount: Number(r.correctCount ?? 0),
+          accuracy: Number(r.tradeCount) > 0 ? Number(r.correctCount) / Number(r.tradeCount) : 0,
+          avgConfidence: parseFloat(r.avgConfidence ?? '0'),
+          maxGain: parseFloat(r.maxGain ?? '0'),
+          maxLoss: parseFloat(r.maxLoss ?? '0'),
+        }))
+        .filter(a => a.tradeCount >= input.minTrades);
+
+      agents.sort((a, b) => b.netContribution - a.netContribution);
+
+      return {
+        windowHours: input.windowHours,
+        tradingMode: input.tradingMode ?? 'all',
+        totalTrades: Number(distinctTrades[0]?.count ?? 0),
+        agents,
+        topContributors: agents.slice(0, 10),
+        bottlenecks: [...agents].reverse().slice(0, 10),
+      };
+    }),
+
+  /**
+   * Phase 82 — per-trade signed attribution.
+   * Given a tradeId, returns each agent's vote + signed contribution.
+   * Used by the trade-detail UI to show "who voted what, how much it earned".
+   */
+  getAttributionForTrade: protectedProcedure
+    .input(z.object({ tradeId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const rows = await db
+        .select()
+        .from(agentPnlAttribution)
+        .where(and(
+          eq(agentPnlAttribution.userId, ctx.user.id),
+          eq(agentPnlAttribution.tradeId, input.tradeId),
+        ));
+      return rows.map((r: any) => ({
+        agentName: r.agentName,
+        agentDirection: r.agentDirection,
+        agentConfidence: parseFloat(r.agentConfidence ?? '0'),
+        pnlContribution: parseFloat(r.pnlContribution ?? '0'),
+        wasCorrect: !!r.wasCorrect,
+        tradePnl: parseFloat(r.tradePnl ?? '0'),
+        tradeSide: r.tradeSide,
+        symbol: r.symbol,
+        exitReason: r.exitReason,
+        closedAt: r.closedAt,
+      })).sort((a: any, b: any) => Math.abs(b.pnlContribution) - Math.abs(a.pnlContribution));
     }),
 });

@@ -4050,3 +4050,44 @@ export const bayesianConsensusLog = mysqlTable("bayesianConsensusLog", {
 }));
 export type BayesianConsensusLog = typeof bayesianConsensusLog.$inferSelect;
 export type InsertBayesianConsensusLog = typeof bayesianConsensusLog.$inferInsert;
+
+
+// ─── Phase 82 — Per-Agent Signed PnL Attribution ──────────────────────────
+// One row per (closed trade, agent) — records the agent's vote at entry +
+// the signed dollar contribution to the trade's pnlAfterCosts.
+//
+// Attribution math: an agent that voted *with* the winning direction gets
+// +pnl credit. An agent that voted *against* gets -pnl debit (it was
+// "outvoted" by the consensus and would have steered us wrong). Neutral
+// agents get 0 — they sat out. This lets the operator see which agents
+// actually drove profitable trades vs which are P&L bottlenecks, in
+// dollars, not just boolean accuracy.
+export const agentPnlAttribution = mysqlTable("agentPnlAttribution", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  tradeId: int("tradeId").notNull(),
+  agentName: varchar("agentName", { length: 64 }).notNull(),
+  symbol: varchar("symbol", { length: 20 }).notNull(),
+  tradeSide: mysqlEnum("tradeSide", ["long", "short"]).notNull(),
+  // Agent's vote at entry: 'bullish' | 'bearish' | 'neutral' | string
+  agentDirection: varchar("agentDirection", { length: 16 }).notNull(),
+  agentConfidence: decimal("agentConfidence", { precision: 6, scale: 4 }),
+  // Signed: +x if aligned with winning direction, -x if opposed, 0 if neutral
+  pnlContribution: decimal("pnlContribution", { precision: 18, scale: 6 }).notNull(),
+  // Raw trade pnl (denormalized so a query can roll up without joins)
+  tradePnl: decimal("tradePnl", { precision: 18, scale: 6 }).notNull(),
+  // Was the agent's vote directionally correct? (signal aligned with realized P&L sign)
+  wasCorrect: boolean("wasCorrect").notNull(),
+  tradeQualityScore: varchar("tradeQualityScore", { length: 2 }), // A-F
+  exitReason: varchar("exitReason", { length: 64 }),
+  tradingMode: varchar("tradingMode", { length: 10 }), // 'paper' | 'live'
+  closedAt: timestamp("closedAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  userAgentIdx: index("idx_agent_pnl_user_agent").on(table.userId, table.agentName),
+  tradeIdx: index("idx_agent_pnl_trade").on(table.tradeId),
+  closedIdx: index("idx_agent_pnl_closed").on(table.closedAt),
+  agentSymbolIdx: index("idx_agent_pnl_agent_symbol").on(table.agentName, table.symbol),
+}));
+export type AgentPnlAttribution = typeof agentPnlAttribution.$inferSelect;
+export type InsertAgentPnlAttribution = typeof agentPnlAttribution.$inferInsert;
