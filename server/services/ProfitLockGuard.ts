@@ -85,6 +85,15 @@ const CATASTROPHIC_REASON_PATTERNS: readonly string[] = [
   'emergency exit',     // IntelligentExitManager.evaluateExitConditionsRaw emergency floor
   'dead_mans_switch',   // PositionGuardian dead-man's-switch (price feed silent)
   'daily_loss_limit',   // PositionGuardian daily-loss circuit breaker
+  // Phase 76 — agent collective intelligence overrides cost-drag guard.
+  // When ≥6 agents urgently agree (AGENT_UNANIMOUS_EXIT) or weighted exit
+  // score ≥55 across 2+ reporters (AGENT_EXIT_CONSENSUS), the agents are
+  // telling us the entry thesis is dead. Holding for net-profit at that
+  // point usually rides the position to the catastrophic floor. Trust the
+  // collective and cut losses early — exactly the user-requested behavior:
+  // "Agent decides, not just SL/TP".
+  'agent_unanimous_exit',
+  'agent_exit_consensus',
 ];
 
 export function isCatastrophicReason(exitReason: string | undefined | null): boolean {
