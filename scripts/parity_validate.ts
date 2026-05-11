@@ -144,8 +144,9 @@ async function main() {
     windowStart = new Date(now - windowHours * 60 * 60 * 1000);
   }
 
+  const windowHoursActual = (windowEnd.getTime() - windowStart.getTime()) / 3600000;
   console.log(`Phase 68 — Parity validation`);
-  console.log(`Window: ${windowStart.toISOString()} → ${windowEnd.toISOString()} (${windowHours}h)`);
+  console.log(`Window: ${windowStart.toISOString()} → ${windowEnd.toISOString()} (${windowHoursActual.toFixed(1)}h)`);
 
   // 1. Load live decisions
   const liveDecisions = await loadLiveDecisions(windowStart, windowEnd);
