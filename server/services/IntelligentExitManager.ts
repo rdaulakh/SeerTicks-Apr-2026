@@ -1811,7 +1811,7 @@ export class IntelligentExitManager extends EventEmitter {
             unrealizedPnLPercent: position.unrealizedPnlPercent.toString(),
             updatedAt: getActiveClock().date(),
           };
-          
+
           // Sync consensus data if available
           if (position.currentConfidence !== undefined) {
             updateData.currentConfidence = position.currentConfidence.toString();
@@ -1821,6 +1821,21 @@ export class IntelligentExitManager extends EventEmitter {
           }
           if (position.peakConfidenceTime) {
             updateData.peakConfidenceTime = new Date(position.peakConfidenceTime);
+          }
+
+          // Phase 82.2 — persist the ratcheted stop-loss + take-profit so the
+          // DB reflects the protection level the trader can actually rely on.
+          // Without this, the ProfitRatchet moves the in-memory stop UP every
+          // tick but the DB row stays NULL/stale — and any process restart or
+          // out-of-band reader (UI, audit query, parallel exit path) sees an
+          // unprotected position. Critical for the case observed live:
+          // shorts opened without a stop, ratchet then set one in memory,
+          // but paperPositions.stopLoss stayed NULL forever.
+          if (position.stopLoss !== undefined && position.stopLoss !== null) {
+            updateData.stopLoss = position.stopLoss.toString();
+          }
+          if (position.takeProfit !== undefined && position.takeProfit !== null) {
+            updateData.takeProfit = position.takeProfit.toString();
           }
           
           await db.update(paperPositions)
