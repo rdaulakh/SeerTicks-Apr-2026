@@ -476,34 +476,42 @@ class TraderBrain {
         reason: `consensus ${(stance.currentConsensus * 100).toFixed(0)}% ${stance.currentDirection} opposes opportunity ${opp.direction}`, symbol };
     }
 
-    // Sizing — Phase 93.2
+    // Sizing — Phase 93.3 (confidence-weighted, evolved from 93.2)
     //
-    // Previous formula:  equity × entrySizeEquityFraction × kellyFraction × opp.score
-    //   With defaults (0.10 × 0.25 × ~0.70 = 0.0175) this collapsed every trade to
-    //   ~1.75% of equity. Avg observed notional = $174 on a $10K bankroll — far
-    //   below the intended 10% target.
+    // Combines THREE independent confidence signals into a unified "brain
+    // confidence" via geometric mean (so weakness in any one channel
+    // pulls size down — no single signal can dominate):
     //
-    // The bug: entrySizeEquityFraction ALREADY encodes the post-Kelly conservative
-    // size (0.10 = "10% per trade" is the user's risk lever). Multiplying by
-    // kellyFraction (0.25) AGAIN compounds the safety factor and shrinks the
-    // position 4× below intent.
+    //   1. effectiveScore  — opportunity sensor strength + alpha library bias
+    //   2. stanceStrength  — fraction of agents agreeing with the direction
+    //   3. confluenceRatio — fraction of supporting sensors active
     //
-    // New formula:  equity × entrySizeEquityFraction × opp.score
-    //   - Base size = entrySizeEquityFraction (10% of equity by default)
-    //   - opp.score scales 0.55..1.00 — at minimum opportunity we bet 5.5%, at
-    //     maximum opportunity we bet 10%. Score becomes a quality discount, not
-    //     a second safety multiplier.
-    //   - With $10K equity + opp.score ~0.70 → $700/trade. Matches the "10% per
-    //     trade" promise of the config knob.
+    // Pyramid scaling — at high confidence we bet MORE, at low confidence
+    // we bet LESS (user-requested in audit 2026-05-13):
+    //   confidence 0.50 → 0.375× base = ~3.75% equity ($375 on $10K)
+    //   confidence 0.70 → 0.735× base = ~7.35% equity ($735 on $10K)
+    //   confidence 0.85 → 1.084× base = ~10.84% equity ($1,084 on $10K)
+    //   confidence 1.00 →  1.5× base  =      15% equity ($1,500 on $10K)
     //
-    // kellyFraction is preserved in config for future use (e.g. dynamic adjustment
-    // based on rolling win-rate) but is NOT applied in the base formula anymore.
+    // Stays within risk budget: with 1.2% stop, max-confidence 15% position
+    // has VaR = 0.18%, well under the 2%-per-trade cap in TradingConfig.
     //
-    // Minimum-notional gate ($50) added to kill dust entries — observed historical
-    // hydrated positions as small as $16 had no chance of overcoming fees.
+    // Minimum-notional gate ($50) kills dust entries (historical $16 BTC
+    // positions had no chance of overcoming fees + slippage).
     const equity = port?.equity ?? 10_000; // conservative fallback
     const MIN_NOTIONAL_USD = 50;
-    const sizeUsd = equity * this.config.entrySizeEquityFraction * opp.score;
+
+    const confluenceRatio = opp.totalSensors > 0 ? opp.confluenceCount / opp.totalSensors : 0.3;
+    const stanceStrength = stance?.currentConsensus ?? 0.6;
+    const brainConfidence = Math.cbrt(
+      Math.max(0.1, effectiveScore) *
+      Math.max(0.1, stanceStrength) *
+      Math.max(0.3, confluenceRatio)
+    );
+    // Pyramid: confidence^2 × 1.5, floored at 0.375 (so even minimum passes
+    // produce above-min-notional sizes on reasonable wallets).
+    const confidenceMultiplier = Math.max(0.375, Math.pow(brainConfidence, 2) * 1.5);
+    const sizeUsd = equity * this.config.entrySizeEquityFraction * confidenceMultiplier;
     const qty = sizeUsd / market.midPrice;
 
     // Stop / take-profit from market regime ATR or defaults
@@ -525,7 +533,7 @@ class TraderBrain {
     return {
       kind: isLong ? 'enter_long' : 'enter_short',
       pipelineStep: 'should_enter:approved',
-      reason: `score ${opp.score.toFixed(2)} ${opp.direction}; ${opp.confluenceCount}/${opp.totalSensors} confluence; size $${sizeUsd.toFixed(0)} (${qty.toFixed(6)} ${symbol})`,
+      reason: `score ${opp.score.toFixed(2)} ${opp.direction}; conf ${(brainConfidence * 100).toFixed(0)}% (opp ${effectiveScore.toFixed(2)}, stance ${(stanceStrength * 100).toFixed(0)}%, confl ${opp.confluenceCount}/${opp.totalSensors}); size $${sizeUsd.toFixed(0)} (${(confidenceMultiplier * 100).toFixed(0)}% of base) (${qty.toFixed(6)} ${symbol})`,
       symbol,
       size: qty,
       stopLoss,

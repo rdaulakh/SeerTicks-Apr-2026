@@ -141,6 +141,56 @@ class BrainExecutor extends EventEmitter {
         return { ok: true, affectedRows: 0, reason: 'already_closed' };
       }
 
+      // ─── Phase 93.3 — LIVE-in-paperPositions path ────────────────────
+      // The first probe above only checks the `positions` table for live rows.
+      // But hydrated-from-exchange positions live in `paperPositions` with
+      // tradingMode='live'. Without this branch, "live" rows that are in
+      // paperPositions fall through to the DB-only update below and the
+      // exchange position is NEVER actually closed — the next reconcile
+      // sweep then re-imports it. Bug surfaced 2026-05-13: ETH/BTC shorts
+      // closed by brain at 19:42:16 reappeared identically at 19:52:43,
+      // confirming a re-hydration loop with no actual Binance close.
+      if (row.tradingMode === 'live') {
+        try {
+          const { getExistingAdapter } = await import('../services/EngineAdapter');
+          const adapter = getExistingAdapter(row.userId);
+          if (!adapter) {
+            logger.warn(`[BrainExecutor] 🧠⚠️  LIVE-mode paperPositions row ${numericId} but no engine adapter for user ${row.userId}`);
+            return { ok: false, affectedRows: 0, error: 'no_live_adapter', reason };
+          }
+          const r = await adapter.closePosition(0, row.symbol, String(numericId), `brain:${reason}`)
+            .catch((err: Error) => ({ success: false, error: err?.message } as any));
+          if ((r as any)?.success) {
+            const exitPrice = (r as any).price ?? currentPrice;
+            const entryPx = parseFloat(row.entryPrice);
+            const qty = parseFloat(row.quantity);
+            const sideMul = row.side === 'long' ? 1 : -1;
+            const realizedPnl = sideMul * (exitPrice - entryPx) * qty;
+            logger.info(`[BrainExecutor] 🧠💰 LIVE EXIT (paperPositions row, tradingMode=live) routed via EngineAdapter id=${numericId} ${row.symbol} ${row.side} → engine closed @ $${exitPrice} pnl=$${realizedPnl.toFixed(2)} reason="${reason}"`);
+            // Learning loop
+            try {
+              const { getDecisionEvaluator } = await import('../services/DecisionEvaluator');
+              const evaluator = getDecisionEvaluator(row.userId);
+              evaluator.recordTradeOutcome(row.symbol, realizedPnl, exitPrice, `brain:${reason}`, { tradeId: numericId, tradingMode: 'live' })
+                .catch((err: Error) => logger.warn('[BrainExecutor] live (paper-tbl) learning-loop failed', { error: err?.message }));
+            } catch { /* never block exit on learning */ }
+            this.emit('brain_position_closed', {
+              positionId: numericId, symbol: row.symbol, side: row.side,
+              exitPrice, realizedPnl, reason, mode: 'live',
+            });
+            return { ok: true, affectedRows: 1, reason };
+          }
+          // Live close attempted but failed — return structured failure. Do NOT
+          // fall through to the DB-only update; that's the bug we're fixing.
+          logger.error(`[BrainExecutor] 🧠⛔ LIVE close failed for id=${numericId} ${row.symbol}: ${(r as any)?.error ?? 'unknown'}`);
+          return { ok: false, affectedRows: 0, error: (r as any)?.error ?? 'live_exit_failed', reason };
+        } catch (err) {
+          logger.error(`[BrainExecutor] 🧠⛔ LIVE-in-paperPositions exit threw for id=${numericId}: ${(err as Error)?.message}`);
+          return { ok: false, affectedRows: 0, error: (err as Error)?.message ?? 'live_exit_threw', reason };
+        }
+      }
+
+      // True paper from here down (tradingMode='paper').
       const entryPrice = parseFloat(row.entryPrice);
       const quantity = parseFloat(row.quantity);
       const sideMul = row.side === 'long' ? 1 : -1;
@@ -215,7 +265,7 @@ class BrainExecutor extends EventEmitter {
               realizedPnl,
               fillPrice,
               `brain:${reason}`,
-              { tradeId: numericId, tradingMode: row.tradingMode === 'live' ? 'live' : 'paper' },
+              { tradeId: numericId, tradingMode: 'paper' as const }, // Phase 93.3 — live rows route via EngineAdapter above and never reach here
             )
             .catch((err: Error) => logger.warn('[BrainExecutor] learning-loop recordTradeOutcome failed', { error: err?.message }));
         } catch (err) {
