@@ -219,26 +219,36 @@ export class MacroAnalyst extends AgentBase {
         this.vetoReason = 'macro_data_unavailable_failclosed';
       }
 
+      // Phase 82.3 — fail-closed should activate the VETO without contaminating
+      // the consensus vote. Previously the fallbackResult (which can be high-
+      // confidence bearish based on stale price-momentum heuristics) was emitted
+      // as the signal AND the veto was activated — producing 0/140/3 perma-bear
+      // output that wasn't real macro intelligence, just an API outage. Now: on
+      // fail-closed we emit a clean 0-confidence neutral signal so the agent
+      // doesn't vote bearish 140× in a 30-min window — but the veto still
+      // halts new entries on the trade-execution side.
       return {
         agentName: this.config.name,
         symbol,
         timestamp: getActiveClock().now(),
-        signal: fallbackResult.signal,
-        confidence: fallbackResult.confidence,
-        strength: fallbackResult.strength,
-        reasoning: fallbackResult.reasoning,
+        signal: macroFailClosed ? 'neutral' : fallbackResult.signal,
+        confidence: macroFailClosed ? 0 : fallbackResult.confidence,
+        strength: macroFailClosed ? 0 : fallbackResult.strength,
+        reasoning: macroFailClosed
+          ? `[FAIL-CLOSED] Macro data unavailable — veto active, no directional vote. ${fallbackResult.reasoning}`
+          : fallbackResult.reasoning,
         evidence: {
           fallbackReason: fallbackResult.fallbackReason,
           isDeterministic: true,
           originalError: error instanceof Error ? error.message : 'Unknown error',
-          // Fail-closed by default; see TradingConfig.macro.failClosed
           vetoActive: macroFailClosed,
           vetoReason: macroFailClosed ? 'macro_data_unavailable_failclosed' : undefined,
+          deterministicFallbackWouldHaveBeen: macroFailClosed ? fallbackResult.signal : undefined,
         },
-        qualityScore: 0.55, // Reduced quality for fallback
+        qualityScore: macroFailClosed ? 0.0 : 0.55,
         processingTime: getActiveClock().now() - startTime,
         dataFreshness: 0,
-        executionScore: 45, // Lower execution score for fallback
+        executionScore: macroFailClosed ? 30 : 45,
       };
     }
   }

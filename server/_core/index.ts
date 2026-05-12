@@ -771,7 +771,10 @@ async function startServer() {
       futuresWs.on('close', (code: number) => {
         console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Futures WS closed (code ${code}) — reconnect on next start cycle`);
       });
-      // Periodic stats log
+      // Periodic stats log — Phase 82.3: also reports aggTrade ring sizes
+      // and depth5 key counts so we can SEE if Phase 53.5/53.8 streams are
+      // actually being received. If perpTakerFlow rings stay at 0 fills,
+      // the Binance subscription is being silently dropped.
       setInterval(() => {
         const book = (global as any).__binanceFuturesBook || {};
         const liq = (global as any).__lastLiquidations || [];
@@ -779,11 +782,18 @@ async function startServer() {
         const perpSpotDeltas: string[] = [];
         for (const sym of Object.keys(book)) {
           const perp = book[sym].midPrice;
-          // Try to grab spot best mid for the same symbol (BTCUSDT etc) from PriceFabric
-          const spotKey = sym; // futures uses BTCUSDT, our spot ingestion uses BTC-USD; just emit perp price for now
           perpSpotDeltas.push(`${sym}=$${perp.toFixed(2)}`);
         }
-        console.log(`[FuturesWS] 60s: ${recentLiq} liquidations | perp books: ${perpSpotDeltas.join(' ')} | totalLiq: ${liquidationCount}`);
+        const perpFlow = (global as any).__binancePerpTakerFlow || {};
+        const perpDepth = (global as any).__binancePerpDepth5 || {};
+        const spotFlow = (global as any).__binanceSpotTakerFlow || {};
+        const flowSummary = Object.keys(perpFlow).map(s => `${s}=${perpFlow[s].length}`).join(' ') || 'EMPTY';
+        const depthSummary = Object.keys(perpDepth).length;
+        const spotSummary = Object.keys(spotFlow).map(s => `${s}=${spotFlow[s].length}`).join(' ') || 'EMPTY';
+        console.log(
+          `[FuturesWS] 60s: ${recentLiq} liq | books: ${perpSpotDeltas.join(' ')} | ` +
+          `perpFlow: ${flowSummary} | spotFlow: ${spotSummary} | depth5_syms: ${depthSummary} | totalLiq: ${liquidationCount}`,
+        );
       }, 60_000);
     } catch (futErr: any) {
       console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Binance Futures WS failed:`, futErr.message);

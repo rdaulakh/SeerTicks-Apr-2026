@@ -48,7 +48,11 @@ interface BookSnapshot {
 }
 
 const RING_SIZE = 60;
-const ENTRY_BPS_THRESHOLD = 1.5;   // bps delta from baseline median to fire
+// Phase 82.3 — lowered from 1.5 to 0.5 bps. Live: 3 bull / 0 bear / 636 neutral
+// (~99% neutral). Real perp-vs-spot mid spread on BTC/ETH is typically <1 bp
+// during quiet hours; 1.5 bps required a news spike to trip. 0.5 bps lets
+// the agent contribute on normal-vol microstructure dislocations.
+const ENTRY_BPS_THRESHOLD = 0.5;
 const PREMIUM_CAP_BPS = 8.0;       // saturate confidence above this
 const STALE_MS = 3_000;            // either book older than this → neutral
 

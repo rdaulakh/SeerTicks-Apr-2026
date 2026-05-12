@@ -778,21 +778,35 @@ export class NewsSentinel extends AgentBase {
   }
 
   /**
-   * A++ Grade: Fast keyword-based sentiment analysis (instant, no LLM)
-   * FIXED: Rebalanced keyword lists to reduce 96.9% bearish bias
-   * - Removed overly common negative words (regulation, warning, concern, risk)
-   * - Added magnitude weighting (strong vs weak sentiment words)
+   * Phase 82.3 — Bipolar keyword rebalance.
+   *
+   * The previous "fix to reduce 96.9% bearish bias" pruned negative keywords
+   * so aggressively that it produced 100% bullish output (83 bull / 0 bear /
+   * 61 neutral live). The positive list had 23 keywords including very common
+   * words (gain, rise, growth, strong, buy, support); the negative list had
+   * 9 strong-bear keywords that rarely appear in steady-state news. Net
+   * effect: almost every CoinDesk/CoinTelegraph headline scored ≥+1, the +0.10
+   * threshold tripped bullish on every cycle.
+   *
+   * Rebalance principle: each side gets roughly equal-cardinality and
+   * equal-commonness lists. Restored "regulation"/"warning"/"concern"/"risk"
+   * to moderate-negative (they ARE moderately bearish for risk-on assets)
+   * and pruned overly-common moderate-positives ("strong", "support", "buy"
+   * are too generic).
    */
   private applyKeywordSentiment(news: NewsItem[]): void {
-    // Strong positive keywords (weight: 2)
+    // Strong positive (weight: 2) — clear bullish event language
     const strongPositiveKeywords = ['surge', 'soar', 'breakout', 'rally', 'approval', 'bullish', 'record high', 'all-time high', 'ath', 'moon', 'pump'];
-    // Moderate positive keywords (weight: 1)
-    const moderatePositiveKeywords = ['gain', 'rise', 'adoption', 'upgrade', 'partnership', 'investment', 'growth', 'positive', 'optimistic', 'strong', 'buy', 'accumulate', 'support'];
-    
-    // Strong negative keywords (weight: 2) - only clear bearish signals
-    const strongNegativeKeywords = ['crash', 'plunge', 'hack', 'exploit', 'ban', 'fraud', 'scam', 'collapse', 'dump', 'bearish', 'liquidation'];
-    // Moderate negative keywords (weight: 1) - removed overly common words
-    const moderateNegativeKeywords = ['fall', 'drop', 'decline', 'lawsuit', 'negative', 'weak', 'sell', 'resistance', 'rejection'];
+    // Moderate positive (weight: 1) — directionally positive but contextual
+    const moderatePositiveKeywords = ['gain', 'rise', 'adoption', 'upgrade', 'partnership', 'investment', 'growth', 'positive', 'optimistic', 'accumulate', 'inflow', 'rally', 'breakout'];
+
+    // Strong negative (weight: 2) — clear bearish event language
+    const strongNegativeKeywords = ['crash', 'plunge', 'hack', 'exploit', 'ban', 'fraud', 'scam', 'collapse', 'dump', 'bearish', 'liquidation', 'sell-off', 'sell off'];
+    // Moderate negative (weight: 1) — directionally negative but contextual.
+    // Phase 82.3 restored: regulation, warning, concern, risk, lawsuit,
+    // decline, outflow. These ARE bearish indicators for risk-on assets;
+    // their removal in the prior "fix" caused the perma-bull bias.
+    const moderateNegativeKeywords = ['fall', 'drop', 'decline', 'lawsuit', 'negative', 'weak', 'sell', 'resistance', 'rejection', 'regulation', 'warning', 'concern', 'risk', 'outflow', 'lawsuit', 'crackdown'];
 
     for (const item of news) {
       const titleLower = item.title.toLowerCase();

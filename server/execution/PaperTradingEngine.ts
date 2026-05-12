@@ -295,6 +295,25 @@ export class PaperTradingEngine extends EventEmitter implements ITradingEngine {
       }
 
       for (const dbPos of survivors) {
+        const entryPx = parseFloat(dbPos.entryPrice.toString());
+        // Phase 82.3 — defensive default stops if DB row arrived with NULL.
+        // Live audit found 3 short positions opened 5h ago via a path that
+        // skipped level-computation, leaving the platform unprotected. Apply
+        // sane defaults on load: -1.2% gross for longs (price below entry),
+        // +1.2% for shorts (price above entry), matching TradingConfig.exits
+        // .hardStopLossPercent. TakeProfit defaults to +1.0% / -1.0% similarly.
+        // ProfitRatchet will tighten these on the first profit-rung activation.
+        const sideMul = dbPos.side === 'long' ? 1 : -1;
+        const dbStop = dbPos.stopLoss ? parseFloat(dbPos.stopLoss.toString()) : undefined;
+        const dbTP = dbPos.takeProfit ? parseFloat(dbPos.takeProfit.toString()) : undefined;
+        const defaultStop = entryPx * (1 - sideMul * 0.012);  // long: -1.2%; short: +1.2%
+        const defaultTP = entryPx * (1 + sideMul * 0.010);    // long: +1.0%; short: -1.0%
+        if (dbStop === undefined) {
+          executionLogger.warn('Position loaded with NULL stopLoss — applying default', {
+            positionId: dbPos.id, symbol: dbPos.symbol, side: dbPos.side,
+            entryPrice: entryPx, defaultStop,
+          });
+        }
         const position: PaperPosition = {
           id: dbPos.id.toString(),
           dbPositionId: dbPos.id,
@@ -302,11 +321,11 @@ export class PaperTradingEngine extends EventEmitter implements ITradingEngine {
           symbol: dbPos.symbol,
           exchange: dbPos.exchange || 'coinbase',
           side: dbPos.side as 'long' | 'short',
-          entryPrice: parseFloat(dbPos.entryPrice.toString()),
+          entryPrice: entryPx,
           currentPrice: parseFloat(dbPos.currentPrice?.toString() || dbPos.entryPrice.toString()),
           quantity: parseFloat(dbPos.quantity.toString()),
-          stopLoss: dbPos.stopLoss ? parseFloat(dbPos.stopLoss.toString()) : undefined,
-          takeProfit: dbPos.takeProfit ? parseFloat(dbPos.takeProfit.toString()) : undefined,
+          stopLoss: dbStop ?? defaultStop,
+          takeProfit: dbTP ?? defaultTP,
           entryTime: new Date(dbPos.entryTime),
           unrealizedPnL: parseFloat(dbPos.unrealizedPnL?.toString() || '0'),
           unrealizedPnLPercent: parseFloat(dbPos.unrealizedPnLPercent?.toString() || '0'),

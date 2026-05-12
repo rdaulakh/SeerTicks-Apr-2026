@@ -32,7 +32,11 @@ interface PriceSample { price: number; timestamp: number; }
 interface BookSnapshot { midPrice: number; eventTime: number; }
 
 const WINDOWS_MS = [1_000, 5_000, 15_000, 60_000];
-const MIN_RATE_BPS_PER_S = 0.3;
+// Phase 82.3 — lowered from 0.3 to 0.15 bps/s. The strict ALL-4-windows-
+// must-agree-AND-all-above-floor gate at 0.3 was 100% muting the agent
+// (0/0/632 live) in sideways markets. 0.15 lets longer windows participate
+// even at lower velocity; the same-sign requirement still rejects chop.
+const MIN_RATE_BPS_PER_S = 0.15;
 const RING_KEEP_MS = 80_000;
 const STALE_MS = 1_500;
 const MAX_CONFIDENCE = 0.83;

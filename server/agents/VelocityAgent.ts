@@ -47,13 +47,17 @@ interface BookSnapshot {
   eventTime: number;
 }
 
-const SHORT_MS = 3_000;
+// Phase 82.3 — retuned from {0.5 bps/s, 2.0×} to {0.2 bps/s, 1.5×}. Live:
+// 4 bull / 3 bear / 632 neutral. BTC at 3s scale moves <0.5 bps/s most of
+// the time + 2× short-vs-long ratio is too strict. Looser thresholds let
+// the agent contribute on real momentum bursts not just news spikes.
+const SHORT_MS = 5_000;
 const LONG_MS = 15_000;
-const ACCEL_RATIO = 2.0;
-const MIN_SHORT_BPS_PER_S = 0.5;
+const ACCEL_RATIO = 1.5;
+const MIN_SHORT_BPS_PER_S = 0.2;
 const ACCEL_SAT = 5.0;
 const STALE_MS = 1_500;
-const RING_KEEP_MS = 30_000; // keep ~30s of samples (more than LONG_MS for safety)
+const RING_KEEP_MS = 30_000;
 const MAX_CONFIDENCE = 0.82;
 
 export class VelocityAgent extends AgentBase {

@@ -1013,11 +1013,17 @@ export class AutomatedSignalProcessor extends EventEmitter {
           };
         }
       }
-      // Track direction for flip detection
-      if (lastDir !== consensus.direction) {
-        this.lastDirectionFlipTime.set(symbol, getActiveClock().now());
+      // Track direction for flip detection.
+      // Phase 82.3 — consensus.direction is now 'bullish'|'bearish'|'neutral'
+      // but in the approved-path it can only be bull/bear (neutral implies
+      // strength=0, which fails the consensus threshold above). Narrow the
+      // type so the Map's stricter type is preserved.
+      if (consensus.direction !== 'neutral') {
+        if (lastDir !== consensus.direction) {
+          this.lastDirectionFlipTime.set(symbol, getActiveClock().now());
+        }
+        this.lastApprovedDirection.set(symbol, consensus.direction);
       }
-      this.lastApprovedDirection.set(symbol, consensus.direction);
 
       // Approve signal for automated execution
       const approvedSignal: ProcessedSignal = {
@@ -1615,7 +1621,8 @@ export function calculateExitConsensus(
 const consensusCache: Map<string, {
   consensus: number;
   timestamp: number;
-  direction: 'bullish' | 'bearish';
+  // Phase 82.3 — widened to include 'neutral' (matches AggregatedSignal.direction).
+  direction: 'bullish' | 'bearish' | 'neutral';
   posteriorMean?: number;
   posteriorStd?: number;
   effectiveN?: number;
@@ -1677,22 +1684,27 @@ export function getLatestConsensus(symbol: string): number | null {
 export function getLatestConsensusDirection(symbol: string): 'bullish' | 'bearish' | null {
   const cached = consensusCache.get(symbol);
   if (!cached) return null;
-  
+
   if (getActiveClock().now() - cached.timestamp > CONSENSUS_CACHE_TTL_MS) {
     return null;
   }
-  
-  return cached.direction;
+
+  // Phase 82.3 — cached direction can now be 'neutral' (post consensus-math fix).
+  // Callers of this function expect 'bullish'|'bearish'|null specifically (they
+  // already null-check), so collapse 'neutral' to null so they don't have to
+  // handle a new variant.
+  return cached.direction === 'neutral' ? null : cached.direction;
 }
 
 /**
  * Get all cached consensus values (for debugging/monitoring).
  * Phase 70 — also returns Bayesian posterior fields when available.
+ * Phase 82.3 — return type widened to match consensusCache (direction may be 'neutral').
  */
 export function getAllCachedConsensus(): Map<string, {
   consensus: number;
   timestamp: number;
-  direction: 'bullish' | 'bearish';
+  direction: 'bullish' | 'bearish' | 'neutral';
   posteriorMean?: number;
   posteriorStd?: number;
   effectiveN?: number;

@@ -412,7 +412,14 @@ export const PRODUCTION_CONFIG: TradingConfiguration = {
     // profit protection, not trade maximization. Zero trades is preferable
     // to any losing trade.
     minConsensusStrength: 0.60,            // Phase 5: was 0.30 — raise aggregate bar
-    minConfidence: 0.65,                   // Phase 5: was 0.25 — raise individual-agent bar
+    // Phase 82.3 — lowered from 0.65 to 0.55. Live audit showed the
+    // deliberating agents (TechnicalAnalyst, OrderbookImbalance, OrderFlow,
+    // PerpDepthImbalance, WhaleTracker, LiquidityVacuum) have avg confidence
+    // in the 0.50-0.65 range, so the 0.65 floor was excluding HALF of the
+    // platform's directional opinions from consensus. Only PatternMatcher /
+    // Macro / Sentiment / News (the over-confident agents) were getting in.
+    // 0.55 keeps a quality bar but lets the real-data agents contribute.
+    minConfidence: 0.55,
     minExecutionScore: 40,                 // unchanged — tactical timing floor
     // Phase 19: lowered from 3 → 2 to align with the upstream `≥2 eligible`
     // gate in AutomatedSignalProcessor.processSignals. Prior 3-vs-2-vs-4

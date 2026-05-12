@@ -57,6 +57,7 @@ interface VolumeAnalysis {
   pricePosition: "above_vwap" | "below_vwap" | "at_vwap";
   bandPosition: "extreme_high" | "high" | "neutral" | "low" | "extreme_low";
   volumeDelta: number; // Cumulative buy - sell volume
+  currentPrice: number; // Phase 82.3 — last close price; was previously inferred (incorrectly) from VWAP downstream
 }
 
 export class VolumeProfileAnalyzer extends AgentBase {
@@ -200,6 +201,7 @@ export class VolumeProfileAnalyzer extends AgentBase {
       pricePosition,
       bandPosition,
       volumeDelta,
+      currentPrice, // Phase 82.3 — pass through real last-close so downstream uses price, not VWAP
     };
   }
 
@@ -427,7 +429,10 @@ export class VolumeProfileAnalyzer extends AgentBase {
     startTime: number,
     context?: any
   ): AgentSignal {
-    const currentPrice = analysis.vwapBands.vwap; // Approximate
+    // Phase 82.3 fix — was `analysis.vwapBands.vwap` (compared VWAP to itself
+    // in analyzeValueArea, producing perma-bear 0/136/0 because VWAP lags
+    // price in uptrends and always sat above VAH). Now uses real last-close.
+    const currentPrice = analysis.currentPrice;
     let signal: "bullish" | "bearish" | "neutral" = "neutral";
     let confidence = 0.5;
     let strength = 0.5;
@@ -538,21 +543,22 @@ export class VolumeProfileAnalyzer extends AgentBase {
    * Analyze value area for signal
    */
   private analyzeValueArea(analysis: VolumeAnalysis): number {
-    // Price relative to POC and value area
-    const vwap = analysis.vwapBands.vwap;
-    const poc = analysis.valueArea.poc;
+    // Phase 82.3 fix — was comparing VWAP to VAH/VAL (VWAP to itself), which
+    // produced perma-bear in uptrends because VWAP cumulatively lags the most-
+    // traded zone. Correct logic: compare REAL current price to VAH/VAL.
+    const price = analysis.currentPrice;
     const vah = analysis.valueArea.vah;
     const val = analysis.valueArea.val;
 
     // If price is below VAL, bullish (potential bounce to POC)
-    if (vwap < val) {
+    if (price < val) {
       return 0.5;
     }
     // If price is above VAH, bearish (potential pullback to POC)
-    if (vwap > vah) {
+    if (price > vah) {
       return -0.5;
     }
-    // Price within value area - follow volume delta
+    // Price within value area — follow volume delta
     return 0;
   }
 

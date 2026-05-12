@@ -569,20 +569,13 @@ export class LiquidationHeatmap extends AgentBase {
       confidence += 0.12;
       strength += 0.1;
       reasons.push(`High short bias (${analysis.longShortRatio.toFixed(2)}:1) - potential short squeeze`);
-    } else if (analysis.longShortRatio > 1.1) {
-      // FIX: Mild long bias — produce weak bearish signal instead of neutral.
-      // Prevents agent from being dropped from consensus for having "neutral" signal.
-      signal = "bearish";
-      confidence += 0.05;
-      strength += 0.05;
-      reasons.push(`Mild long bias (${analysis.longShortRatio.toFixed(2)}:1) - slight contrarian bearish`);
-    } else if (analysis.longShortRatio < 0.9) {
-      // FIX: Mild short bias — produce weak bullish signal instead of neutral.
-      signal = "bullish";
-      confidence += 0.05;
-      strength += 0.05;
-      reasons.push(`Mild short bias (${analysis.longShortRatio.toFixed(2)}:1) - slight contrarian bullish`);
     }
+    // Phase 82.3 — removed "mild bias" branches that fired on |ratio - 1.0| > 0.1.
+    // Retail L/S ratio on Binance is structurally >1.0 (long-bias is the norm),
+    // so the "mild long bias = bearish" branch fired on every single tick and
+    // produced perma-bear 0/103/33 output. Real extremes (>1.5 / <0.67 / etc.)
+    // still trigger via the branches above. Ratios in [0.67, 1.5] are now
+    // correctly classified neutral — the strong-branch coverage stays intact.
 
     // Liquidation density analysis
     if (analysis.liquidationDensity === "high_longs") {

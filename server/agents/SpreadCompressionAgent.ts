@@ -55,7 +55,12 @@ interface DepthSnapshot {
 }
 
 const COMPRESSION_FACTOR = 0.60;
-const MIN_BASELINE_BPS = 0.30;
+// Phase 82.3 — lowered from 0.30 to 0.10 bps. Live: 0/0/632 (100% neutral).
+// Binance BTC perp typically trades 0.1-0.2 bps spread; the 0.30 floor
+// permanently muted the agent on the most liquid pairs (which is what it
+// was supposed to monitor). 0.10 lets it fire on compression in the real
+// BTC/ETH/SOL perp regime.
+const MIN_BASELINE_BPS = 0.10;
 const STALE_MS = 1_500;
 const RING_SIZE = 60;
 const MAX_CONFIDENCE = 0.78; // Compression alone is direction-light, capped lower

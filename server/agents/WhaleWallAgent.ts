@@ -42,8 +42,12 @@ interface DepthSnapshot {
   tradeTime: number;
 }
 
-const WALL_THRESHOLD = 3.0;
-const WALL_SATURATE = 8.0;
+// Phase 82.3 — lowered from 3.0× to 2.2×. Live: 6/5/628 (1.7% directional).
+// On top-5 perp depth, 3× median walls are genuinely rare. Sophisticated
+// whales hide in icebergs (WhaleTracker covers that). 2.2× still flags
+// visible institutional walls without firing on every MM quote variation.
+const WALL_THRESHOLD = 2.2;
+const WALL_SATURATE = 6.0;
 const STALE_MS = 1_500;
 
 export class WhaleWallAgent extends AgentBase {

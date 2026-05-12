@@ -34,7 +34,10 @@ interface PriceSample { price: number; timestamp: number; }
 interface BookSnapshot { midPrice: number; eventTime: number; }
 
 const WINDOW_MS = 60_000;
-const MIN_BTC_MOVE_BPS = 8.0;
+// Phase 82.3 — lowered from 8.0 to 4.0 bps. BTC frequently doesn't move 8 bps
+// in any 60s window during low-vol regimes; lower bar means we catch real
+// catch-up opportunities on ETH/SOL when BTC makes a modest move.
+const MIN_BTC_MOVE_BPS = 4.0;
 const MAX_LAG_RATIO = 0.40;
 const RING_KEEP_MS = 90_000;
 const STALE_MS = 1_500;

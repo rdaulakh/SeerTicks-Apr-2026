@@ -43,10 +43,13 @@ interface DepthSnapshot {
   receivedAt: number;
 }
 
-const THRESHOLD = 0.20;
+// Phase 82.3 — retuned from {0.20, 0.66} to {0.12, 0.55}. Live: 22/46/571
+// (10% directional firing). BTC top-5 perp imbalance hovers ±5-15% normally;
+// the 20% bar + 66% persistence gate was too strict for current vol regime.
+const THRESHOLD = 0.12;
 const STALE_MS = 1_500;
 const RING_SIZE = 30;
-const PERSISTENCE_F = 0.66;
+const PERSISTENCE_F = 0.55;
 
 export class PerpDepthImbalanceAgent extends AgentBase {
   private imbalanceRings: Map<string, number[]> = new Map();

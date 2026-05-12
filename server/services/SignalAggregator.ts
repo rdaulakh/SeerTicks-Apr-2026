@@ -19,7 +19,12 @@ import { getFamilyWeightAdjustments } from './RegimeCalibration';
 import { appendFileSync } from 'fs';
 
 export interface AggregatedSignal {
-  direction: 'bullish' | 'bearish';
+  // Phase 82.3 — widened to allow 'neutral' so the aggregator can honestly
+  // report no-consensus instead of fake-picking a side by tiny weight margin.
+  // Downstream callers that previously assumed 'bullish'|'bearish' now must
+  // gate on strength > 0 (which they already do, since the consensus-threshold
+  // check is the canonical "approved" gate).
+  direction: 'bullish' | 'bearish' | 'neutral';
   strength: number;           // 0-1, overall consensus strength
   confidence: number;         // 0-1, quality-adjusted confidence
   bullishWeight: number;
@@ -304,7 +309,9 @@ export function aggregateSignals(
   const MIN_FAMILY_AGREEMENT = 1; // At least 1 family must agree
   const MIN_WEIGHT_MARGIN = 0.10; // Phase 40: Dominant side must have 10%+ margin over minority
 
-  let direction: 'bullish' | 'bearish';
+  // Phase 82.3 — widened to include 'neutral' so the final else-branch can
+  // honestly report "no consensus" instead of fake-pick by tiny weight tie-break.
+  let direction: 'bullish' | 'bearish' | 'neutral';
   let strength = 0;
 
   // Phase 40: Calculate weight margin — prevents false consensus from near-equal splits
@@ -350,8 +357,13 @@ export function aggregateSignals(
     direction = bullishWeight > bearishWeight ? 'bullish' : 'bearish';
     strength = (dar * 0.6 + cws * 0.4) * 0.85; // 15% penalty for single-family consensus
   } else {
-    direction = bullishWeight > bearishWeight ? 'bullish' : 'bearish';
-    strength = 0; // No clear consensus — split too close or insufficient family agreement
+    // Phase 82.3 fix — was: direction = bullishWeight > bearishWeight ? 'bullish' : 'bearish';
+    // That assigned a "winner" by tiny weight tie-break even when strength=0, producing
+    // "dir=bullish conf=0.0%" output that downstream readers misinterpreted. When the
+    // consensus genuinely doesn't pass any of the three approval branches, the honest
+    // answer is 'neutral'. The bear/bull tie-break is reserved for the approved branches.
+    direction = 'neutral';
+    strength = 0;
   }
 
   // Step 7: Herding penalty (same as before but family-level)
