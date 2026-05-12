@@ -37,8 +37,20 @@ echo "==> Rebuilding CLIENT (vite build → dist/public.new, atomic swap)..."
 # dist/public.old until the next deploy (rollback safety).
 rm -rf dist/public.new
 mkdir -p dist/public.new
-# vite reads outDir from vite.config; override via env so we can stage.
-VITE_OUTDIR="$(pwd)/dist/public.new" npx vite build --outDir "dist/public.new" --emptyOutDir
+# vite.config sets `root: client/` so a RELATIVE --outDir resolves under
+# client/ — not what we want. Pass an ABSOLUTE path so the output lands
+# at <project>/dist/public.new regardless of vite's root setting.
+ABS_OUTDIR="$(pwd)/dist/public.new"
+npx vite build --outDir "$ABS_OUTDIR" --emptyOutDir
+# Also handle the case where vite still wrote to client/dist/public.new
+# (older vite versions on some hosts): if the canonical dir is empty but
+# the client-relative one has content, move it.
+if [ ! -f "$ABS_OUTDIR/index.html" ] && [ -f "client/dist/public.new/index.html" ]; then
+  echo "    Detected vite output under client/ — relocating to canonical dist/public.new"
+  rm -rf "$ABS_OUTDIR"
+  mv client/dist/public.new "$ABS_OUTDIR"
+  rmdir client/dist 2>/dev/null || true
+fi
 # Sanity-check: index.html must exist before we swap.
 if [ ! -f dist/public.new/index.html ]; then
   echo "    ERROR: dist/public.new/index.html missing after build — aborting swap, keeping current dist/public live."
