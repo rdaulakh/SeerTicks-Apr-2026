@@ -1025,6 +1025,147 @@ export const appRouter = router({
       };
     }),
 
+    // Phase 93.8 — Wallet ledger view
+    //
+    // Returns:
+    //   - Real money in / out (sum of DEPOSIT - WITHDRAWAL records)
+    //   - Total commissions paid (cumulative drag on returns)
+    //   - Realized P&L (sum of trade outcomes)
+    //   - Current balance from paperWallets (reconciled to Binance every 5 min)
+    //   - Equity (balance + unrealized)
+    //   - Full transaction history (paginated)
+    //   - Per-month breakdown for the timeline chart
+    //
+    // Drives the new /wallet page — the "world-class wallet view" the user
+    // asked for: where did the money come from, where did it go, what was lost
+    // to fees, and what's the real-money picture right now.
+    getWalletLedger: protectedProcedure
+      .input(z.object({
+        limit: z.number().int().min(1).max(500).default(100),
+        offset: z.number().int().min(0).default(0),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        const limit = input?.limit ?? 100;
+        const offset = input?.offset ?? 0;
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new Error('db_unavailable');
+        const { paperTransactions, paperWallets } = await import("../drizzle/schema");
+        const { eq, and, desc, sql: drzSql } = await import("drizzle-orm");
+
+        const liveWallet = await db.select().from(paperWallets).where(and(
+          eq(paperWallets.userId, ctx.user.id),
+          eq(paperWallets.tradingMode, 'live'),
+        )).limit(1);
+        const paperWallet = await db.select().from(paperWallets).where(and(
+          eq(paperWallets.userId, ctx.user.id),
+          eq(paperWallets.tradingMode, 'paper'),
+        )).limit(1);
+
+        // Aggregate totals by type across the user's ledger
+        const totalsRows = await db.execute(drzSql`
+          SELECT
+            type,
+            COUNT(*) AS n,
+            SUM(CAST(amount AS DECIMAL(20,8))) AS sum_amt
+          FROM paperTransactions
+          WHERE userId = ${ctx.user.id}
+          GROUP BY type
+        `);
+        const totalsArr: any[] = Array.isArray(totalsRows) ? totalsRows : ((totalsRows as any)?.[0] ?? []);
+        const byType: Record<string, { count: number; sum: number }> = {};
+        for (const r of totalsArr) {
+          byType[String(r.type)] = { count: Number(r.n), sum: Number(r.sum_amt) };
+        }
+
+        // Last N transactions
+        const recentTx = await db.select().from(paperTransactions)
+          .where(eq(paperTransactions.userId, ctx.user.id))
+          .orderBy(desc(paperTransactions.timestamp))
+          .limit(limit).offset(offset);
+
+        // Monthly buckets for the timeline chart
+        const monthlyRows = await db.execute(drzSql`
+          SELECT
+            DATE_FORMAT(timestamp, '%Y-%m') AS month,
+            SUM(CASE WHEN type='DEPOSIT' THEN CAST(amount AS DECIMAL(20,8)) ELSE 0 END) AS deposits,
+            SUM(CASE WHEN type='WITHDRAWAL' THEN CAST(amount AS DECIMAL(20,8)) ELSE 0 END) AS withdrawals,
+            SUM(CASE WHEN type IN ('TRADE_PROFIT','TRADE_LOSS') THEN CAST(amount AS DECIMAL(20,8)) ELSE 0 END) AS realized,
+            SUM(CASE WHEN type='COMMISSION' THEN CAST(amount AS DECIMAL(20,8)) ELSE 0 END) AS commissions
+          FROM paperTransactions
+          WHERE userId = ${ctx.user.id}
+          GROUP BY DATE_FORMAT(timestamp, '%Y-%m')
+          ORDER BY month ASC
+          LIMIT 24
+        `);
+        const monthlyArr: any[] = Array.isArray(monthlyRows) ? monthlyRows : ((monthlyRows as any)?.[0] ?? []);
+
+        // Total transaction count for pagination
+        const countRow = await db.execute(drzSql`
+          SELECT COUNT(*) AS n FROM paperTransactions WHERE userId = ${ctx.user.id}
+        `);
+        const countArr: any[] = Array.isArray(countRow) ? countRow : ((countRow as any)?.[0] ?? []);
+        const totalTxCount = countArr.length > 0 ? Number(countArr[0].n) : 0;
+
+        return {
+          wallets: {
+            live: liveWallet[0] ? {
+              balance: parseFloat(liveWallet[0].balance),
+              equity: parseFloat(liveWallet[0].equity),
+              margin: parseFloat(liveWallet[0].margin),
+              unrealizedPnL: parseFloat(liveWallet[0].unrealizedPnL),
+              realizedPnL: parseFloat(liveWallet[0].realizedPnL),
+              totalCommission: parseFloat(liveWallet[0].totalCommission),
+              totalTrades: liveWallet[0].totalTrades ?? 0,
+              winRate: parseFloat(liveWallet[0].winRate ?? '0'),
+              updatedAt: liveWallet[0].updatedAt,
+            } : null,
+            paper: paperWallet[0] ? {
+              balance: parseFloat(paperWallet[0].balance),
+              equity: parseFloat(paperWallet[0].equity),
+              totalTrades: paperWallet[0].totalTrades ?? 0,
+            } : null,
+          },
+          totals: {
+            totalDeposited: byType.DEPOSIT?.sum ?? 0,
+            totalWithdrawn: byType.WITHDRAWAL?.sum ?? 0,
+            netDeposited: (byType.DEPOSIT?.sum ?? 0) - (byType.WITHDRAWAL?.sum ?? 0),
+            totalCommissionsPaid: byType.COMMISSION?.sum ?? 0,
+            tradeProfits: byType.TRADE_PROFIT?.sum ?? 0,
+            tradeLosses: byType.TRADE_LOSS?.sum ?? 0,
+            netRealizedPnL: (byType.TRADE_PROFIT?.sum ?? 0) + (byType.TRADE_LOSS?.sum ?? 0),
+            depositCount: byType.DEPOSIT?.count ?? 0,
+            withdrawalCount: byType.WITHDRAWAL?.count ?? 0,
+            commissionCount: byType.COMMISSION?.count ?? 0,
+          },
+          monthly: monthlyArr.map((r: any) => ({
+            month: String(r.month),
+            deposits: Number(r.deposits),
+            withdrawals: Number(r.withdrawals),
+            realized: Number(r.realized),
+            commissions: Number(r.commissions),
+          })),
+          transactions: recentTx.map(t => ({
+            id: t.id,
+            type: t.type,
+            tradingMode: t.tradingMode,
+            amount: parseFloat(t.amount),
+            balanceBefore: parseFloat(t.balanceBefore),
+            balanceAfter: parseFloat(t.balanceAfter),
+            description: t.description,
+            relatedPositionId: t.relatedPositionId,
+            metadata: t.metadata,
+            timestamp: t.timestamp,
+          })),
+          pagination: {
+            total: totalTxCount,
+            limit,
+            offset,
+            hasMore: offset + limit < totalTxCount,
+          },
+        };
+      }),
+
     // Get recent trades for activity feed
     getRecentTrades: protectedProcedure
       .input(z.object({

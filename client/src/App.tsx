@@ -35,6 +35,7 @@ const AgentActivity = lazy(() => import("./pages/AgentActivity"));
 const AgentScorecard = lazy(() => import("./pages/AgentScorecard"));
 const Positions = lazy(() => import("./pages/Positions"));
 const Performance = lazy(() => import("./pages/Performance"));
+const Wallet = lazy(() => import("./pages/Wallet"));
 const SystemHealth = lazy(() => import("./pages/SystemHealth"));
 const Settings = lazy(() => import("./pages/Settings"));
 const OrderHistory = lazy(() => import("./pages/OrderHistory"));
@@ -103,6 +104,7 @@ function Router() {
                       <Route path="/positions" component={Positions} />
                       <Route path="/order-history" component={OrderHistory} />
                       <Route path="/performance" component={Performance} />
+                      <Route path="/wallet" component={Wallet} />
                       <Route path="/system" component={SystemHealth} />
                       <Route path="/risk-dashboard" component={RiskDashboard} />
                       <Route path="/regime-dashboard" component={RegimeDashboard} />

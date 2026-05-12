@@ -45,7 +45,7 @@ import { trpc } from "@/lib/trpc";
 import { usePositions } from "@/contexts/PositionContext";
 import { Badge } from "@/components/ui/badge";
 
-import { HeartPulse, Brain, BookOpen, MoreHorizontal, Shield, Crosshair, Fish, ClipboardList, FlaskConical, Zap, Gauge, Heart, Trophy } from "lucide-react";
+import { HeartPulse, Brain, BookOpen, MoreHorizontal, Shield, Crosshair, Fish, ClipboardList, FlaskConical, Zap, Gauge, Heart, Trophy, Receipt } from "lucide-react";
 
 // Primary navigation items - always visible in header
 const primaryNavItems = [
@@ -55,6 +55,7 @@ const primaryNavItems = [
   { path: "/strategy", label: "Strategy", icon: Target },
   { path: "/positions", label: "Positions", icon: Wallet },
   { path: "/performance", label: "Performance", icon: TrendingUp },
+  { path: "/wallet", label: "Wallet", icon: Receipt },
 ];
 
 // Phase 74: Trimmed "More" dropdown — only operational/decision-making pages.
