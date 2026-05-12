@@ -746,20 +746,27 @@ const LivePositionCard = memo(function LivePositionCard({
               ) : (
                 <TrendingDown className={cn("w-5 h-5 text-red-400", isFlashing && "animate-bounce")} />
               )}
-              <span className={cn(
-                "text-2xl font-bold font-mono pnl-transition",
-                isProfit ? "text-green-400" : "text-red-400",
-                isFlashing && flashDir === 'up' && "scale-105",
-                isFlashing && flashDir === 'down' && "scale-105"
-              )}>
+              <span
+                className={cn(
+                  "text-2xl font-bold font-mono pnl-transition",
+                  isProfit ? "text-green-400" : "text-red-400",
+                  isFlashing && flashDir === 'up' && "scale-105",
+                  isFlashing && flashDir === 'down' && "scale-105"
+                )}
+                title={`Unrealized P&L in USD = (entry − current) × qty for shorts, (current − entry) × qty for longs. ${isProfit ? 'In profit' : 'In loss'}.`}
+              >
                 {isProfit ? '+' : ''}{formatCurrency(position.livePnl)}
               </span>
             </div>
-            <span className={cn(
-              "text-sm font-mono",
-              isProfit ? "text-green-500/70" : "text-red-500/70"
-            )}>
+            <span
+              className={cn(
+                "text-sm font-mono",
+                isProfit ? "text-green-500/70" : "text-red-500/70"
+              )}
+              title={`Return % on position notional. ${isProfit ? '+' : ''}${position.livePnlPercent.toFixed(2)}% × notional ≈ ${formatCurrency(position.livePnl)}. Same P&L as above, expressed as a percent.`}
+            >
               {isProfit ? '+' : ''}{position.livePnlPercent.toFixed(2)}%
+              <span className="text-gray-500 ml-1 text-[10px]">return</span>
             </span>
           </div>
         </div>

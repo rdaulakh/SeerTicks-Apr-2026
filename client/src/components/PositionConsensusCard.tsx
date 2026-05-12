@@ -295,15 +295,15 @@ export function PositionConsensusCard({
           </p>
         </div>
 
-        {/* Exit Threshold Status */}
-        <div>
+        {/* Exit Pressure Status — brain's exit-urgency score, NOT a P&L percent */}
+        <div title={`Brain exit-pressure score (0–100). Current ${data.exitPercentage}; trigger ${data.exitThreshold}. Built from consensus flip, momentum crash, stale-no-progress, hard stop. Not the same as P&L return % — this is decision urgency, not profit.`}>
           <div className="flex items-center gap-2 mb-1">
             <Shield className={cn(
               "w-3.5 h-3.5",
               isAtExitThreshold ? "text-red-400" :
               isNearExitThreshold ? "text-yellow-400" : "text-green-400"
             )} />
-            <p className="text-xs text-gray-400">Exit Threshold</p>
+            <p className="text-xs text-gray-400">Exit Pressure <span className="text-gray-600">(score, not P&L)</span></p>
           </div>
           <div className="flex items-baseline gap-1">
             <span className={cn(
@@ -311,13 +311,13 @@ export function PositionConsensusCard({
               isAtExitThreshold ? "text-red-400" :
               isNearExitThreshold ? "text-yellow-400" : "text-green-400"
             )}>
-              {data.exitPercentage}%
+              {data.exitPercentage}
             </span>
-            <span className="text-xs text-gray-500">/ {data.exitThreshold}%</span>
+            <span className="text-xs text-gray-500">/ {data.exitThreshold}</span>
           </div>
           <p className="text-[10px] text-gray-500 mt-0.5">
             {isAtExitThreshold ? "Exit triggered" :
-             isNearExitThreshold ? "Approaching threshold" : "Holding position"}
+             isNearExitThreshold ? "Approaching trigger" : "Holding · low urgency"}
           </p>
         </div>
       </div>
