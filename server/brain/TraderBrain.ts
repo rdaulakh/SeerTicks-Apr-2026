@@ -841,7 +841,14 @@ class TraderBrain {
     //     2026-05-13 (ETH/BTC shorts hydrated without stops, agents flipped bullish @
     //     ~78% while positions kept bleeding; brain held because flip rule was skipped).
     if (stance) {
-      const STRONG_FLIP_CONVICTION = 0.75;
+      // Phase 93.15.2 (iter 2 of autonomous loop) — raised 0.75 → 0.85.
+      //   Iter 1 audit (2026-05-13): brain exits losing money systematically
+      //   (36 trades, 36.1% WR, NET -$18.19). Hypothesis: Tier-B fires on
+      //   *momentary* agent flips that would have recovered. Requiring near-
+      //   unanimous flip conviction (85%) before exiting a LOSING position
+      //   gives trades room to breathe. Profitable positions still exit on
+      //   the standard 0.30 Tier-A threshold (already-in-profit, lock gains).
+      const STRONG_FLIP_CONVICTION = 0.85;
       const inProfit = pos.unrealizedPnlPercent > 0.10;
       // Position-implied entry direction: a SHORT bet on bearish, a LONG bet on bullish.
       // For hydrated positions (entry context missing) we fall back to this.
