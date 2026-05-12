@@ -177,8 +177,13 @@ class TraderBrain {
     const portfolioGuard = this.evaluatePortfolioGuard(sensorium);
 
     // ─── Entry brain: evaluate symbols WITHOUT an open position ──────────
+    // Phase 85 — candidate list is DB-driven (systemConfig 'brain.candidateSymbols')
+    // with the configured list as fallback. SensorWiring keeps the cache warm.
     if (portfolioGuard.allowNewEntries) {
-      const candidates = sensorium.getSymbolsWithoutPosition(this.config.candidateSymbols);
+      // Lazy import to avoid circular module init.
+      const cachedSyms = (require('./SensorWiring') as typeof import('./SensorWiring')).getCachedCandidateSymbols();
+      const symbolList = cachedSyms.length > 0 ? cachedSyms : this.config.candidateSymbols;
+      const candidates = sensorium.getSymbolsWithoutPosition(symbolList);
       for (const symbol of candidates) {
         try {
           const entryDecision = this.decideEntry(symbol);
@@ -293,10 +298,24 @@ class TraderBrain {
     const market = sensorium.getMarket(symbol)?.sensation;
     const stance = sensorium.getStance(symbol)?.sensation;
     const port = sensorium.getPortfolio()?.sensation;
+    const votes = sensorium.getAgentVotes(symbol)?.sensation;
+    const sentiment = sensorium.getSentiment()?.sensation;
 
     if (!opp || !market) {
       // Insufficient inputs — never enter blind.
       return { kind: 'abstain', pipelineStep: 'should_enter:no_data', reason: 'opportunity or market sensation missing', symbol };
+    }
+
+    // Phase 85 — Gate 0: hard veto from any agent (DeterministicFallback
+    // or MacroAnalyst macro-event veto). Vetoes are absolute — no consensus
+    // strength overrides them.
+    if (votes?.anyVetoActive) {
+      return { kind: 'abstain', pipelineStep: 'should_enter:veto_active',
+        reason: `veto active: ${votes.vetoReasons.slice(0, 2).join(' | ')}`, symbol };
+    }
+    if (sentiment?.macroVetoActive) {
+      return { kind: 'abstain', pipelineStep: 'should_enter:macro_veto',
+        reason: `macro veto: ${sentiment.macroVetoReason ?? 'event-window-open'}`, symbol };
     }
 
     // Gate 1: opportunity score
@@ -362,15 +381,7 @@ class TraderBrain {
 
   /** Snapshot for entry-decision trace (no position id; key on symbol). */
   private entrySnapshot(symbol: string): Record<string, unknown> {
-    const s = getSensorium();
-    return {
-      opportunity: s.getOpportunity(symbol)?.sensation ?? null,
-      market: s.getMarket(symbol)?.sensation ?? null,
-      technical: s.getTechnical(symbol)?.sensation ?? null,
-      flow: s.getFlow(symbol)?.sensation ?? null,
-      stance: s.getStance(symbol)?.sensation ?? null,
-      portfolio: s.getPortfolio()?.sensation ?? null,
-    };
+    return getSensorium().snapshotForEntry(symbol);
   }
 
   /** Phase 84 — execute an entry decision via BrainExecutor. */

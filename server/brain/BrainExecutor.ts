@@ -28,7 +28,7 @@
  */
 
 import { getDb } from '../db';
-import { paperPositions } from '../../drizzle/schema';
+import { paperPositions, positions as livePositionsTable } from '../../drizzle/schema';
 import { eq, and } from 'drizzle-orm';
 import { getActiveClock } from '../_core/clock';
 import { engineLogger as logger } from '../utils/logger';
@@ -39,6 +39,25 @@ export interface ExecutionResult {
   affectedRows: number;
   error?: string;
   reason: string;
+}
+
+// Phase 85 — feature flag for live ENTRY. Live exits + stop updates are
+// always allowed when the brain operates on a live position (closing real
+// risk is safer than opening it). Live entries remain gated until we add
+// the brain↔︎engine reconciliation handshake (slippage cap, partial fills,
+// margin pre-check). Set via systemConfig key 'brain.liveEntriesEnabled'.
+async function liveEntriesEnabled(): Promise<boolean> {
+  try {
+    const { systemConfig } = await import('../../drizzle/schema');
+    const db = await getDb();
+    if (!db) return false;
+    const [row] = await db.select().from(systemConfig)
+      .where(eq(systemConfig.configKey, 'brain.liveEntriesEnabled')).limit(1);
+    if (!row?.configValue) return false;
+    const raw = row.configValue as unknown;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return parsed === true;
+  } catch { return false; }
 }
 
 class BrainExecutor extends EventEmitter {
@@ -58,6 +77,52 @@ class BrainExecutor extends EventEmitter {
       const numericId = Number(positionId);
       if (!isFinite(numericId)) return { ok: false, affectedRows: 0, error: 'invalid_id', reason };
 
+      // Phase 85 — try live path first. positionId in the brain currently
+      // points to paperPositions.id, but live positions live in a separate
+      // table. Probe the live table first; if matched, route via the live
+      // EngineAdapter (NOT direct DB) so the exchange order is actually
+      // placed and slippage/partial-fill paths fire properly.
+      try {
+        const [liveRow] = await db.select().from(livePositionsTable)
+          .where(and(eq(livePositionsTable.id, numericId), eq(livePositionsTable.status, 'open')))
+          .limit(1);
+        if (liveRow) {
+          const { getExistingAdapter } = await import('../services/EngineAdapter');
+          const adapter = getExistingAdapter(liveRow.userId);
+          if (!adapter) {
+            logger.warn(`[BrainExecutor] 🧠⚠️  LIVE exit requested for position ${numericId} but no live engine adapter for user ${liveRow.userId}`);
+            return { ok: false, affectedRows: 0, error: 'no_live_adapter', reason };
+          }
+          const r = await adapter.closePosition(0, liveRow.symbol, String(numericId), `brain:${reason}`)
+            .catch((err: Error) => ({ success: false, error: err?.message } as any));
+          if ((r as any)?.success) {
+            logger.info(`[BrainExecutor] 🧠💰 LIVE EXIT routed via EngineAdapter id=${numericId} ${liveRow.symbol} ${liveRow.side} → engine closed @ $${(r as any).price ?? currentPrice} reason="${reason}"`);
+            // Learning loop: feed real-money outcome too.
+            try {
+              const { getDecisionEvaluator } = await import('../services/DecisionEvaluator');
+              const evaluator = getDecisionEvaluator(liveRow.userId);
+              const exitPrice = (r as any).price ?? currentPrice;
+              const entryPx = parseFloat(liveRow.entryPrice);
+              const qty = parseFloat(liveRow.quantity);
+              const sideMul = liveRow.side === 'long' ? 1 : -1;
+              const realizedPnl = sideMul * (exitPrice - entryPx) * qty;
+              evaluator.recordTradeOutcome(liveRow.symbol, realizedPnl, exitPrice, `brain:${reason}`, { tradeId: numericId, tradingMode: 'live' })
+                .catch((err: Error) => logger.warn('[BrainExecutor] live learning-loop failed', { error: err?.message }));
+            } catch { /* never block exit on learning */ }
+            this.emit('brain_position_closed', { positionId: numericId, symbol: liveRow.symbol, side: liveRow.side, exitPrice: (r as any).price ?? currentPrice, reason, mode: 'live' });
+            return { ok: true, affectedRows: 1, reason };
+          }
+          // Live attempted but failed — return structured failure (do NOT
+          // fall through to paper; this position is LIVE money).
+          return { ok: false, affectedRows: 0, error: (r as any)?.error ?? 'live_exit_failed', reason };
+        }
+      } catch (err) {
+        // Live probe failed — proceed to paper path. Live path is opt-in via
+        // a position existing in `positions` table; absence means paper.
+        logger.warn('[BrainExecutor] live-exit probe failed, falling through to paper', { error: (err as Error)?.message });
+      }
+
+      // ─── Paper path (default) ─────────────────────────────────────────
       // Read the position first to compute realized P&L correctly.
       const [row] = await db.select().from(paperPositions)
         .where(and(eq(paperPositions.id, numericId), eq(paperPositions.status, 'open')))
@@ -162,6 +227,24 @@ class BrainExecutor extends EventEmitter {
       const numericId = Number(positionId);
       if (!isFinite(numericId)) return { ok: false, affectedRows: 0, error: 'invalid_id', reason };
 
+      // Phase 85 — try LIVE positions table first. The live IEM polls this
+      // table for stop changes, so a DB-update is the simplest cross-process
+      // signaling path. (No exchange-side stop order is placed here — stops
+      // are server-side; engine takes a market exit when price crosses.)
+      try {
+        const liveUpd = await db.update(livePositionsTable)
+          .set({ stopLoss: newStop.toString(), updatedAt: getActiveClock().date() })
+          .where(and(
+            eq(livePositionsTable.id, numericId),
+            eq(livePositionsTable.status, 'open'),
+          ));
+        const liveAffected = (liveUpd as any)?.[0]?.affectedRows ?? (liveUpd as any)?.affectedRows ?? 0;
+        if (liveAffected > 0) {
+          logger.info(`[BrainExecutor] 🧠🪜 LIVE STOP UPDATE id=${numericId} → $${newStop} reason="${reason}"`);
+          return { ok: true, affectedRows: liveAffected, reason };
+        }
+      } catch { /* fall through to paper */ }
+
       const result = await db.update(paperPositions)
         .set({ stopLoss: newStop.toString(), updatedAt: getActiveClock().date() })
         .where(and(
@@ -230,10 +313,38 @@ class BrainExecutor extends EventEmitter {
     reason: string;
     userId?: number;
     exchange?: 'coinbase' | 'binance';
+    /** Phase 85 — set 'live' to attempt live entry (requires brain.liveEntriesEnabled feature flag). */
+    mode?: 'paper' | 'live';
   }): Promise<ExecutionResult & { positionId?: number }> {
     try {
       const db = await getDb();
       if (!db) return { ok: false, affectedRows: 0, error: 'db_unavailable', reason: args.reason };
+
+      // Phase 85 — live entries gated by feature flag. Route through
+      // EngineAdapter so margin/slippage/partial-fill paths fire.
+      if (args.mode === 'live') {
+        const enabled = await liveEntriesEnabled();
+        if (!enabled) {
+          logger.warn(`[BrainExecutor] 🧠⛔ LIVE entry requested for ${args.symbol} ${args.side} but brain.liveEntriesEnabled=false. Skipping.`);
+          return { ok: false, affectedRows: 0, error: 'live_entries_disabled', reason: args.reason };
+        }
+        if (!args.userId) {
+          return { ok: false, affectedRows: 0, error: 'live_requires_userId', reason: args.reason };
+        }
+        try {
+          const { getExistingAdapter } = await import('../services/EngineAdapter');
+          const adapter = getExistingAdapter(args.userId);
+          if (!adapter) return { ok: false, affectedRows: 0, error: 'no_live_adapter', reason: args.reason };
+          // EngineAdapter doesn't expose a direct openPosition — fall through
+          // to the session's tradingEngine.placeOrder via session reflection.
+          // Live entries through EngineAdapter are a follow-up in Phase 85.1;
+          // for now we log and bail so the operator knows it's intentional.
+          logger.warn(`[BrainExecutor] 🧠🚧 LIVE entry path requires EngineAdapter.placeOrder — wiring pending. ${args.symbol} ${args.side} qty=${args.quantity}`);
+          return { ok: false, affectedRows: 0, error: 'live_entry_not_wired_yet', reason: args.reason };
+        } catch (err) {
+          return { ok: false, affectedRows: 0, error: (err as Error)?.message ?? 'live_route_failed', reason: args.reason };
+        }
+      }
 
       // Resolve current price from PriceFabric / globals.
       let entryPrice = 0;

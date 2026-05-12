@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../_core/trpc';
 import { getDb } from '../db';
-import { agentSignals, agentAccuracy, agentPnlAttribution, brainDecisions } from '../../drizzle/schema';
+import { agentSignals, agentAccuracy, agentPnlAttribution, brainDecisions, systemConfig } from '../../drizzle/schema';
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
 
 const WINDOW_HOURS = z.number().int().min(1).max(168).default(24);
@@ -612,5 +612,168 @@ export const agentScorecardRouter = router({
         latencyUs: r.latencyUs,
         sensorium: r.sensorium,
       }));
+    }),
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase 85 — operator console: read brain's mind + steer it
+  // ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * Phase 85 — read brain's current config + Sensorium health.
+   * Powers the operator console "what is the brain seeing right now" panel.
+   */
+  getBrainConfigAndHealth: protectedProcedure
+    .query(async () => {
+      let status: any = null;
+      let config: any = null;
+      let health: any = null;
+      try {
+        const { getTraderBrain } = await import('../brain/TraderBrain');
+        const brain = getTraderBrain();
+        status = brain.status();
+        config = (brain as any).config ?? null;
+      } catch { /* brain not initialized */ }
+      try {
+        const { getSensorium } = await import('../brain/Sensorium');
+        health = getSensorium().health();
+      } catch { /* sensorium not initialized */ }
+
+      // Read DB-driven candidate symbols too (for the breadth panel).
+      let candidateSymbols: string[] = ['BTC-USD', 'ETH-USD', 'SOL-USD'];
+      let liveEntriesEnabled = false;
+      try {
+        const db = await getDb();
+        if (db) {
+          const [row] = await db.select().from(systemConfig)
+            .where(eq(systemConfig.configKey, 'brain.candidateSymbols')).limit(1);
+          if (row?.configValue) {
+            const raw = row.configValue as unknown;
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            if (Array.isArray(parsed) && parsed.every(s => typeof s === 'string')) {
+              candidateSymbols = parsed as string[];
+            }
+          }
+          const [le] = await db.select().from(systemConfig)
+            .where(eq(systemConfig.configKey, 'brain.liveEntriesEnabled')).limit(1);
+          if (le?.configValue) {
+            const raw = le.configValue as unknown;
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            liveEntriesEnabled = parsed === true;
+          }
+        }
+      } catch { /* keep defaults */ }
+
+      return { status, config, sensoriumHealth: health, candidateSymbols, liveEntriesEnabled };
+    }),
+
+  /**
+   * Phase 85 — operator control: start / stop / toggle dry-run.
+   * `mode = 'live'` = brain has execution authority. `mode = 'dry'` = brain
+   * runs the pipeline but doesn't execute. `command = 'stop'` halts ticks.
+   */
+  setBrainMode: protectedProcedure
+    .input(z.object({
+      command: z.enum(['start', 'stop', 'toggle_dry_run']),
+      dryRun: z.boolean().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { getTraderBrain } = await import('../brain/TraderBrain');
+      const brain = getTraderBrain();
+      const before = brain.status();
+      if (input.command === 'start') {
+        if (input.dryRun !== undefined) brain.configure({ dryRun: input.dryRun });
+        brain.start();
+      } else if (input.command === 'stop') {
+        brain.stop();
+      } else if (input.command === 'toggle_dry_run') {
+        const wantDry = input.dryRun ?? !before.dryRun;
+        brain.configure({ dryRun: wantDry });
+      }
+      return { before, after: brain.status() };
+    }),
+
+  /**
+   * Phase 85 — tune the brain's thresholds from the operator console.
+   * Hot-reload via brain.configure(); no server restart needed.
+   */
+  setBrainConfig: protectedProcedure
+    .input(z.object({
+      minOpportunityScore: z.number().min(0).max(1).optional(),
+      minConfluenceCount: z.number().int().min(1).max(33).optional(),
+      entrySizeEquityFraction: z.number().min(0).max(1).optional(),
+      kellyFraction: z.number().min(0).max(1).optional(),
+      defaultStopLossPercent: z.number().min(0.1).max(10).optional(),
+      defaultTakeProfitPercent: z.number().min(0.1).max(20).optional(),
+      consensusFlipThreshold: z.number().min(0).max(1).optional(),
+      momentumCrashBpsPerS: z.number().min(0).max(10).optional(),
+      staleHoldMinutes: z.number().min(1).max(360).optional(),
+      stalePeakPnlPct: z.number().min(0).max(5).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { getTraderBrain } = await import('../brain/TraderBrain');
+      const brain = getTraderBrain();
+      brain.configure(input as any);
+      return { ok: true, config: (brain as any).config };
+    }),
+
+  /**
+   * Phase 85 — set the candidate symbol list (DB-driven, hot-reload).
+   * SensorWiring picks up the change on its 15s cache refresh.
+   */
+  setCandidateSymbols: protectedProcedure
+    .input(z.object({
+      symbols: z.array(z.string().regex(/^[A-Z0-9]{1,10}-USD$/, 'symbol must be e.g. BTC-USD')).min(1).max(20),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error('db_unavailable');
+      // Upsert into systemConfig (userId=0 means platform-wide).
+      const [existing] = await db.select().from(systemConfig)
+        .where(eq(systemConfig.configKey, 'brain.candidateSymbols')).limit(1);
+      if (existing) {
+        await db.update(systemConfig)
+          .set({ configValue: input.symbols as any, updatedAt: new Date() })
+          .where(eq(systemConfig.configKey, 'brain.candidateSymbols'));
+      } else {
+        await db.insert(systemConfig).values({
+          userId: 0,
+          configKey: 'brain.candidateSymbols',
+          configValue: input.symbols as any,
+          description: `Brain candidate symbols set by user ${ctx.user.id}`,
+        });
+      }
+      // Bust the SensorWiring cache so the new list takes effect immediately.
+      try {
+        const { invalidateCandidateSymbolsCache } = await import('../brain/SensorWiring');
+        invalidateCandidateSymbolsCache();
+      } catch { /* not initialized */ }
+      return { ok: true, symbols: input.symbols };
+    }),
+
+  /**
+   * Phase 85 — set the live-entries feature flag. Off by default.
+   * When true, BrainExecutor will attempt live entries (currently still
+   * gated on EngineAdapter wiring; this flag is the operator's seatbelt).
+   */
+  setLiveEntriesEnabled: protectedProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error('db_unavailable');
+      const [existing] = await db.select().from(systemConfig)
+        .where(eq(systemConfig.configKey, 'brain.liveEntriesEnabled')).limit(1);
+      if (existing) {
+        await db.update(systemConfig)
+          .set({ configValue: input.enabled as any, updatedAt: new Date() })
+          .where(eq(systemConfig.configKey, 'brain.liveEntriesEnabled'));
+      } else {
+        await db.insert(systemConfig).values({
+          userId: 0,
+          configKey: 'brain.liveEntriesEnabled',
+          configValue: input.enabled as any,
+          description: `Brain live-entries flag set by user ${ctx.user.id}`,
+        });
+      }
+      return { ok: true, enabled: input.enabled };
     }),
 });

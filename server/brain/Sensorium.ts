@@ -104,6 +104,34 @@ export interface StanceSensation {
   driftVelocityPerMin: number;
 }
 
+// ─── Phase 85 — Full agent-votes sensation ───────────────────────────────
+// One slot that carries the latest vote from EVERY registered agent for each
+// symbol. The Opportunity sensor reads this to count true 33-agent confluence
+// instead of the 3-sensor approximation we shipped in Phase 84.
+export interface AgentVote {
+  agentName: string;
+  /** 'bullish' | 'bearish' | 'neutral' — Phase 40 standard. */
+  direction: 'bullish' | 'bearish' | 'neutral';
+  /** 0.05..0.20 Phase-40 confidence band; some agents emit 0..1 — caller normalizes. */
+  confidence: number;
+  /** When the brain reads this, how stale is it (ms)? */
+  ageMs: number;
+  /** If the agent fired a hard veto (DeterministicFallback / MacroVeto). */
+  vetoActive?: boolean;
+  vetoReason?: string;
+}
+export interface AgentVotesSensation {
+  symbol: string;
+  votes: AgentVote[];
+  /** Aggregate counts at synthesis time. */
+  longCount: number;
+  shortCount: number;
+  neutralCount: number;
+  /** True if any agent is firing a hard veto right now. */
+  anyVetoActive: boolean;
+  vetoReasons: string[];
+}
+
 // ─── Phase 84 — Entry brain sensation ────────────────────────────────────
 // Per-symbol opportunity reading the brain uses to decide whether to OPEN a
 // new position. Synthesized from the agent sensations + consensus + market
@@ -171,6 +199,8 @@ class Sensorium {
   // Phase 84 — entry brain inputs
   private opportunities = new Map<string, StoredEntry<OpportunitySensation>>();
   private portfolio: StoredEntry<PortfolioSensation> | null = null;
+  // Phase 85 — full 33-agent vote tally per symbol
+  private agentVotes = new Map<string, StoredEntry<AgentVotesSensation>>();
 
   // ─── Push API (sensors call these) ───────────────────────────────────
   updateMarket(s: MarketSensation): void { this.market.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
@@ -183,6 +213,7 @@ class Sensorium {
   updateStance(s: StanceSensation): void { this.stances.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
   updateOpportunity(s: OpportunitySensation): void { this.opportunities.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
   updatePortfolio(s: PortfolioSensation): void { this.portfolio = { value: s, receivedAtMs: getActiveClock().now() }; }
+  updateAgentVotes(s: AgentVotesSensation): void { this.agentVotes.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
   removePosition(positionId: string | number): void { this.positions.delete(positionId); }
 
   // ─── Pull API (brain calls these) ────────────────────────────────────
@@ -228,6 +259,10 @@ class Sensorium {
   getPortfolio(): { sensation: PortfolioSensation; stalenessMs: number } | null {
     return this.portfolio ? { sensation: this.portfolio.value, stalenessMs: getActiveClock().now() - this.portfolio.receivedAtMs } : null;
   }
+  getAgentVotes(symbol: string): { sensation: AgentVotesSensation; stalenessMs: number } | null {
+    const e = this.agentVotes.get(symbol);
+    return e ? { sensation: e.value, stalenessMs: getActiveClock().now() - e.receivedAtMs } : null;
+  }
   /** Enumerate active position IDs without exposing the internal map. */
   getActivePositionIds(): Array<string | number> {
     return Array.from(this.positions.keys());
@@ -256,6 +291,26 @@ class Sensorium {
       sentiment: this.getSentiment()?.sensation ?? null,
       position: pos.sensation,
       stance: this.getStance(symbol)?.sensation ?? null,
+      // Phase 85 — full 33-agent vote tally
+      agentVotes: this.getAgentVotes(symbol)?.sensation ?? null,
+      opportunity: this.getOpportunity(symbol)?.sensation ?? null,
+      portfolio: this.getPortfolio()?.sensation ?? null,
+    };
+  }
+
+  // ─── Phase 85 — Snapshot for entry-side decisions (no position yet) ──
+  snapshotForEntry(symbol: string): Record<string, unknown> {
+    return {
+      market: this.getMarket(symbol)?.sensation ?? null,
+      technical: this.getTechnical(symbol)?.sensation ?? null,
+      flow: this.getFlow(symbol)?.sensation ?? null,
+      whale: this.getWhale(symbol)?.sensation ?? null,
+      deriv: this.getDeriv(symbol)?.sensation ?? null,
+      sentiment: this.getSentiment()?.sensation ?? null,
+      stance: this.getStance(symbol)?.sensation ?? null,
+      opportunity: this.getOpportunity(symbol)?.sensation ?? null,
+      agentVotes: this.getAgentVotes(symbol)?.sensation ?? null,
+      portfolio: this.getPortfolio()?.sensation ?? null,
     };
   }
 
@@ -269,6 +324,9 @@ class Sensorium {
     sentiment: boolean;
     positions: number;
     stances: number;
+    agentVotes: number;
+    opportunities: number;
+    portfolio: boolean;
   } {
     return {
       market: this.market.size,
@@ -279,6 +337,9 @@ class Sensorium {
       sentiment: this.sentiment !== null,
       positions: this.positions.size,
       stances: this.stances.size,
+      agentVotes: this.agentVotes.size,
+      opportunities: this.opportunities.size,
+      portfolio: this.portfolio !== null,
     };
   }
 }

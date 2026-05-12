@@ -14,8 +14,10 @@
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import {
   Trophy,
@@ -31,6 +33,11 @@ import {
   CircleSlash,
   Brain,
   Zap,
+  Play,
+  Square,
+  RotateCcw,
+  Settings,
+  Eye,
 } from "lucide-react";
 
 function fmtPct(n: number | null | undefined, digits = 1): string {
@@ -126,6 +133,33 @@ export default function AgentScorecard() {
       },
     );
 
+  // ── Phase 85 — operator console: brain config, health, controls ──
+  const utils = trpc.useUtils();
+  const { data: brainCH, refetch: refetchBrainCH } =
+    trpc.agentScorecard.getBrainConfigAndHealth.useQuery(undefined, {
+      refetchInterval: 5_000,
+      placeholderData: (prev) => prev,
+    });
+  const setBrainModeMut = trpc.agentScorecard.setBrainMode.useMutation({
+    onSuccess: () => { refetchBrainCH(); utils.agentScorecard.getBrainActivity.invalidate(); },
+  });
+  const setBrainConfigMut = trpc.agentScorecard.setBrainConfig.useMutation({
+    onSuccess: () => refetchBrainCH(),
+  });
+  const setCandidateSymbolsMut = trpc.agentScorecard.setCandidateSymbols.useMutation({
+    onSuccess: () => refetchBrainCH(),
+  });
+  const setLiveEntriesMut = trpc.agentScorecard.setLiveEntriesEnabled.useMutation({
+    onSuccess: () => refetchBrainCH(),
+  });
+
+  // Drill-down modal: when operator clicks a decision row, show full sensorium.
+  const [drillDecision, setDrillDecision] = useState<any | null>(null);
+  // Config-editor staged values (so we don't refire on every keystroke).
+  const [editConfig, setEditConfig] = useState<Record<string, string>>({});
+  // Candidate symbols editor.
+  const [symbolsText, setSymbolsText] = useState<string>("");
+
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -219,8 +253,94 @@ export default function AgentScorecard() {
           </TabsTrigger>
         </TabsList>
 
-        {/* PHASE 84 — BRAIN ACTIVITY */}
+        {/* PHASE 84 — BRAIN ACTIVITY (Phase 85 console wrappers) */}
         <TabsContent value="brain" className="space-y-3">
+          {/* Phase 85 — Control bar: Start / Stop / Toggle Dry-Run */}
+          <Card className="bg-black/40 border-white/10 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs uppercase text-gray-400 mr-2">Brain control:</span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
+                disabled={brainCH?.status?.running}
+                onClick={() => setBrainModeMut.mutate({ command: 'start' })}
+              >
+                <Play className="w-3.5 h-3.5 mr-1.5" /> Start
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-red-500/40 text-red-300 hover:bg-red-500/10"
+                disabled={!brainCH?.status?.running}
+                onClick={() => setBrainModeMut.mutate({ command: 'stop' })}
+              >
+                <Square className="w-3.5 h-3.5 mr-1.5" /> Stop
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10"
+                onClick={() => setBrainModeMut.mutate({ command: 'toggle_dry_run' })}
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                {brainCH?.status?.dryRun ? 'Switch to LIVE' : 'Switch to Dry-run'}
+              </Button>
+              <div className="ml-auto flex items-center gap-3 text-xs text-gray-400">
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  Live entries: <strong className="text-gray-200">{brainCH?.liveEntriesEnabled ? 'ON' : 'OFF'}</strong>
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs text-gray-400 hover:text-gray-200"
+                  onClick={() => setLiveEntriesMut.mutate({ enabled: !brainCH?.liveEntriesEnabled })}
+                >
+                  {brainCH?.liveEntriesEnabled ? 'Disable' : 'Enable'}
+                </Button>
+              </div>
+            </div>
+          </Card>
+
+          {/* Phase 85 — Sensorium health: how many agents are talking to the brain */}
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+            <Card className="p-3 bg-black/40 border-white/10">
+              <div className="text-[10px] uppercase text-gray-400">Agent votes</div>
+              <div className="text-xl font-bold mt-1 text-cyan-300">
+                {brainCH?.sensoriumHealth?.agentVotes ?? 0}
+              </div>
+              <div className="text-[10px] text-gray-500">symbols heard</div>
+            </Card>
+            <Card className="p-3 bg-black/40 border-white/10">
+              <div className="text-[10px] uppercase text-gray-400">Market</div>
+              <div className="text-xl font-bold mt-1">{brainCH?.sensoriumHealth?.market ?? 0}</div>
+              <div className="text-[10px] text-gray-500">tick streams</div>
+            </Card>
+            <Card className="p-3 bg-black/40 border-white/10">
+              <div className="text-[10px] uppercase text-gray-400">Technical</div>
+              <div className="text-xl font-bold mt-1">{brainCH?.sensoriumHealth?.technical ?? 0}</div>
+              <div className="text-[10px] text-gray-500">syms</div>
+            </Card>
+            <Card className="p-3 bg-black/40 border-white/10">
+              <div className="text-[10px] uppercase text-gray-400">Flow / Whale / Deriv</div>
+              <div className="text-xl font-bold mt-1">
+                {(brainCH?.sensoriumHealth?.flow ?? 0)}/{(brainCH?.sensoriumHealth?.whale ?? 0)}/{(brainCH?.sensoriumHealth?.deriv ?? 0)}
+              </div>
+              <div className="text-[10px] text-gray-500">syms heard</div>
+            </Card>
+            <Card className="p-3 bg-black/40 border-white/10">
+              <div className="text-[10px] uppercase text-gray-400">Positions</div>
+              <div className="text-xl font-bold mt-1">{brainCH?.sensoriumHealth?.positions ?? 0}</div>
+              <div className="text-[10px] text-gray-500">tracked</div>
+            </Card>
+            <Card className="p-3 bg-black/40 border-white/10">
+              <div className="text-[10px] uppercase text-gray-400">Opportunities</div>
+              <div className="text-xl font-bold mt-1 text-amber-300">{brainCH?.sensoriumHealth?.opportunities ?? 0}</div>
+              <div className="text-[10px] text-gray-500">candidate scores</div>
+            </Card>
+          </div>
+
           {/* Brain status header */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card className="p-4 bg-black/40 border-white/10">
@@ -309,13 +429,95 @@ export default function AgentScorecard() {
             </div>
           </Card>
 
-          {/* Recent decision stream */}
+          {/* Phase 85 — Config + Symbols editor */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Card className="bg-black/40 border-white/10 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Settings className="w-4 h-4 text-cyan-400" />
+                <h3 className="font-semibold text-sm">Brain config (hot-reload)</h3>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {[
+                  { key: 'minOpportunityScore', label: 'Min opp score', step: 0.05 },
+                  { key: 'minConfluenceCount', label: 'Min confluence', step: 1 },
+                  { key: 'entrySizeEquityFraction', label: 'Entry equity %', step: 0.05 },
+                  { key: 'kellyFraction', label: 'Kelly fraction', step: 0.05 },
+                  { key: 'defaultStopLossPercent', label: 'Stop loss %', step: 0.1 },
+                  { key: 'defaultTakeProfitPercent', label: 'Take profit %', step: 0.1 },
+                ].map(({ key, label, step }) => (
+                  <label key={key} className="flex flex-col gap-1">
+                    <span className="text-gray-400">{label}</span>
+                    <input
+                      type="number"
+                      step={step}
+                      defaultValue={brainCH?.config?.[key] ?? ''}
+                      onChange={(e) => setEditConfig((s) => ({ ...s, [key]: e.target.value }))}
+                      className="bg-black/60 border border-white/10 rounded px-2 py-1 text-gray-200 text-xs font-mono"
+                    />
+                  </label>
+                ))}
+              </div>
+              <div className="mt-3 flex justify-end">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10"
+                  disabled={Object.keys(editConfig).length === 0 || setBrainConfigMut.isPending}
+                  onClick={() => {
+                    const numericPatch: Record<string, number> = {};
+                    for (const [k, v] of Object.entries(editConfig)) {
+                      const n = Number(v);
+                      if (Number.isFinite(n)) numericPatch[k] = n;
+                    }
+                    setBrainConfigMut.mutate(numericPatch as any, { onSuccess: () => setEditConfig({}) });
+                  }}
+                >
+                  Apply changes
+                </Button>
+              </div>
+            </Card>
+
+            <Card className="bg-black/40 border-white/10 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Brain className="w-4 h-4 text-amber-400" />
+                <h3 className="font-semibold text-sm">Candidate symbols</h3>
+              </div>
+              <div className="text-xs text-gray-400 mb-2">
+                Brain hunts for entries on these symbols. Comma-separated, e.g. <code className="text-gray-300">BTC-USD, ETH-USD, SOL-USD</code>
+              </div>
+              <textarea
+                rows={3}
+                defaultValue={(brainCH?.candidateSymbols ?? []).join(', ')}
+                onChange={(e) => setSymbolsText(e.target.value)}
+                className="w-full bg-black/60 border border-white/10 rounded px-2 py-1.5 text-gray-200 text-xs font-mono"
+                placeholder="BTC-USD, ETH-USD, SOL-USD"
+              />
+              <div className="mt-3 flex items-center gap-2">
+                <span className="text-[10px] text-gray-500">Current: {(brainCH?.candidateSymbols ?? []).length} syms</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+                  disabled={!symbolsText.trim() || setCandidateSymbolsMut.isPending}
+                  onClick={() => {
+                    const syms = symbolsText.split(/[,\s]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
+                    if (syms.length === 0) return;
+                    setCandidateSymbolsMut.mutate({ symbols: syms });
+                  }}
+                >
+                  Update symbols
+                </Button>
+              </div>
+            </Card>
+          </div>
+
+          {/* Recent decision stream (Phase 85 — rows are clickable for sensorium drill-down) */}
           <Card className="bg-black/40 border-white/10 overflow-hidden">
             <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
               <Activity className="w-4 h-4 text-cyan-400" />
               <h2 className="font-semibold">Decision stream (live)</h2>
               <Badge variant="outline" className="border-white/20 ml-auto">
-                {brainActivity?.recent?.length ?? 0} entries
+                {brainActivity?.recent?.length ?? 0} entries · click for sensorium
               </Badge>
             </div>
             <div className="max-h-96 overflow-y-auto">
@@ -324,7 +526,12 @@ export default function AgentScorecard() {
               ) : (
                 <div className="divide-y divide-white/5">
                   {brainActivity.recent.map((d: any) => (
-                    <div key={d.id} className="px-4 py-2 text-xs hover:bg-white/5">
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => setDrillDecision(d)}
+                      className="w-full text-left px-4 py-2 text-xs hover:bg-white/5 transition"
+                    >
                       <div className="flex items-center gap-2">
                         <span className="text-gray-500 font-mono">{new Date(d.timestamp).toLocaleTimeString()}</span>
                         <Badge className={
@@ -332,21 +539,36 @@ export default function AgentScorecard() {
                           : d.kind === 'tighten_stop' ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
                           : d.kind === 'enter_long' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                           : d.kind === 'enter_short' ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
-                          : 'bg-gray-500/15 text-gray-400 border-gray-500/30'
+                          : d.kind === 'abstain' ? 'bg-gray-500/15 text-gray-400 border-gray-500/30'
+                          : 'bg-gray-500/15 text-gray-300 border-gray-500/30'
                         }>{d.kind}</Badge>
                         <span className="text-gray-300 font-medium">{d.symbol}</span>
                         <span className="text-gray-500">·</span>
                         <span className="font-mono text-gray-400">{d.pipelineStep}</span>
                         {d.isDryRun && <Badge className="bg-gray-500/15 text-gray-400 border-gray-500/30 text-[10px]">DRY</Badge>}
-                        <span className="ml-auto text-gray-500">{d.latencyUs}µs</span>
+                        <Eye className="w-3 h-3 ml-auto text-gray-500" />
+                        <span className="text-gray-500">{d.latencyUs}µs</span>
                       </div>
                       <div className="text-gray-400 mt-0.5 pl-12">{d.reason}</div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
             </div>
           </Card>
+
+          {/* Phase 85 — Drill-down modal: full sensorium snapshot for the clicked decision */}
+          <Dialog open={!!drillDecision} onOpenChange={(o) => !o && setDrillDecision(null)}>
+            <DialogContent className="max-w-3xl bg-black/95 border-white/10">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Brain className="w-5 h-5 text-cyan-400" />
+                  Brain decision · {drillDecision?.symbol} · {drillDecision?.kind}
+                </DialogTitle>
+              </DialogHeader>
+              <BrainDecisionDrill positionId={drillDecision?.positionId} decision={drillDecision} />
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {/* PER-AGENT SCORECARD */}
@@ -570,6 +792,91 @@ export default function AgentScorecard() {
           </Card>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// Phase 85 — Brain decision drill-down panel. Loads the historical trace for
+// the position (if known) and renders the sensorium snapshot from the
+// decision row. Operator sees exactly what the brain saw + why it decided.
+function BrainDecisionDrill({ positionId, decision }: { positionId?: string; decision: any | null }) {
+  const { data: trace } = trpc.agentScorecard.getBrainTraceForPosition.useQuery(
+    { positionId: positionId ?? '', limit: 50 },
+    { enabled: !!positionId, staleTime: 10_000 },
+  );
+
+  if (!decision) return null;
+  // The decision passed in is from getBrainActivity, but to keep the sensorium
+  // payload light we fetch the matching row in the trace (it has the snapshot).
+  const sensoriumRow = (trace ?? []).find((t: any) => t.id === decision.id) ?? (trace ?? [])[0];
+  const sensorium = sensoriumRow?.sensorium ?? null;
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="bg-black/60 rounded p-2 border border-white/5">
+          <div className="text-gray-500">Pipeline step</div>
+          <div className="text-gray-200 font-mono">{decision.pipelineStep}</div>
+        </div>
+        <div className="bg-black/60 rounded p-2 border border-white/5">
+          <div className="text-gray-500">Side / mode</div>
+          <div className="text-gray-200">{decision.side ?? '—'} · {decision.isDryRun ? 'dry-run' : 'LIVE'}</div>
+        </div>
+        <div className="bg-black/60 rounded p-2 border border-white/5 col-span-2">
+          <div className="text-gray-500">Reason</div>
+          <div className="text-gray-200">{decision.reason ?? '—'}</div>
+        </div>
+      </div>
+
+      {sensorium ? (
+        <div className="space-y-2">
+          <h4 className="text-xs uppercase text-gray-400 flex items-center gap-1">
+            <Eye className="w-3 h-3" /> What the brain saw
+          </h4>
+          <pre className="text-[10px] text-gray-300 bg-black/60 rounded p-2 overflow-auto max-h-72 border border-white/5 font-mono">
+{JSON.stringify(sensorium, null, 2)}
+          </pre>
+          {sensorium?.agentVotes && (
+            <div className="space-y-1">
+              <h4 className="text-xs uppercase text-gray-400">Agent vote tally ({sensorium.agentVotes.votes?.length ?? 0} agents heard)</h4>
+              <div className="flex flex-wrap gap-1">
+                <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+                  ↑ {sensorium.agentVotes.longCount ?? 0} long
+                </Badge>
+                <Badge className="bg-red-500/15 text-red-300 border-red-500/30">
+                  ↓ {sensorium.agentVotes.shortCount ?? 0} short
+                </Badge>
+                <Badge className="bg-gray-500/15 text-gray-400 border-gray-500/30">
+                  • {sensorium.agentVotes.neutralCount ?? 0} neutral
+                </Badge>
+                {sensorium.agentVotes.anyVetoActive && (
+                  <Badge className="bg-amber-500/15 text-amber-300 border-amber-500/30">
+                    ⚠ VETO: {(sensorium.agentVotes.vetoReasons ?? []).join('; ')}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="text-xs text-gray-500 italic">No sensorium snapshot stored on this decision (trace flushing may have lagged).</div>
+      )}
+
+      {trace && trace.length > 1 && (
+        <div className="space-y-2">
+          <h4 className="text-xs uppercase text-gray-400">Recent decisions for this position ({trace.length})</h4>
+          <div className="max-h-40 overflow-y-auto bg-black/60 rounded border border-white/5">
+            {trace.slice(0, 25).map((t: any) => (
+              <div key={t.id} className="px-2 py-1 text-[10px] flex items-center gap-2 border-b border-white/5">
+                <span className="text-gray-500 font-mono">{new Date(t.timestamp).toLocaleTimeString()}</span>
+                <Badge className="text-[9px] py-0">{t.kind}</Badge>
+                <span className="font-mono text-gray-400">{t.pipelineStep}</span>
+                <span className="ml-auto text-gray-500 truncate max-w-md">{t.reason}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
