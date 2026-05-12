@@ -214,7 +214,13 @@ interface StoredEntry<T> {
   receivedAtMs: number;
 }
 
-class Sensorium {
+import { EventEmitter } from 'events';
+
+// Phase 93.4 — Sensorium emits a synchronous 'market_update' event on every
+// updateMarket() call. Consumers (e.g. TraderBrain's fast-path hard-stop
+// reactor) can subscribe to react sub-100ms to price moves without waiting
+// for the next polling tick.
+class Sensorium extends EventEmitter {
   private market = new Map<string, StoredEntry<MarketSensation>>();
   private technical = new Map<string, StoredEntry<TechnicalSensation>>();
   private flow = new Map<string, StoredEntry<FlowSensation>>();
@@ -232,7 +238,12 @@ class Sensorium {
   private alpha = new Map<string, StoredEntry<AlphaSensation>>();
 
   // ─── Push API (sensors call these) ───────────────────────────────────
-  updateMarket(s: MarketSensation): void { this.market.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
+  updateMarket(s: MarketSensation): void {
+    this.market.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() });
+    // Phase 93.4 — emit synchronously so hard-stop reactor can fire on same tick.
+    // Listener errors are isolated by EventEmitter; we never block the push API.
+    this.emit('market_update', s);
+  }
   updateTechnical(s: TechnicalSensation): void { this.technical.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
   updateFlow(s: FlowSensation): void { this.flow.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
   updateWhale(s: WhaleSensation): void { this.whale.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }

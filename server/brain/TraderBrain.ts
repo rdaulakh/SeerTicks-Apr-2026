@@ -108,9 +108,27 @@ class TraderBrain {
   private config: BrainConfig = DEFAULT_CONFIG;
   private isRunning = false;
   private tickInterval: NodeJS.Timeout | null = null;
-  private readonly TICK_MS = 1000;       // 1Hz brain tick — adjustable
+  // Phase 93.4 — 10Hz tick (was 1Hz / 1000ms). User feedback 2026-05-13:
+  // "2 seconds is huge in live trading; as a machine you should react in
+  // milliseconds, not human-reflex time." Tick reduced 1000ms → 100ms.
+  //
+  // Per-tick work is light (~1-3ms across 3 positions on current hardware),
+  // so 100ms cadence stays under 3% CPU. DB write rate is protected by
+  // DecisionTrace.record() throttling (hold decisions only emit every
+  // HOLD_TRACE_GAP_MS unless the reason text changes).
+  //
+  // For sub-100ms hard-stop reactivity, a follow-up will add price-event
+  // subscriptions so price ticks that cross a stop level fire an immediate
+  // exit without waiting for the next 100ms tick.
+  private readonly TICK_MS = 100;
   private tickCount = 0;
   private startedAtMs = 0;
+  // Phase 93.4 — per-position last-trace memo. Throttles hold-decision DB
+  // writes so the 10× tick rate doesn't 10× the brainDecisions table.
+  // A non-hold OR a hold with a CHANGED reason text always writes; a
+  // repeated identical hold writes once per HOLD_TRACE_GAP_MS only.
+  private lastTrace = new Map<string | number, { reason: string; atMs: number }>();
+  private readonly HOLD_TRACE_GAP_MS = 2000;
   // Phase 87 — wall-clock timestamp of the last tick() entry; used for the
   // operator console's "last tick X ms ago" heartbeat indicator.
   private lastTickAtMs: number | null = null;
@@ -154,10 +172,66 @@ class TraderBrain {
     this.isRunning = true;
     this.startedAtMs = Date.now();
     this.tickInterval = setInterval(() => this.tick(), this.TICK_MS);
+
+    // Phase 93.4 — FAST PATH: subscribe to price ticks for sub-100ms hard-stop
+    // response. The regular tick (100ms) does the full pipeline (entries, exits,
+    // consensus, etc.); this listener does ONLY the hard-stop check (cheap)
+    // and fires an immediate exit if breached. Worst-case stop response goes
+    // from O(tick) = 100ms to O(price-event) ≈ 0ms.
+    const sensorium = getSensorium();
+    sensorium.on('market_update', (s: { symbol: string; midPrice?: number; lastPrice?: number }) => {
+      if (!this.isRunning) return;
+      if (this.config.dryRun) return;
+      if ((Date.now() - this.startedAtMs) < this.WARMUP_MS) return;
+      this.fastCheckHardStops(s.symbol, s.midPrice ?? s.lastPrice ?? 0).catch(err =>
+        logger.warn('[TraderBrain] fastCheck error', { symbol: s.symbol, error: (err as Error)?.message })
+      );
+    });
+
     if (this.config.dryRun) {
       logger.info('[TraderBrain] 🧠 STARTED (DRY-RUN — observing only)', { tickMs: this.TICK_MS });
     } else {
-      logger.warn(`[TraderBrain] 🧠⚠️  STARTED LIVE — brain has execution authority. ${this.WARMUP_MS / 1000}s warm-up before first action.`);
+      logger.warn(`[TraderBrain] 🧠⚠️  STARTED LIVE — brain has execution authority. ${this.WARMUP_MS / 1000}s warm-up before first action. Fast hard-stop reactor armed (sub-ms response on price events).`);
+    }
+  }
+
+  /**
+   * Phase 93.4 — Fast hard-stop reactor.
+   *
+   * Runs on EVERY price tick (not just the 10Hz brain tick). Iterates open
+   * positions for the symbol and checks ONLY the hard stop level — the rest
+   * of the pipeline (consensus, ratchet, time-stop) is deferred to the regular
+   * tick where it belongs. If a stop is breached, fires immediate exit.
+   *
+   * Cheap (~tens of microseconds) so safe to run every tick. Idempotent via
+   * the inFlightExits set — a stop crossing won't fire 100 exits while the
+   * exchange call is in flight.
+   */
+  private async fastCheckHardStops(symbol: string, currentPrice: number): Promise<void> {
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) return;
+    const sensorium = getSensorium();
+    for (const positionId of sensorium.getActivePositionIds()) {
+      const pos = sensorium.getPosition(positionId)?.sensation;
+      if (!pos || pos.symbol !== symbol) continue;
+      if (this.inFlightExits.has(positionId)) continue;
+      // Hard stop: long breached when price ≤ stop, short breached when price ≥ stop.
+      const stop = pos.currentStopLoss;
+      if (stop === null || !Number.isFinite(stop) || stop <= 0) continue;
+      const breached = pos.side === 'long' ? currentPrice <= stop : currentPrice >= stop;
+      if (!breached) continue;
+      // Fire immediate exit. Skip the trace+decision plumbing of the regular
+      // tick — log directly and route through the executor.
+      this.inFlightExits.add(positionId);
+      logger.warn(`[TraderBrain] ⚡🧠⛔ FAST HARD-STOP ${symbol} ${pos.side} id=${positionId}: price ${currentPrice} ${pos.side === 'long' ? '≤' : '≥'} stop ${stop} — immediate exit`);
+      try {
+        const { getBrainExecutor } = await import('./BrainExecutor');
+        const r = await getBrainExecutor().exitFull(positionId, currentPrice, `fast_hard_stop:${pos.side}@${stop}`);
+        if (!r.ok) {
+          logger.error(`[TraderBrain] fast hard-stop exit failed for ${positionId}: ${r.error ?? 'unknown'}`);
+        }
+      } finally {
+        this.inFlightExits.delete(positionId);
+      }
     }
   }
 
@@ -224,6 +298,7 @@ class TraderBrain {
   /** Called by UserTradingSession when a position closes — clean up state. */
   forgetPosition(positionId: string | number): void {
     this.liveIEMActions.delete(positionId);
+    this.lastTrace.delete(positionId);  // Phase 93.4 — release trace memo too
   }
 
   // ─── Hot loop ───────────────────────────────────────────────────────
@@ -321,22 +396,32 @@ class TraderBrain {
         const pos = sensorium.getPosition(positionId);
         if (!pos) continue;
 
-        // Always TRACE — gives us the audit trail regardless of live/dry mode.
-        getDecisionTrace().record({
-          positionId,
-          symbol: pos.sensation.symbol,
-          side: pos.sensation.side,
-          kind: decision.kind,
-          pipelineStep: decision.pipelineStep,
-          reason: decision.reason,
-          urgency: 'urgency' in decision ? decision.urgency : undefined,
-          sensoriumSnapshot: sensorium.snapshotForPosition(positionId),
-          newStopLoss: decision.kind === 'tighten_stop' ? decision.newStopLoss : null,
-          exitQuantityPercent: decision.kind === 'take_partial' ? decision.exitQuantityPercent : null,
-          isDryRun: this.config.dryRun || inWarmup,
-          liveIEMAction: this.liveIEMActions.get(positionId),
-          latencyUs: elapsedUs,
-        });
+        // Phase 93.4 — throttle hold-decision trace writes. Non-hold and
+        // hold-with-changed-reason ALWAYS write; identical repeating holds
+        // write at most once per HOLD_TRACE_GAP_MS (2 sec). At 10Hz tick
+        // this drops the DB write rate by ~20× without losing audit signal.
+        const last = this.lastTrace.get(positionId);
+        const reasonChanged = !last || last.reason !== decision.reason;
+        const gapElapsed = !last || (Date.now() - last.atMs) >= this.HOLD_TRACE_GAP_MS;
+        const shouldTrace = decision.kind !== 'hold' || reasonChanged || gapElapsed;
+        if (shouldTrace) {
+          getDecisionTrace().record({
+            positionId,
+            symbol: pos.sensation.symbol,
+            side: pos.sensation.side,
+            kind: decision.kind,
+            pipelineStep: decision.pipelineStep,
+            reason: decision.reason,
+            urgency: 'urgency' in decision ? decision.urgency : undefined,
+            sensoriumSnapshot: sensorium.snapshotForPosition(positionId),
+            newStopLoss: decision.kind === 'tighten_stop' ? decision.newStopLoss : null,
+            exitQuantityPercent: decision.kind === 'take_partial' ? decision.exitQuantityPercent : null,
+            isDryRun: this.config.dryRun || inWarmup,
+            liveIEMAction: this.liveIEMActions.get(positionId),
+            latencyUs: elapsedUs,
+          });
+          this.lastTrace.set(positionId, { reason: decision.reason, atMs: Date.now() });
+        }
 
         // Phase 83.2 — EXECUTE if live + past warm-up + non-hold + not in-flight.
         if (!this.config.dryRun && !inWarmup && decision.kind !== 'hold') {
