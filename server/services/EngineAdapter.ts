@@ -665,6 +665,49 @@ export class EngineAdapter extends EventEmitter {
     return { success: true, message: 'Rebalance handled by GlobalMarketEngine signal distribution' };
   }
 
+  /**
+   * Phase 86 — direct placeOrder pass-through for TraderBrain entries.
+   * The brain has already decided (consensus, size, stop, take-profit);
+   * this is the execution edge that routes to either PaperTradingEngine or
+   * RealTradingEngine depending on the session's tradingMode.
+   *
+   * NOTE: this bypasses the EnhancedTradeExecutor signal-path checks (VaR,
+   * Kelly, correlation) because the brain has already applied its own
+   * sizing + portfolio guard. The engine still enforces its own emergency
+   * stop / daily-loss circuit / max-position guardrails.
+   */
+  async placeOrder(params: {
+    symbol: string;
+    side: 'buy' | 'sell';
+    quantity: number;
+    stopLoss?: number;
+    takeProfit?: number;
+    strategy: string;
+  }): Promise<{ success: boolean; orderId?: string; filledPrice?: number; error?: string }> {
+    try {
+      const engine = (this.session as any).tradingEngine;
+      if (!engine || typeof engine.placeOrder !== 'function') {
+        return { success: false, error: 'engine_unavailable' };
+      }
+      const order = await engine.placeOrder({
+        symbol: params.symbol,
+        type: 'market',
+        side: params.side,
+        quantity: params.quantity,
+        stopLoss: params.stopLoss,
+        takeProfit: params.takeProfit,
+        strategy: params.strategy,
+      });
+      return {
+        success: order?.status === 'FILLED' || order?.status === 'OPEN' || order?.success === true,
+        orderId: order?.id ?? order?.orderId,
+        filledPrice: order?.filledPrice ?? order?.price,
+      };
+    } catch (err) {
+      return { success: false, error: (err as Error)?.message ?? 'placeOrder_threw' };
+    }
+  }
+
   updateConfig(config: any) {
     if (config.autoTrading !== undefined) {
       this.session.updateAutoTrading(config.autoTrading);

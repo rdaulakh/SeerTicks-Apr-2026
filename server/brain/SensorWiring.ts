@@ -394,6 +394,9 @@ async function pullPositionAndStanceSensors(): Promise<void> {
       : iemP?.unrealizedPnlPercent ?? 0;
     const sensation: PositionSensation = {
       positionId,
+      // Phase 86 — carry userId/tradingMode so the brain routes back correctly.
+      userId: row.userId,
+      tradingMode: row.tradingMode ?? 'paper',
       symbol: row.symbol,
       side: row.side,
       entryPrice,
@@ -501,15 +504,25 @@ async function pullOpportunitySensor(): Promise<void> {
 
     if (votesEntry && votesEntry.stalenessMs < 30_000) {
       // ─── Primary path: 33-agent vote tally ──────────────────────
+      // Phase 86 — count-based scoring. Confidence values cross two ranges
+      // in the wild (Phase-40 agents emit 0.05–0.20; legacy agents emit
+      // 0..1). Using raw weights lets a single legacy agent dominate. We
+      // gate on counts (robust) and use a soft confidence kicker on top.
       const v = votesEntry.sensation;
+      let strongLongConf = 0, strongShortConf = 0;
       for (const vote of v.votes) {
-        // Phase 40 confidence band is 0.05..0.20; some legacy agents emit
-        // 0..1. Clamp to [0, 0.25] to avoid one bad agent dominating.
-        const w = Math.max(0, Math.min(0.25, vote.confidence));
-        if (vote.direction === 'bullish') { longScore += w; confluenceLong++; }
-        else if (vote.direction === 'bearish') { shortScore += w; confluenceShort++; }
+        // Confidence kicker: weight = clamp(confidence, 0.05, 0.25).
+        // Sum over the dominant side later for tiebreak.
+        const w = Math.max(0.05, Math.min(0.25, vote.confidence));
+        if (vote.direction === 'bullish') { confluenceLong++; strongLongConf += w; }
+        else if (vote.direction === 'bearish') { confluenceShort++; strongShortConf += w; }
         totalSensors++;
       }
+      // Carry "scores" but as count-derived signals for the rest of the
+      // computation. The shared `longScore`/`shortScore` API stays so the
+      // downstream direction/score math doesn't have to be touched.
+      longScore = confluenceLong + strongLongConf * 0.4;  // counts dominate; conf adds a small kicker
+      shortScore = confluenceShort + strongShortConf * 0.4;
     } else {
       // ─── Fallback path: 3-sensor approximation (boot/early state) ─
       const flow = sensorium.getFlow(symbol);
@@ -546,11 +559,25 @@ async function pullOpportunitySensor(): Promise<void> {
       dominantWeight === 0 ? 'abstain'
         : longScore > shortScore ? 'long'
           : shortScore > longScore ? 'short' : 'abstain';
-    // Score = 0..1, weighted-share of agreement in dominant direction.
-    const score = direction === 'abstain'
-      ? 0
-      : Math.min(1, dominantWeight / Math.max(0.05, totalWeight)) * Math.min(1, totalSensors / 5);
-    const confluenceCount = direction === 'long' ? confluenceLong : direction === 'short' ? confluenceShort : 0;
+
+    // Phase 86 — count-based score with a meaningful-presence kicker.
+    //   dominantConfluence  = # agents agreeing with dominant direction
+    //   directionalAgents   = long+short (NEUTRAL EXCLUDED — agents who
+    //                         "have nothing strong to say" must not dilute
+    //                         the signal of agents that DO have a view)
+    //   ratio               = dominant share of directional voices
+    //   presence            = how many directional voices there are
+    //                         (a 5-0 split is stronger than a 1-0 split)
+    //
+    // Final score = ratio × presence. Both ∈ [0,1]; product ∈ [0,1].
+    const dominantConfluence = direction === 'long' ? confluenceLong : direction === 'short' ? confluenceShort : 0;
+    const directionalAgents = confluenceLong + confluenceShort;
+    const ratio = direction === 'abstain' ? 0
+      : dominantWeight / Math.max(0.05, totalWeight);          // pure share of dominant voice
+    const presence = Math.min(1, dominantConfluence / 4);      // 4+ agents on one side = full presence
+    const score = direction === 'abstain' ? 0 : ratio * presence;
+    const confluenceCount = dominantConfluence;
+    void directionalAgents;
 
     const sensation: OpportunitySensation = {
       symbol,
@@ -630,16 +657,21 @@ async function pullPortfolioSensor(): Promise<void> {
     } catch { /* column name may differ across phases; keep 0 */ }
 
     // Latest wallet equity — paperWallets stores live equity per (userId, tradingMode).
-    // Brain runs paper-mode-only for v1; sum equity across paper wallets so the
-    // guard reflects platform-wide equity even if multiple users are active.
+    // Phase 86 — track the PRIMARY user (largest-equity paper wallet) so the
+    // brain's entries route to a real user instead of being hardcoded to 1.
     let equity = 10_000;
+    let primaryUserId = 1;
     try {
-      const agg = await db.select({
-        total: sql<string>`sum(cast(equity as decimal(18,4)))`,
-      })
+      const rows = await db.select({ userId: paperWallets.userId, equity: paperWallets.equity })
         .from(paperWallets)
         .where(eq(paperWallets.tradingMode, 'paper'));
-      const summed = parseFloat((agg[0]?.total ?? '0') as string);
+      let summed = 0;
+      let topEquity = -1;
+      for (const r of rows) {
+        const eq = parseFloat((r.equity ?? '0') as string) || 0;
+        summed += eq;
+        if (eq > topEquity) { topEquity = eq; primaryUserId = r.userId; }
+      }
       if (Number.isFinite(summed) && summed > 0) equity = summed;
     } catch { /* schema may differ; keep default */ }
     void and;
@@ -647,6 +679,7 @@ async function pullPortfolioSensor(): Promise<void> {
     const dailyPnlPercent = equity > 0 ? (dailyRealizedPnl / equity) * 100 : 0;
 
     const sensation: PortfolioSensation = {
+      primaryUserId,
       equity,
       dailyRealizedPnl,
       dailyPnlPercent,

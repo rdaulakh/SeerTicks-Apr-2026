@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import {
   Trophy,
@@ -141,16 +142,28 @@ export default function AgentScorecard() {
       placeholderData: (prev) => prev,
     });
   const setBrainModeMut = trpc.agentScorecard.setBrainMode.useMutation({
-    onSuccess: () => { refetchBrainCH(); utils.agentScorecard.getBrainActivity.invalidate(); },
+    onSuccess: (d) => {
+      refetchBrainCH();
+      utils.agentScorecard.getBrainActivity.invalidate();
+      const dryRun = (d as any)?.after?.dryRun;
+      const running = (d as any)?.after?.running;
+      toast.success(running
+        ? `Brain ${dryRun ? 'DRY-RUN' : 'LIVE'} — execution ${dryRun ? 'observing' : 'authorized'}`
+        : 'Brain stopped');
+    },
+    onError: (err) => toast.error(`Brain control failed: ${err.message}`),
   });
   const setBrainConfigMut = trpc.agentScorecard.setBrainConfig.useMutation({
-    onSuccess: () => refetchBrainCH(),
+    onSuccess: () => { refetchBrainCH(); toast.success('Brain config updated (hot-reloaded)'); },
+    onError: (err) => toast.error(`Config update failed: ${err.message}`),
   });
   const setCandidateSymbolsMut = trpc.agentScorecard.setCandidateSymbols.useMutation({
-    onSuccess: () => refetchBrainCH(),
+    onSuccess: (d) => { refetchBrainCH(); toast.success(`Candidate symbols → ${(d as any).symbols?.join(', ')}`); },
+    onError: (err) => toast.error(`Symbol update failed: ${err.message}`),
   });
   const setLiveEntriesMut = trpc.agentScorecard.setLiveEntriesEnabled.useMutation({
-    onSuccess: () => refetchBrainCH(),
+    onSuccess: (d) => { refetchBrainCH(); toast.success(`Live entries ${(d as any).enabled ? 'ENABLED — real money' : 'disabled'}`); },
+    onError: (err) => toast.error(`Live-entries toggle failed: ${err.message}`),
   });
 
   // Drill-down modal: when operator clicks a decision row, show full sensorium.
@@ -525,7 +538,10 @@ export default function AgentScorecard() {
                 <div className="px-4 py-6 text-center text-gray-400 text-sm">No recent decisions.</div>
               ) : (
                 <div className="divide-y divide-white/5">
-                  {brainActivity.recent.map((d: any) => (
+                  {brainActivity.recent.map((d: any) => {
+                    // Phase 86 — visual distinction for vetoed abstains
+                    const isVeto = d.pipelineStep === 'should_enter:veto_active' || d.pipelineStep === 'should_enter:macro_veto';
+                    return (
                     <button
                       key={d.id}
                       type="button"
@@ -539,9 +555,10 @@ export default function AgentScorecard() {
                           : d.kind === 'tighten_stop' ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
                           : d.kind === 'enter_long' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                           : d.kind === 'enter_short' ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                          : isVeto ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold'
                           : d.kind === 'abstain' ? 'bg-gray-500/15 text-gray-400 border-gray-500/30'
                           : 'bg-gray-500/15 text-gray-300 border-gray-500/30'
-                        }>{d.kind}</Badge>
+                        }>{isVeto ? '⚠ VETO' : d.kind}</Badge>
                         <span className="text-gray-300 font-medium">{d.symbol}</span>
                         <span className="text-gray-500">·</span>
                         <span className="font-mono text-gray-400">{d.pipelineStep}</span>
@@ -551,7 +568,8 @@ export default function AgentScorecard() {
                       </div>
                       <div className="text-gray-400 mt-0.5 pl-12">{d.reason}</div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -837,7 +855,7 @@ function BrainDecisionDrill({ positionId, decision }: { positionId?: string; dec
 {JSON.stringify(sensorium, null, 2)}
           </pre>
           {sensorium?.agentVotes && (
-            <div className="space-y-1">
+            <div className="space-y-2">
               <h4 className="text-xs uppercase text-gray-400">Agent vote tally ({sensorium.agentVotes.votes?.length ?? 0} agents heard)</h4>
               <div className="flex flex-wrap gap-1">
                 <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
@@ -855,6 +873,30 @@ function BrainDecisionDrill({ positionId, decision }: { positionId?: string; dec
                   </Badge>
                 )}
               </div>
+              {/* Phase 86 — Individual agent names + direction + confidence */}
+              {Array.isArray(sensorium.agentVotes.votes) && sensorium.agentVotes.votes.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-0.5 max-h-48 overflow-y-auto bg-black/60 rounded p-2 border border-white/5 text-[10px]">
+                  {[...sensorium.agentVotes.votes]
+                    .sort((a: any, b: any) => {
+                      const order = { bullish: 0, bearish: 1, neutral: 2 } as Record<string, number>;
+                      return (order[a.direction] ?? 3) - (order[b.direction] ?? 3) || (b.confidence ?? 0) - (a.confidence ?? 0);
+                    })
+                    .map((v: any) => (
+                      <div key={v.agentName} className="flex items-center gap-1.5">
+                        <span className={
+                          v.direction === 'bullish' ? 'text-emerald-400'
+                          : v.direction === 'bearish' ? 'text-red-400'
+                          : 'text-gray-500'
+                        }>
+                          {v.direction === 'bullish' ? '↑' : v.direction === 'bearish' ? '↓' : '•'}
+                        </span>
+                        <span className="text-gray-300 truncate flex-1">{v.agentName}</span>
+                        <span className="text-gray-500 font-mono">{(v.confidence ?? 0).toFixed(2)}</span>
+                        {v.vetoActive && <span className="text-amber-400">⚠</span>}
+                      </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

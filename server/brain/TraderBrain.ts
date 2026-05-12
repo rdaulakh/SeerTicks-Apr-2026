@@ -86,8 +86,13 @@ const DEFAULT_CONFIG: BrainConfig = {
   staleHoldMinutes: 30,
   stalePeakPnlPct: 0.30,
   adaptiveTargetAtrMult: 1.5,
-  minOpportunityScore: 0.55,
-  minConfluenceCount: 3,
+  // Phase 86 — calibrated against 33-agent fan-in. Score is count-derived
+  // (ratio × presence), so 0.50 ≈ "3+ agents on one side with no real
+  // opposition." minConfluenceCount: 2 means at least 2 agents have to
+  // actively agree — neutrals are excluded from confluence, so this is
+  // robust to high-neutrality conditions.
+  minOpportunityScore: 0.50,
+  minConfluenceCount: 2,
   entrySizeEquityFraction: 0.10,
   kellyFraction: 0.25,
   defaultStopLossPercent: 1.2,
@@ -127,6 +132,18 @@ class TraderBrain {
 
   start(): void {
     if (this.isRunning) return;
+    // Phase 86 — hydrate config from systemConfig BEFORE the loop fires so
+    // operator-applied tuning (via setBrainConfig tRPC mutation) survives
+    // server restarts. Boot-time hydration is fire-and-forget; if it fails
+    // we fall back to the in-memory defaults.
+    this.hydrateConfigFromDb()
+      .then((overrides) => {
+        if (Object.keys(overrides).length > 0) {
+          logger.info(`[TraderBrain] 🧠💾 hydrated ${Object.keys(overrides).length} configs from systemConfig: ${Object.keys(overrides).join(', ')}`);
+        }
+      })
+      .catch((err: Error) => logger.warn('[TraderBrain] config hydrate failed (using defaults)', { error: err?.message }));
+
     this.isRunning = true;
     this.startedAtMs = Date.now();
     this.tickInterval = setInterval(() => this.tick(), this.TICK_MS);
@@ -135,6 +152,52 @@ class TraderBrain {
     } else {
       logger.warn(`[TraderBrain] 🧠⚠️  STARTED LIVE — brain has execution authority. ${this.WARMUP_MS / 1000}s warm-up before first action.`);
     }
+  }
+
+  /**
+   * Phase 86 — read systemConfig 'brain.*' keys and apply them to the
+   * in-memory config. Any of these keys override the hardcoded defaults:
+   *   brain.minOpportunityScore       (number)
+   *   brain.minConfluenceCount        (number)
+   *   brain.entrySizeEquityFraction   (number)
+   *   brain.kellyFraction             (number)
+   *   brain.defaultStopLossPercent    (number)
+   *   brain.defaultTakeProfitPercent  (number)
+   *   brain.consensusFlipThreshold    (number)
+   *   brain.momentumCrashBpsPerS      (number)
+   *   brain.staleHoldMinutes          (number)
+   *   brain.stalePeakPnlPct           (number)
+   *   brain.adaptiveTargetAtrMult     (number)
+   */
+  private async hydrateConfigFromDb(): Promise<Record<string, number>> {
+    const overrides: Record<string, number> = {};
+    try {
+      const { getDb } = await import('../db');
+      const { systemConfig } = await import('../../drizzle/schema');
+      const { like } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) return overrides;
+      const rows = await db.select().from(systemConfig).where(like(systemConfig.configKey, 'brain.%'));
+      const tunableKeys = new Set([
+        'minOpportunityScore', 'minConfluenceCount', 'entrySizeEquityFraction',
+        'kellyFraction', 'defaultStopLossPercent', 'defaultTakeProfitPercent',
+        'consensusFlipThreshold', 'momentumCrashBpsPerS', 'staleHoldMinutes',
+        'stalePeakPnlPct', 'adaptiveTargetAtrMult',
+      ]);
+      for (const r of rows) {
+        const shortKey = r.configKey.replace(/^brain\./, '');
+        if (!tunableKeys.has(shortKey)) continue; // skip non-tunable keys (candidateSymbols, liveEntriesEnabled)
+        const raw = r.configValue as unknown;
+        const val = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (typeof val === 'number' && Number.isFinite(val)) {
+          overrides[shortKey] = val;
+        }
+      }
+      if (Object.keys(overrides).length > 0) {
+        this.config = { ...this.config, ...overrides } as BrainConfig;
+      }
+    } catch { /* swallow — defaults remain */ }
+    return overrides;
   }
 
   stop(): void {
@@ -162,6 +225,30 @@ class TraderBrain {
     this.tickCount++;
     const sensorium = getSensorium();
     const health = sensorium.health();
+
+    // Phase 86 — EMERGENCY STOP check. EngineHeartbeat carries the platform
+    // halt state (daily PnL circuit, missing-pulse halt, operator-triggered
+    // emergency stop). If halted, brain BLOCKS NEW ENTRIES and switches
+    // exits to defensive mode (accelerate losers, hold winners — let the
+    // platform's emergency exit handler do the actual closing).
+    let emergencyHalted = false;
+    let haltReason: string | undefined;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getEngineHeartbeat } = require('../services/EngineHeartbeat') as typeof import('../services/EngineHeartbeat');
+      const hb = getEngineHeartbeat();
+      if (hb.isHalted?.()) {
+        emergencyHalted = true;
+        haltReason = (hb as any).status?.()?.haltReason ?? 'engine_halt';
+      }
+    } catch { /* heartbeat not initialized — proceed (safer default for boot) */ }
+
+    if (emergencyHalted && this.tickCount % 30 === 0) {
+      // Don't spam — log every 30 ticks while halt is active.
+      logger.warn(`[TraderBrain] 🧠⛔ EMERGENCY HALT detected (${haltReason}); skipping all new entries; exits continue in defensive mode`);
+    }
+
+    if (health.positions === 0 && emergencyHalted) return;
     if (health.positions === 0) return;     // nothing to decide on
 
     // Iterate every position. We access the underlying Map by symbol lookup —
@@ -174,12 +261,15 @@ class TraderBrain {
     // Phase 84 — PORTFOLIO_GUARD: compute once per tick, applies to all positions
     // AND to entry decisions. If tripped, the entry side is BLOCKED and exits on
     // losers may accelerate (handled inside decide()).
+    // Phase 86 — emergency halt is an even stronger block on entries.
     const portfolioGuard = this.evaluatePortfolioGuard(sensorium);
+    const entriesAllowed = portfolioGuard.allowNewEntries && !emergencyHalted;
 
     // ─── Entry brain: evaluate symbols WITHOUT an open position ──────────
     // Phase 85 — candidate list is DB-driven (systemConfig 'brain.candidateSymbols')
     // with the configured list as fallback. SensorWiring keeps the cache warm.
-    if (portfolioGuard.allowNewEntries) {
+    // Phase 86 — entries blocked under emergency halt OR portfolio-guard trip.
+    if (entriesAllowed) {
       // Lazy import to avoid circular module init.
       const cachedSyms = (require('./SensorWiring') as typeof import('./SensorWiring')).getCachedCandidateSymbols();
       const symbolList = cachedSyms.length > 0 ? cachedSyms : this.config.candidateSymbols;
@@ -384,11 +474,14 @@ class TraderBrain {
     return getSensorium().snapshotForEntry(symbol);
   }
 
-  /** Phase 84 — execute an entry decision via BrainExecutor. */
+  /** Phase 84 — execute an entry decision via BrainExecutor.
+   *  Phase 86 — route to the primary user's wallet via portfolio sensor. */
   private async executeEntry(decision: BrainAction): Promise<void> {
     if (decision.kind !== 'enter_long' && decision.kind !== 'enter_short') return;
     const { getBrainExecutor } = await import('./BrainExecutor');
     const executor = getBrainExecutor();
+    const port = getSensorium().getPortfolio()?.sensation;
+    const userId = port?.primaryUserId ?? 1;
     const r = await executor.openPosition({
       symbol: decision.symbol,
       side: decision.kind === 'enter_long' ? 'long' : 'short',
@@ -396,8 +489,9 @@ class TraderBrain {
       stopLoss: decision.stopLoss,
       takeProfit: decision.takeProfit,
       reason: decision.reason,
+      userId,
     });
-    logger.info(`[TraderBrain] 🧠→ ${decision.kind.toUpperCase()} ${decision.symbol} qty=${decision.size.toFixed(6)} sl=$${decision.stopLoss.toFixed(4)} tp=$${decision.takeProfit.toFixed(4)}: ${r.ok ? 'ok' : 'failed'} reason="${decision.pipelineStep}"`);
+    logger.info(`[TraderBrain] 🧠→ ${decision.kind.toUpperCase()} ${decision.symbol} user=${userId} qty=${decision.size.toFixed(6)} sl=$${decision.stopLoss.toFixed(4)} tp=$${decision.takeProfit.toFixed(4)}: ${r.ok ? 'ok' : 'failed'} reason="${decision.pipelineStep}"`);
   }
 
   /**

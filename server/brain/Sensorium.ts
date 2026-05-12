@@ -76,6 +76,10 @@ export interface SentimentSensation {
 
 export interface PositionSensation {
   positionId: string | number;
+  /** Phase 86 — owner; brain routes exits/stops back to this user's engine. */
+  userId: number;
+  /** Phase 86 — paper vs live; routes through different executor paths. */
+  tradingMode: 'paper' | 'live';
   symbol: string;
   side: 'long' | 'short';
   entryPrice: number;
@@ -160,6 +164,10 @@ export interface OpportunitySensation {
 // pre-step that runs BEFORE step 1) reads this. If any limit is breached
 // the brain BLOCKS new entries and may ACCELERATE exits on losers.
 export interface PortfolioSensation {
+  /** Phase 86 — primary userId the brain is currently trading for. New
+   * entries route through this user's engine. In single-tenant prod this is
+   * always 1; in multi-tenant the brain will iterate per-user (Phase 87). */
+  primaryUserId: number;
   /** Total wallet equity (USD). */
   equity: number;
   /** Realized P&L since UTC midnight. */

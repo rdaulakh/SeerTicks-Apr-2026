@@ -33,7 +33,7 @@ import 'dotenv/config';
 import * as fs from 'fs';
 import { and, asc, eq, gte, lte } from 'drizzle-orm';
 import { getDb } from '../server/db';
-import { historicalCandles } from '../drizzle/schema';
+import { historicalCandles, agentSignals as agentSignalsTable } from '../drizzle/schema';
 import { getSensorium, type PositionSensation, type StanceSensation, type MarketSensation, type TechnicalSensation } from '../server/brain/Sensorium';
 import { getTraderBrain, type BrainAction } from '../server/brain/TraderBrain';
 import { setActiveClock, MockClock } from '../server/_core/clock';
@@ -286,6 +286,82 @@ function pushStance(symbol: string, entryDir: 'bullish' | 'bearish', entryStr: n
   sens.updateStance(stance);
 }
 
+// ─── Phase 86 — Real agent votes (from agentSignals table) ──────────────
+// When historical agent data is available for the symbol+window, build the
+// AgentVotesSensation from the REAL signals each agent emitted at that
+// minute. Otherwise the backtest falls back to mock technical-only votes.
+type AgentVoteRow = { agentName: string; signalData: any; timestamp: Date };
+let _agentVotesCache: AgentVoteRow[] | null = null;
+
+async function loadAgentSignalsForWindow(symbol: string, startMs: number, endMs: number): Promise<AgentVoteRow[]> {
+  if (_agentVotesCache) return _agentVotesCache;
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({
+      agentName: agentSignalsTable.agentName,
+      signalData: agentSignalsTable.signalData,
+      timestamp: agentSignalsTable.timestamp,
+    })
+    .from(agentSignalsTable)
+    .where(and(
+      gte(agentSignalsTable.timestamp, new Date(startMs)),
+      lte(agentSignalsTable.timestamp, new Date(endMs)),
+    ))
+    .orderBy(asc(agentSignalsTable.timestamp));
+  // Filter to the symbol we care about (signal_data.symbol). Keep cheap.
+  const matching: AgentVoteRow[] = [];
+  for (const r of rows) {
+    const sym = (r.signalData as any)?.symbol;
+    if (sym === symbol) matching.push({ agentName: r.agentName, signalData: r.signalData, timestamp: r.timestamp as any });
+  }
+  _agentVotesCache = matching;
+  console.log(`[backtest_brain] loaded ${matching.length} historical agentSignals rows for ${symbol}`);
+  return matching;
+}
+
+function pushAgentVotes(symbol: string, nowMs: number, allSignals: AgentVoteRow[]): void {
+  const sens = getSensorium();
+  // Build the latest vote per agent within a ±90s window of nowMs.
+  const cutoffLow = nowMs - 90_000;
+  const cutoffHigh = nowMs;
+  const newest = new Map<string, any>();
+  // Linear scan — fine for 30d windows (~30k rows); could binary search later.
+  for (const r of allSignals) {
+    const ts = new Date(r.timestamp as any).getTime();
+    if (ts > cutoffHigh) break;
+    if (ts < cutoffLow) continue;
+    newest.set(r.agentName, r.signalData);
+  }
+  if (newest.size === 0) return;
+  let longC = 0, shortC = 0, neutralC = 0;
+  const votes: any[] = [];
+  const vetoReasons: string[] = [];
+  for (const [agentName, sd] of newest) {
+    const dirRaw = sd?.signal ?? sd?.direction ?? '';
+    const direction: 'bullish' | 'bearish' | 'neutral' =
+      dirRaw === 'bullish' || dirRaw === 'long' ? 'bullish'
+      : dirRaw === 'bearish' || dirRaw === 'short' ? 'bearish'
+      : 'neutral';
+    const conf = typeof sd?.confidence === 'number' ? sd.confidence : 0.1;
+    const veto = sd?.evidence?.vetoActive === true || sd?.signal === 'veto';
+    if (direction === 'bullish') longC++;
+    else if (direction === 'bearish') shortC++;
+    else neutralC++;
+    votes.push({ agentName, direction, confidence: conf, ageMs: cutoffHigh - cutoffLow, vetoActive: veto });
+    if (veto) vetoReasons.push(`${agentName}: ${(sd?.reasoning ?? 'active').slice(0, 80)}`);
+  }
+  sens.updateAgentVotes({
+    symbol,
+    votes,
+    longCount: longC,
+    shortCount: shortC,
+    neutralCount: neutralC,
+    anyVetoActive: vetoReasons.length > 0,
+    vetoReasons,
+  });
+}
+
 function pushPosition(p: SimPosition, currentPrice: number, nowMs: number) {
   const sens = getSensorium();
   const pnlSign = p.side === 'long' ? 1 : -1;
@@ -333,6 +409,16 @@ async function main(): Promise<void> {
   const brain = getTraderBrain();
   const sens = getSensorium();
 
+  // Phase 86 — load real agent signals if available; brain will use them
+  // for the 33-agent confluence path instead of the synthetic fallback.
+  const agentVoteRows = await loadAgentSignalsForWindow(args.symbol, startMs, endMs);
+  const usingRealVotes = agentVoteRows.length > 0;
+  if (usingRealVotes) {
+    console.log(`[backtest_brain] ✅ HONEST mode: using ${agentVoteRows.length} real historical agentSignals`);
+  } else {
+    console.log(`[backtest_brain] ⚠️  SYNTHETIC mode: no agentSignals for window — using technical-only fallback`);
+  }
+
   const positions: SimPosition[] = [];
   const closed: ClosedTrade[] = [];
   const stepAttribution: Map<string, { trades: number; pnlUsd: number; pnlPct: number }> = new Map();
@@ -349,6 +435,8 @@ async function main(): Promise<void> {
     // 1. Update market + technical sensations
     pushMarket(args.symbol, candle, atrAbs, closes);
     pushTechnical(args.symbol, window.slice(-50));
+    // Phase 86 — push real 33-agent votes when available.
+    if (usingRealVotes) pushAgentVotes(args.symbol, candle.ts, agentVoteRows);
 
     // 2. For each open position: refresh sensation, refresh stance, run brain.decide()
     for (let pIdx = positions.length - 1; pIdx >= 0; pIdx--) {

@@ -320,8 +320,8 @@ class BrainExecutor extends EventEmitter {
       const db = await getDb();
       if (!db) return { ok: false, affectedRows: 0, error: 'db_unavailable', reason: args.reason };
 
-      // Phase 85 — live entries gated by feature flag. Route through
-      // EngineAdapter so margin/slippage/partial-fill paths fire.
+      // Phase 86 — live entries via EngineAdapter.placeOrder (paper/real
+      // engines route under the same interface). Still gated by feature flag.
       if (args.mode === 'live') {
         const enabled = await liveEntriesEnabled();
         if (!enabled) {
@@ -335,12 +335,26 @@ class BrainExecutor extends EventEmitter {
           const { getExistingAdapter } = await import('../services/EngineAdapter');
           const adapter = getExistingAdapter(args.userId);
           if (!adapter) return { ok: false, affectedRows: 0, error: 'no_live_adapter', reason: args.reason };
-          // EngineAdapter doesn't expose a direct openPosition — fall through
-          // to the session's tradingEngine.placeOrder via session reflection.
-          // Live entries through EngineAdapter are a follow-up in Phase 85.1;
-          // for now we log and bail so the operator knows it's intentional.
-          logger.warn(`[BrainExecutor] 🧠🚧 LIVE entry path requires EngineAdapter.placeOrder — wiring pending. ${args.symbol} ${args.side} qty=${args.quantity}`);
-          return { ok: false, affectedRows: 0, error: 'live_entry_not_wired_yet', reason: args.reason };
+          const r = await adapter.placeOrder({
+            symbol: args.symbol,
+            side: args.side === 'long' ? 'buy' : 'sell',
+            quantity: args.quantity,
+            stopLoss: args.stopLoss,
+            takeProfit: args.takeProfit,
+            strategy: `brain_v2_entry:${args.reason}`.slice(0, 50),
+          });
+          if (!r.success) {
+            logger.warn(`[BrainExecutor] 🧠❌ LIVE entry failed: ${r.error} for ${args.symbol} ${args.side}`);
+            return { ok: false, affectedRows: 0, error: r.error ?? 'live_entry_failed', reason: args.reason };
+          }
+          logger.info(`[BrainExecutor] 🧠💰 LIVE OPENED ${args.symbol} ${args.side} qty=${args.quantity.toFixed(6)} @ $${r.filledPrice?.toFixed(4) ?? '?'} order=${r.orderId} reason="${args.reason}"`);
+          this.emit('brain_position_opened', {
+            positionId: r.orderId, symbol: args.symbol, side: args.side,
+            entryPrice: r.filledPrice, quantity: args.quantity,
+            stopLoss: args.stopLoss, takeProfit: args.takeProfit,
+            reason: args.reason, mode: 'live',
+          });
+          return { ok: true, affectedRows: 1, reason: args.reason };
         } catch (err) {
           return { ok: false, affectedRows: 0, error: (err as Error)?.message ?? 'live_route_failed', reason: args.reason };
         }
@@ -348,11 +362,19 @@ class BrainExecutor extends EventEmitter {
 
       // Resolve current price from PriceFabric / globals.
       let entryPrice = 0;
+      let spreadBps = 0;
       try {
         const fut = (global as any).__binanceFuturesBook ?? {};
         const binSym = args.symbol.replace('-USD', 'USDT');
         const book = fut[binSym];
-        if (book?.midPrice) entryPrice = book.midPrice;
+        if (book?.midPrice) {
+          entryPrice = book.midPrice;
+          // Phase 86 — read live spread if available so slippage is anchored
+          // to the actual book, not a guess.
+          if (book.askPrice && book.bidPrice && book.midPrice > 0) {
+            spreadBps = ((book.askPrice - book.bidPrice) / book.midPrice) * 10_000;
+          }
+        }
       } catch { /* fall back below */ }
       if (!entryPrice || !Number.isFinite(entryPrice)) {
         // Fall back to last paperPositions price for this symbol
@@ -364,6 +386,19 @@ class BrainExecutor extends EventEmitter {
       if (!entryPrice || !Number.isFinite(entryPrice)) {
         return { ok: false, affectedRows: 0, error: 'no_price', reason: args.reason };
       }
+
+      // Phase 86 — paper slippage simulator. A live market order doesn't
+      // fill at mid — it crosses the spread + pays some impact. Model:
+      //   slippage_bps = max(1, spreadBps/2) + impactBps
+      //   impactBps    = 1.0 (for typical $1–5k notional on BTC/ETH/SOL)
+      // Long fills ABOVE mid, shorts BELOW. Without this paper P&L is
+      // systematically optimistic (~3–5 bps per round-trip on majors).
+      const halfSpreadBps = spreadBps > 0 ? spreadBps / 2 : 1.0; // 1 bp minimum
+      const impactBps = 1.0;
+      const slipBps = halfSpreadBps + impactBps;
+      const slipFactor = slipBps / 10_000;
+      const adverseSlip = args.side === 'long' ? entryPrice * slipFactor : -entryPrice * slipFactor;
+      entryPrice = entryPrice + adverseSlip;
 
       const inserted = await db.insert(paperPositions).values({
         userId: args.userId ?? 1,
@@ -384,7 +419,7 @@ class BrainExecutor extends EventEmitter {
         status: 'open',
       });
       const insertedId = (inserted as any)?.[0]?.insertId ?? (inserted as any)?.insertId ?? null;
-      logger.info(`[BrainExecutor] 🧠🆕 OPENED ${args.symbol} ${args.side} qty=${args.quantity.toFixed(6)} @ $${entryPrice.toFixed(4)} sl=$${args.stopLoss.toFixed(4)} tp=$${args.takeProfit.toFixed(4)} id=${insertedId} reason="${args.reason}"`);
+      logger.info(`[BrainExecutor] 🧠🆕 OPENED ${args.symbol} ${args.side} qty=${args.quantity.toFixed(6)} @ $${entryPrice.toFixed(4)} (slip ${slipBps.toFixed(1)}bps) sl=$${args.stopLoss.toFixed(4)} tp=$${args.takeProfit.toFixed(4)} id=${insertedId} reason="${args.reason}"`);
       this.emit('brain_position_opened', {
         positionId: insertedId, symbol: args.symbol, side: args.side,
         entryPrice, quantity: args.quantity, stopLoss: args.stopLoss, takeProfit: args.takeProfit,
