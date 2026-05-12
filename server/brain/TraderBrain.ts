@@ -123,11 +123,12 @@ class TraderBrain {
   private readonly TICK_MS = 100;
   private tickCount = 0;
   private startedAtMs = 0;
-  // Phase 93.4 — per-position last-trace memo. Throttles hold-decision DB
-  // writes so the 10× tick rate doesn't 10× the brainDecisions table.
-  // A non-hold OR a hold with a CHANGED reason text always writes; a
-  // repeated identical hold writes once per HOLD_TRACE_GAP_MS only.
-  private lastTrace = new Map<string | number, { reason: string; atMs: number }>();
+  // Phase 93.4 — per-position last-trace memo. Throttles repeated decisions.
+  // Keyed on (kind, pipelineStep) — NOT on free-form reason text, because
+  // 'hold' reasons include volatile fields (pnl%, hold-minutes) that change
+  // every tick and would bypass the throttle. A different kind or step ALWAYS
+  // writes; same kind+step writes at most once per HOLD_TRACE_GAP_MS.
+  private lastTrace = new Map<string | number, { kindStep: string; atMs: number }>();
   private readonly HOLD_TRACE_GAP_MS = 2000;
   // Phase 87 — wall-clock timestamp of the last tick() entry; used for the
   // operator console's "last tick X ms ago" heartbeat indicator.
@@ -366,10 +367,11 @@ class TraderBrain {
           // identically every tick (e.g. "score 0.25 < 0.5") and would flood
           // the DB at 10Hz. Always write entries; throttle repeated abstains.
           const entryKey = `entry:${symbol}`;
+          const entryKindStep = `${entryDecision.kind}|${entryDecision.pipelineStep}`;
           const lastEntry = this.lastTrace.get(entryKey);
-          const entryReasonChanged = !lastEntry || lastEntry.reason !== entryDecision.reason;
+          const entryKindStepChanged = !lastEntry || lastEntry.kindStep !== entryKindStep;
           const entryGapElapsed = !lastEntry || (Date.now() - lastEntry.atMs) >= this.HOLD_TRACE_GAP_MS;
-          const shouldTraceEntry = entryDecision.kind !== 'abstain' || entryReasonChanged || entryGapElapsed;
+          const shouldTraceEntry = entryDecision.kind !== 'abstain' || entryKindStepChanged || entryGapElapsed;
           if (shouldTraceEntry) {
             getDecisionTrace().record({
               positionId: entryKey,
@@ -382,7 +384,7 @@ class TraderBrain {
               isDryRun: this.config.dryRun || inWarmup,
               latencyUs: elapsedUs,
             });
-            this.lastTrace.set(entryKey, { reason: entryDecision.reason, atMs: Date.now() });
+            this.lastTrace.set(entryKey, { kindStep: entryKindStep, atMs: Date.now() });
           }
           if ((entryDecision.kind === 'enter_long' || entryDecision.kind === 'enter_short')
               && !this.config.dryRun && !inWarmup) {
@@ -408,13 +410,15 @@ class TraderBrain {
         if (!pos) continue;
 
         // Phase 93.4 — throttle hold-decision trace writes. Non-hold and
-        // hold-with-changed-reason ALWAYS write; identical repeating holds
-        // write at most once per HOLD_TRACE_GAP_MS (2 sec). At 10Hz tick
-        // this drops the DB write rate by ~20× without losing audit signal.
+        // hold-with-changed-(kind,step) ALWAYS write; identical repeating
+        // holds write at most once per HOLD_TRACE_GAP_MS (2 sec). Keyed on
+        // (kind, pipelineStep) so volatile P&L numbers in reason text don't
+        // defeat the throttle.
+        const kindStep = `${decision.kind}|${decision.pipelineStep}`;
         const last = this.lastTrace.get(positionId);
-        const reasonChanged = !last || last.reason !== decision.reason;
+        const kindStepChanged = !last || last.kindStep !== kindStep;
         const gapElapsed = !last || (Date.now() - last.atMs) >= this.HOLD_TRACE_GAP_MS;
-        const shouldTrace = decision.kind !== 'hold' || reasonChanged || gapElapsed;
+        const shouldTrace = decision.kind !== 'hold' || kindStepChanged || gapElapsed;
         if (shouldTrace) {
           getDecisionTrace().record({
             positionId,
@@ -431,7 +435,7 @@ class TraderBrain {
             liveIEMAction: this.liveIEMActions.get(positionId),
             latencyUs: elapsedUs,
           });
-          this.lastTrace.set(positionId, { reason: decision.reason, atMs: Date.now() });
+          this.lastTrace.set(positionId, { kindStep, atMs: Date.now() });
         }
 
         // Phase 83.2 — EXECUTE if live + past warm-up + non-hold + not in-flight.
