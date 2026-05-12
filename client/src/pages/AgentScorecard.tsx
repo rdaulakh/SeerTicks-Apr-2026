@@ -11,7 +11,7 @@
  * transient backend restarts.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -176,6 +176,19 @@ export default function AgentScorecard() {
   const [editConfig, setEditConfig] = useState<Record<string, string>>({});
   // Candidate symbols editor.
   const [symbolsText, setSymbolsText] = useState<string>("");
+  // Phase 93.9 — Advanced operator controls toggle. User feedback: this is an
+  // autonomous platform; the user shouldn't be tweaking knobs. All editable
+  // controls (start/stop, dry-run, config patch, candidate symbols, bulk
+  // actions) are hidden behind this toggle. Default OFF — page shows clean
+  // read-only status; toggle ON when an operator needs to intervene.
+  const [showAdvancedOps, setShowAdvancedOps] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('seer:show_advanced_ops') === '1';
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('seer:show_advanced_ops', showAdvancedOps ? '1' : '0');
+  }, [showAdvancedOps]);
   // Phase 88 — Sensorium-card drilldown: which sensation kind to inspect.
   // Phase 89 — extended to 'positions' (per-symbol position breakdown) and 'alpha'
   // (alpha library top/bottom patterns).
@@ -221,6 +234,16 @@ export default function AgentScorecard() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Phase 93.9 — autonomous-mode toggle. Off = clean read-only status. */}
+          <Button
+            size="sm"
+            variant={showAdvancedOps ? "default" : "outline"}
+            className={showAdvancedOps ? "bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30" : "border-white/10 text-gray-400 hover:text-gray-200"}
+            onClick={() => setShowAdvancedOps(v => !v)}
+            title={showAdvancedOps ? "Hide operator controls — system runs autonomously" : "Show operator controls (start/stop, dry-run, config tuning)"}
+          >
+            {showAdvancedOps ? "🔓 Advanced Ops" : "🤖 Autonomous"}
+          </Button>
           <span className="text-xs text-gray-400">Window:</span>
           <Select value={String(windowHours)} onValueChange={(v) => setWindowHours(Number(v))}>
             <SelectTrigger className="w-32 bg-black/40 border-white/10">
@@ -312,7 +335,24 @@ export default function AgentScorecard() {
 
         {/* PHASE 84 — BRAIN ACTIVITY (Phase 85 console wrappers) */}
         <TabsContent value="brain" className="space-y-3">
-          {/* Phase 85 — Control bar: Start / Stop / Toggle Dry-Run */}
+          {/* Phase 93.9 — Brain control bar hidden behind Advanced Ops toggle.
+              Autonomous mode shows ONLY a read-only status pill. */}
+          {!showAdvancedOps && (
+            <Card className="bg-black/40 border-white/10 p-3">
+              <div className="flex flex-wrap items-center gap-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${brainCH?.status?.running ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+                  <span className="text-gray-400">Brain:</span>
+                  <strong className="text-gray-200">{brainCH?.status?.running ? (brainCH.status.dryRun ? 'OBSERVING (dry-run)' : 'LIVE — execution authority') : 'STOPPED'}</strong>
+                </div>
+                <div className="flex items-center gap-1.5 text-gray-400">
+                  Live entries: <strong className={brainCH?.liveEntriesEnabled ? 'text-emerald-300' : 'text-gray-500'}>{brainCH?.liveEntriesEnabled ? 'ON' : 'OFF'}</strong>
+                </div>
+                <div className="text-gray-500 ml-auto">Tick: {brainCH?.status?.tickMs ?? '—'}ms</div>
+              </div>
+            </Card>
+          )}
+          {showAdvancedOps && (
           <Card className="bg-black/40 border-white/10 p-4">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs uppercase text-gray-400 mr-2">Brain control:</span>
@@ -359,6 +399,8 @@ export default function AgentScorecard() {
               </div>
             </div>
           </Card>
+          )}
+          {/* end Advanced Ops — Brain control bar */}
 
           {/* Phase 85 — Sensorium health (Phase 88: clickable drilldown · Phase 89: + alpha card) */}
           <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
@@ -426,7 +468,8 @@ export default function AgentScorecard() {
             </button>
           </div>
 
-          {/* Phase 89 — Bulk action bar */}
+          {/* Phase 89 — Bulk action bar (Phase 93.9: hidden in autonomous mode) */}
+          {showAdvancedOps && (
           <Card className="bg-black/40 border-white/10 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs uppercase text-gray-400 mr-1">Bulk:</span>
@@ -466,6 +509,7 @@ export default function AgentScorecard() {
               </span>
             </div>
           </Card>
+          )}
 
           {/* Phase 88 — Sensorium drilldown modal */}
           <Dialog open={!!drillSensorium} onOpenChange={(o) => !o && setDrillSensorium(null)}>
@@ -584,6 +628,8 @@ export default function AgentScorecard() {
           </Card>
 
           {/* Phase 85 — Config + Symbols editor */}
+          {/* Phase 93.9 — Config editor + symbol editor hidden in autonomous mode. */}
+          {showAdvancedOps && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Card className="bg-black/40 border-white/10 p-4">
               <div className="flex items-center gap-2 mb-3">
@@ -672,6 +718,8 @@ export default function AgentScorecard() {
               </div>
             </Card>
           </div>
+          )}
+          {/* end Advanced Ops — Config + Candidate symbols editors */}
 
           {/* Phase 88 — Brain vs Legacy P&L over time */}
           <Card className="bg-black/40 border-white/10 p-4">
