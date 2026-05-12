@@ -169,6 +169,13 @@
       "when": 1778832000000,
       "tag": "0023_phase82_agent_pnl_attribution",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1778572800000,
+      "tag": "0024_phase83_brain_decisions",
+      "breakpoints": true
     }
   ]
 }

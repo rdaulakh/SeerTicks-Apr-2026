@@ -4091,3 +4091,42 @@ export const agentPnlAttribution = mysqlTable("agentPnlAttribution", {
 }));
 export type AgentPnlAttribution = typeof agentPnlAttribution.$inferSelect;
 export type InsertAgentPnlAttribution = typeof agentPnlAttribution.$inferInsert;
+
+
+// ─── Phase 83 — TraderBrain Decision Trace ───────────────────────────────
+// One row per brain tick per open position. The brain reads the Sensorium
+// (in-memory snapshot of every organ's latest reading) and outputs ONE
+// decision: hold | tighten_stop | take_partial | exit_full. This table is
+// the canonical audit trail — every decision is inspectable so we can
+// replay any closed trade tick-by-tick and see what the brain saw and why
+// it chose what it chose. Replaces the empty `exitDecisionLog`.
+export const brainDecisions = mysqlTable("brainDecisions", {
+  id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  positionId: varchar("positionId", { length: 64 }).notNull(),    // in-memory or DB id
+  symbol: varchar("symbol", { length: 20 }).notNull(),
+  side: varchar("side", { length: 5 }).notNull(),                 // 'long' | 'short'
+  // Brain's decision kind + reason
+  kind: varchar("kind", { length: 32 }).notNull(),                // hold | tighten_stop | take_partial | exit_full
+  pipelineStep: varchar("pipelineStep", { length: 40 }),          // which step fired (e.g. 'consensus_flip', 'profit_ratchet', 'hard_stop', 'hold')
+  reason: text("reason"),
+  urgency: varchar("urgency", { length: 10 }),                    // 'now' | 'soon' | null
+  // What the brain saw (snapshot of inputs)
+  sensorium: json("sensorium"),                                   // full snapshot — market, technical, flow, position, stance
+  // Brain output specifics
+  newStopLoss: decimal("newStopLoss", { precision: 20, scale: 8 }),
+  exitQuantityPercent: decimal("exitQuantityPercent", { precision: 6, scale: 4 }),
+  // Comparison vs the existing IEM
+  // Phase 83 starts in dryRun mode: brain doesn't execute, just records.
+  // Side-by-side comparison with the live IEM lets us validate before cutover.
+  isDryRun: boolean("isDryRun").notNull().default(true),
+  liveIEMAction: varchar("liveIEMAction", { length: 32 }),        // what the current IEM decided this tick
+  // Performance
+  latencyUs: int("latencyUs"),                                    // µs to compute the decision
+}, (table) => ({
+  positionIdx: index("idx_brain_position").on(table.positionId),
+  timestampIdx: index("idx_brain_timestamp").on(table.timestamp),
+  symbolKindIdx: index("idx_brain_symbol_kind").on(table.symbol, table.kind),
+}));
+export type BrainDecision = typeof brainDecisions.$inferSelect;
+export type InsertBrainDecision = typeof brainDecisions.$inferInsert;

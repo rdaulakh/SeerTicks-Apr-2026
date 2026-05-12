@@ -914,6 +914,31 @@ async function startServer() {
     } catch (seedErr: any) {
       console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ Candle cache seed failed:`, seedErr?.message || seedErr);
     }
+
+    // ─── Phase 83 — TraderBrain v1 (dry-run mode) ──────────────────────
+    // Starts the single-brain decision pipeline alongside the existing IEM.
+    // In dryRun mode the brain decides + records to brainDecisions but does
+    // NOT execute. Side-by-side comparison vs live IEM via DecisionTrace.
+    // Promotion to live: setConfig({ dryRun: false }) after we validate the
+    // brain's decisions match (or improve on) IEM in a 24h paper window.
+    try {
+      const { getSensorium } = await import('../brain/Sensorium');
+      const { getDecisionTrace } = await import('../brain/DecisionTrace');
+      const { getTraderBrain } = await import('../brain/TraderBrain');
+      const { startSensorWiring } = await import('../brain/SensorWiring');
+
+      // Force-construct singletons.
+      void getSensorium();
+      void getDecisionTrace();
+      startSensorWiring();
+
+      const brain = getTraderBrain();
+      brain.configure({ dryRun: true });
+      brain.start();
+      console.log(`[${new Date().toLocaleTimeString()}] 🧠 TraderBrain v1 started (dryRun=true; comparing vs IEM via brainDecisions table)`);
+    } catch (brainErr: any) {
+      console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ TraderBrain start failed:`, brainErr?.message || brainErr);
+    }
   })();
 
   // ============================================
