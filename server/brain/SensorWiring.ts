@@ -117,6 +117,13 @@ export function startSensorWiring(): void {
   // Also fire once immediately at startup so the brain doesn't wait 60s.
   pullAlphaSensor().catch(() => { /* boot — sensors may not be ready */ });
 
+  // Phase 89 — operator pause refresh every 15s (so an operator pause kicks
+  // in within ~15s of pressing the button).
+  intervalIds.push(setInterval(() => {
+    refreshOperatorPause().catch(() => { /* never block */ });
+  }, 15_000));
+  refreshOperatorPause().catch(() => { /* boot */ });
+
   logger.info('[SensorWiring] started — Phase 85: all-agent fan-in (' + ALL_AGENTS.length + ' agents) + 5 derived sensors');
 }
 
@@ -644,6 +651,34 @@ export function invalidateCandidateSymbolsCache(): void { _candidateSymbolsCache
 /** Synchronous read of the most recently cached candidate symbols (or default). */
 export function getCachedCandidateSymbols(): string[] {
   return _candidateSymbolsCache?.syms ?? ['BTC-USD', 'ETH-USD', 'SOL-USD'];
+}
+
+// Phase 89 — Operator pause flag. Set by bulkBrainAction('pause_entries')
+// in agentScorecardRouter; read by TraderBrain.decideEntry synchronously.
+// Refreshed every 15s by the sensor wiring cache.
+let _operatorPauseCache: { until: number; expiresAt: number } | null = null;
+export async function refreshOperatorPause(): Promise<void> {
+  const now = Date.now();
+  if (_operatorPauseCache && _operatorPauseCache.expiresAt > now) return;
+  try {
+    const { getDb } = await import('../db');
+    const { systemConfig } = await import('../../drizzle/schema');
+    const { eq } = await import('drizzle-orm');
+    const db = await getDb();
+    if (!db) return;
+    const [row] = await db.select().from(systemConfig)
+      .where(eq(systemConfig.configKey, 'brain.pauseEntriesUntilMs')).limit(1);
+    let until = 0;
+    if (row?.configValue) {
+      const raw = row.configValue as unknown;
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (typeof parsed === 'number' && Number.isFinite(parsed)) until = parsed;
+    }
+    _operatorPauseCache = { until, expiresAt: now + 15_000 };
+  } catch { /* keep last value */ }
+}
+export function getCachedOperatorPauseUntilMs(): number {
+  return _operatorPauseCache?.until ?? 0;
 }
 
 // ─── Phase 84 — Portfolio sensor ──────────────────────────────────────

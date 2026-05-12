@@ -412,6 +412,17 @@ class TraderBrain {
         reason: `macro veto: ${sentiment.macroVetoReason ?? 'event-window-open'}`, symbol };
     }
 
+    // Phase 89 — Operator pause check. Bulk-action endpoint can set a
+    // 'brain.pauseEntriesUntilMs' kill switch in systemConfig. Brain reads
+    // the cached value (refreshed by SensorWiring tick) and abstains while
+    // active. This is the "stop new entries for 30 min" operator escape.
+    const pauseUntilMs = (require('./SensorWiring') as typeof import('./SensorWiring')).getCachedOperatorPauseUntilMs();
+    if (pauseUntilMs && Date.now() < pauseUntilMs) {
+      const remainingSec = Math.ceil((pauseUntilMs - Date.now()) / 1000);
+      return { kind: 'abstain', pipelineStep: 'should_enter:operator_pause',
+        reason: `operator paused new entries; resumes in ${remainingSec}s`, symbol };
+    }
+
     // Phase 87 — Alpha library bias. ADD a positive bump when this symbol
     // has active winning patterns; SUBTRACT a small penalty when it has
     // decayed patterns. Effective score gates against this bumped value.

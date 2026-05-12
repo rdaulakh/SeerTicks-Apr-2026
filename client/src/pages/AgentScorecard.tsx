@@ -174,7 +174,9 @@ export default function AgentScorecard() {
   // Candidate symbols editor.
   const [symbolsText, setSymbolsText] = useState<string>("");
   // Phase 88 — Sensorium-card drilldown: which sensation kind to inspect.
-  const [drillSensorium, setDrillSensorium] = useState<null | 'market' | 'technical' | 'flow' | 'whale' | 'deriv' | 'agentVotes' | 'opportunity' | 'alpha'>(null);
+  // Phase 89 — extended to 'positions' (per-symbol position breakdown) and 'alpha'
+  // (alpha library top/bottom patterns).
+  const [drillSensorium, setDrillSensorium] = useState<null | 'market' | 'technical' | 'flow' | 'whale' | 'deriv' | 'agentVotes' | 'opportunity' | 'alpha' | 'positions'>(null);
   const { data: sensoriumPerSymbol } = trpc.agentScorecard.getSensoriumPerSymbol.useQuery(undefined, {
     refetchInterval: 5_000,
     placeholderData: (prev) => prev,
@@ -185,6 +187,22 @@ export default function AgentScorecard() {
     { windowHours: Math.max(24, windowHours) },
     { refetchInterval: 30_000, placeholderData: (prev) => prev },
   );
+  // Phase 89 — Alpha library summary (live row count + recent additions)
+  const { data: alphaLib } = trpc.agentScorecard.getAlphaLibrarySummary.useQuery(undefined, {
+    refetchInterval: 30_000,
+    placeholderData: (prev) => prev,
+  });
+  // Phase 89 — Bulk action mutations
+  const bulkActionMut = trpc.agentScorecard.bulkBrainAction.useMutation({
+    onSuccess: (d) => {
+      refetchBrainCH();
+      utils.agentScorecard.getBrainActivity.invalidate();
+      if (d.action === 'close_all_brain_positions') toast.success(`Closed ${(d as any).closed}/${(d as any).attempted} brain positions`);
+      else if (d.action === 'pause_entries') toast.success(`Brain entries paused until ${new Date((d as any).pauseUntilMs).toLocaleTimeString()}`);
+      else if (d.action === 'resume_entries') toast.success('Brain entries resumed');
+    },
+    onError: (err) => toast.error(`Bulk action failed: ${err.message}`),
+  });
 
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl space-y-6">
@@ -263,7 +281,16 @@ export default function AgentScorecard() {
         </Card>
       </div>
 
-      <Tabs defaultValue="agents" className="space-y-4">
+      {/* Phase 89 — Tab state persists in URL (?tab=brain). Refresh-safe. */}
+      <Tabs
+        value={(typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null) ?? 'brain'}
+        onValueChange={(v) => {
+          if (typeof window === 'undefined') return;
+          const u = new URL(window.location.href);
+          u.searchParams.set('tab', v);
+          window.history.replaceState({}, '', u.toString());
+        }}
+        className="space-y-4">
         <TabsList className="bg-black/40 border border-white/10">
           <TabsTrigger value="brain">
             <Brain className="w-4 h-4 mr-1.5" /> Brain Activity
@@ -329,8 +356,8 @@ export default function AgentScorecard() {
             </div>
           </Card>
 
-          {/* Phase 85 — Sensorium health (Phase 88: clickable drilldown) */}
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+          {/* Phase 85 — Sensorium health (Phase 88: clickable drilldown · Phase 89: + alpha card) */}
+          <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
             <button onClick={() => setDrillSensorium('agentVotes')} className="text-left">
               <Card className="p-3 bg-black/40 border-white/10 hover:border-cyan-500/40 transition cursor-pointer">
                 <div className="text-[10px] uppercase text-gray-400">Agent votes</div>
@@ -363,11 +390,14 @@ export default function AgentScorecard() {
                 <div className="text-[10px] text-gray-500">syms heard · click</div>
               </Card>
             </button>
-            <Card className="p-3 bg-black/40 border-white/10">
-              <div className="text-[10px] uppercase text-gray-400">Positions</div>
-              <div className="text-xl font-bold mt-1">{brainCH?.sensoriumHealth?.positions ?? 0}</div>
-              <div className="text-[10px] text-gray-500">tracked</div>
-            </Card>
+            {/* Phase 89 — Positions card is now clickable too */}
+            <button onClick={() => setDrillSensorium('positions' as any)} className="text-left">
+              <Card className="p-3 bg-black/40 border-white/10 hover:border-blue-500/40 transition cursor-pointer">
+                <div className="text-[10px] uppercase text-gray-400">Positions</div>
+                <div className="text-xl font-bold mt-1">{brainCH?.sensoriumHealth?.positions ?? 0}</div>
+                <div className="text-[10px] text-gray-500">tracked · click</div>
+              </Card>
+            </button>
             <button onClick={() => setDrillSensorium('opportunity')} className="text-left">
               <Card className="p-3 bg-black/40 border-white/10 hover:border-amber-500/40 transition cursor-pointer">
                 <div className="text-[10px] uppercase text-gray-400">Opportunities</div>
@@ -375,7 +405,63 @@ export default function AgentScorecard() {
                 <div className="text-[10px] text-gray-500">scores · click</div>
               </Card>
             </button>
+            {/* Phase 89 — Alpha library: shows pattern memory accumulation */}
+            <button onClick={() => setDrillSensorium('alpha' as any)} className="text-left">
+              <Card className="p-3 bg-black/40 border-white/10 hover:border-emerald-500/40 transition cursor-pointer">
+                <div className="text-[10px] uppercase text-gray-400">Alpha library</div>
+                <div className="text-xl font-bold mt-1 text-emerald-300">
+                  {alphaLib?.totalActive ?? 0}
+                  {alphaLib && alphaLib.totalDecayed > 0 && (
+                    <span className="text-xs text-red-400 ml-1">/{alphaLib.totalDecayed}†</span>
+                  )}
+                </div>
+                <div className="text-[10px] text-gray-500">
+                  patterns · {alphaLib?.recentlyAdded ?? 0} new 24h
+                </div>
+              </Card>
+            </button>
           </div>
+
+          {/* Phase 89 — Bulk action bar */}
+          <Card className="bg-black/40 border-white/10 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs uppercase text-gray-400 mr-1">Bulk:</span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-red-500/40 text-red-300 hover:bg-red-500/10 h-7 text-xs"
+                disabled={bulkActionMut.isPending}
+                onClick={() => {
+                  if (confirm('Close ALL brain-opened positions now?')) {
+                    bulkActionMut.mutate({ action: 'close_all_brain_positions' });
+                  }
+                }}
+              >
+                <Square className="w-3 h-3 mr-1" /> Close all brain positions
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10 h-7 text-xs"
+                disabled={bulkActionMut.isPending}
+                onClick={() => bulkActionMut.mutate({ action: 'pause_entries', pauseMinutes: 30 })}
+              >
+                ⏸ Pause entries 30 min
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 h-7 text-xs"
+                disabled={bulkActionMut.isPending}
+                onClick={() => bulkActionMut.mutate({ action: 'resume_entries' })}
+              >
+                ▶ Resume entries
+              </Button>
+              <span className="ml-auto text-[10px] text-gray-500">
+                Bulk actions affect brain_v2_entry only · legacy untouched
+              </span>
+            </div>
+          </Card>
 
           {/* Phase 88 — Sensorium drilldown modal */}
           <Dialog open={!!drillSensorium} onOpenChange={(o) => !o && setDrillSensorium(null)}>
@@ -502,22 +588,28 @@ export default function AgentScorecard() {
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 {[
-                  { key: 'minOpportunityScore', label: 'Min opp score', step: 0.05 },
-                  { key: 'minConfluenceCount', label: 'Min confluence', step: 1 },
-                  { key: 'entrySizeEquityFraction', label: 'Entry equity %', step: 0.05 },
-                  { key: 'kellyFraction', label: 'Kelly fraction', step: 0.05 },
-                  { key: 'defaultStopLossPercent', label: 'Stop loss %', step: 0.1 },
-                  { key: 'defaultTakeProfitPercent', label: 'Take profit %', step: 0.1 },
-                ].map(({ key, label, step }) => (
-                  <label key={key} className="flex flex-col gap-1">
-                    <span className="text-gray-400">{label}</span>
+                  { key: 'minOpportunityScore', label: 'Min opp score', step: 0.05, min: 0, max: 1, hint: '0–1. Default 0.50. Higher = more selective entries.' },
+                  { key: 'minConfluenceCount', label: 'Min confluence', step: 1, min: 1, max: 33, hint: '1–33. Default 2. # of agents that must agree on direction.' },
+                  { key: 'entrySizeEquityFraction', label: 'Entry equity %', step: 0.05, min: 0, max: 1, hint: '0–1. Default 0.10 (10%). Max % of wallet per entry before Kelly.' },
+                  { key: 'kellyFraction', label: 'Kelly fraction', step: 0.05, min: 0, max: 1, hint: '0–1. Default 0.25 (quarter-Kelly). Lower = more conservative sizing.' },
+                  { key: 'defaultStopLossPercent', label: 'Stop loss %', step: 0.1, min: 0.1, max: 10, hint: '0.1–10. Default 1.2%. Hard-stop distance from entry.' },
+                  { key: 'defaultTakeProfitPercent', label: 'Take profit %', step: 0.1, min: 0.1, max: 20, hint: '0.1–20. Default 1.0%. Take-profit target from entry.' },
+                ].map(({ key, label, step, min, max, hint }) => (
+                  <label key={key} className="flex flex-col gap-1" title={hint}>
+                    <span className="text-gray-400 flex items-center gap-1">
+                      {label}
+                      <span className="text-gray-600 text-[9px]">[{min}–{max}]</span>
+                    </span>
                     <input
                       type="number"
                       step={step}
+                      min={min}
+                      max={max}
                       defaultValue={brainCH?.config?.[key] ?? ''}
                       onChange={(e) => setEditConfig((s) => ({ ...s, [key]: e.target.value }))}
                       className="bg-black/60 border border-white/10 rounded px-2 py-1 text-gray-200 text-xs font-mono"
                     />
+                    <span className="text-[9px] text-gray-500 truncate">{hint}</span>
                   </label>
                 ))}
               </div>
@@ -582,6 +674,12 @@ export default function AgentScorecard() {
                 <TrendingUp className="w-4 h-4 text-cyan-400" />
                 <h3 className="font-semibold text-sm">Brain vs Legacy P&L</h3>
                 <Badge variant="outline" className="border-white/20 text-[10px]">last {Math.max(24, windowHours)}h</Badge>
+                {/* Phase 89 — call out low statistical significance */}
+                {bvl?.stats && Math.min(bvl.stats.brain.trades, bvl.stats.legacy.trades) < 5 && (
+                  <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/40 text-[10px]">
+                    ⚠ Low N — not yet statistically significant
+                  </Badge>
+                )}
               </div>
               <div className="flex items-center gap-3 text-[11px]">
                 {bvl?.stats?.brain && (
@@ -920,8 +1018,42 @@ export default function AgentScorecard() {
 // card; this lists each symbol's freshness + key data for the chosen sensation.
 function SensoriumDrill({ kind, rows }: { kind: string | null; rows: any[] }) {
   if (!kind) return null;
+
+  // Phase 89 — Alpha drill renders the library top/bottom from a different
+  // data source than the per-symbol sensation rows.
+  if (kind === 'alpha') return <AlphaLibraryDrill />;
+
   if (rows.length === 0) {
     return <div className="text-sm text-gray-400">Loading per-symbol detail…</div>;
+  }
+
+  // Phase 89 — Positions drill uses the same row shape but shows occupancy
+  // + technical context. We just show the same table emphasizing the
+  // 'occupied' flag.
+  if (kind === 'positions') {
+    const occupied = rows.filter((r) => r.occupied);
+    if (occupied.length === 0) {
+      return <div className="text-sm text-gray-400">No open positions at the moment.</div>;
+    }
+    return (
+      <div className="space-y-2">
+        <div className="text-xs text-gray-400">{occupied.length} occupied symbol(s)</div>
+        <div className="bg-black/60 rounded p-2 border border-white/5">
+          {occupied.map((r) => (
+            <div key={r.symbol} className="flex items-center gap-2 text-[11px] py-1 border-b border-white/5 last:border-0">
+              <span className="font-mono text-gray-300 w-20">{r.symbol}</span>
+              <Badge className="bg-blue-500/15 text-blue-300 border-blue-500/30 text-[10px]">held</Badge>
+              <span className="text-gray-400">mid ${(r.market?.midPrice ?? 0).toFixed(2)}</span>
+              <span className="text-gray-500">·</span>
+              <span className="text-gray-400">RSI {(r.technical?.rsi ?? 0).toFixed(1)}</span>
+              <span className="text-gray-500">·</span>
+              <span className="text-gray-400">votes ↑{r.agentVotes?.longCount ?? 0} ↓{r.agentVotes?.shortCount ?? 0}</span>
+              {r.agentVotes?.vetoActive && <Badge className="bg-amber-500/15 text-amber-300 border-amber-500/30 text-[9px]">VETO</Badge>}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   const ageLabel = (ms: number | undefined): { text: string; cls: string } => {
@@ -977,6 +1109,70 @@ function SensoriumDrill({ kind, rows }: { kind: string | null; rows: any[] }) {
   );
 }
 
+// Phase 89 — Alpha library drilldown. Shows top performers + decay
+// candidates from winningPatterns, so the operator can see what the brain
+// has learned.
+function AlphaLibraryDrill() {
+  const { data: lib } = trpc.agentScorecard.getAlphaLibrarySummary.useQuery(undefined, {
+    refetchInterval: 10_000,
+    placeholderData: (prev) => prev,
+  });
+  if (!lib) return <div className="text-sm text-gray-400">Loading alpha library…</div>;
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <div className="bg-black/60 rounded p-2 border border-white/5">
+          <div className="text-[10px] uppercase text-gray-400">Active</div>
+          <div className="text-xl font-bold text-emerald-300">{lib.totalActive}</div>
+        </div>
+        <div className="bg-black/60 rounded p-2 border border-white/5">
+          <div className="text-[10px] uppercase text-gray-400">Decayed</div>
+          <div className="text-xl font-bold text-red-300">{lib.totalDecayed}</div>
+        </div>
+        <div className="bg-black/60 rounded p-2 border border-white/5">
+          <div className="text-[10px] uppercase text-gray-400">Added 24h</div>
+          <div className="text-xl font-bold text-cyan-300">{lib.recentlyAdded}</div>
+        </div>
+      </div>
+      {lib.top.length > 0 ? (
+        <div>
+          <h5 className="text-xs uppercase text-gray-400 mb-1">Top 5 by win rate × sample size</h5>
+          <div className="bg-black/60 rounded border border-white/5">
+            {lib.top.map((p: any, i: number) => (
+              <div key={i} className="flex items-center gap-2 text-[11px] px-2 py-1 border-b border-white/5 last:border-0">
+                <span className="text-gray-500 font-mono w-4">{i + 1}.</span>
+                <span className="text-gray-300 font-mono flex-1 truncate">{p.pattern}</span>
+                <span className="text-gray-500">·</span>
+                <span className="text-gray-400 w-16">{p.symbol}</span>
+                <span className="text-emerald-300 font-mono w-12 text-right">{(p.winRate * 100).toFixed(0)}%</span>
+                <span className="text-gray-500 w-12 text-right">n={p.trades}</span>
+                <span className={`font-mono w-16 text-right ${p.avgPnl >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{fmtUsd(p.avgPnl)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="text-xs text-gray-500 italic">No patterns learned yet — close a few brain trades to start accumulating.</div>
+      )}
+      {lib.bottom.length > 0 && (
+        <div>
+          <h5 className="text-xs uppercase text-gray-400 mb-1">Watch-list (low win rate ≥ 5 trades)</h5>
+          <div className="bg-black/60 rounded border border-white/5">
+            {lib.bottom.map((p: any, i: number) => (
+              <div key={i} className="flex items-center gap-2 text-[11px] px-2 py-1 border-b border-white/5 last:border-0">
+                <span className="text-gray-300 font-mono flex-1 truncate">{p.pattern}</span>
+                <span className="text-gray-400 w-16">{p.symbol}</span>
+                <span className="text-red-300 font-mono w-12 text-right">{(p.winRate * 100).toFixed(0)}%</span>
+                <span className="text-gray-500 w-12 text-right">n={p.trades}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Phase 85 — Brain decision drill-down panel. Loads the historical trace for
 // the position (if known) and renders the sensorium snapshot from the
 // decision row. Operator sees exactly what the brain saw + why it decided.
@@ -1014,9 +1210,79 @@ function BrainDecisionDrill({ positionId, decision }: { positionId?: string; dec
           <h4 className="text-xs uppercase text-gray-400 flex items-center gap-1">
             <Eye className="w-3 h-3" /> What the brain saw
           </h4>
-          <pre className="text-[10px] text-gray-300 bg-black/60 rounded p-2 overflow-auto max-h-72 border border-white/5 font-mono">
-{JSON.stringify(sensorium, null, 2)}
-          </pre>
+          {/* Phase 89 — structured sensations table (replaces raw JSON dump) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+            {sensorium.market && (
+              <div className="bg-black/60 rounded p-2 border border-white/5">
+                <div className="text-gray-500 text-[9px] uppercase mb-0.5">Market</div>
+                <div className="text-gray-200 font-mono">mid <strong>${(sensorium.market.midPrice ?? 0).toFixed(2)}</strong> · spread {(sensorium.market.spreadBps ?? 0).toFixed(2)}bps</div>
+              </div>
+            )}
+            {sensorium.technical && (
+              <div className="bg-black/60 rounded p-2 border border-white/5">
+                <div className="text-gray-500 text-[9px] uppercase mb-0.5">Technical</div>
+                <div className="text-gray-200 font-mono">
+                  RSI <strong>{(sensorium.technical.rsi ?? 0).toFixed(1)}</strong> · ema {sensorium.technical.emaTrend} · super {sensorium.technical.superTrend} · macdH {(sensorium.technical.macdHist ?? 0).toFixed(2)}
+                </div>
+              </div>
+            )}
+            {sensorium.flow && (
+              <div className="bg-black/60 rounded p-2 border border-white/5">
+                <div className="text-gray-500 text-[9px] uppercase mb-0.5">Flow</div>
+                <div className="text-gray-200 font-mono">
+                  takerImb5s {(sensorium.flow.takerImbalance5s ?? 0).toFixed(2)} · depthImb5bp {(sensorium.flow.depthImbalance5bp ?? 0).toFixed(2)}
+                </div>
+              </div>
+            )}
+            {sensorium.whale && (
+              <div className="bg-black/60 rounded p-2 border border-white/5">
+                <div className="text-gray-500 text-[9px] uppercase mb-0.5">Whale</div>
+                <div className="text-gray-200 font-mono">
+                  netFlow ${((sensorium.whale.netExchangeFlow5m ?? 0) / 1000).toFixed(0)}k · {sensorium.whale.largeFillsLast30s ?? 0} large fills
+                </div>
+              </div>
+            )}
+            {sensorium.deriv && (
+              <div className="bg-black/60 rounded p-2 border border-white/5">
+                <div className="text-gray-500 text-[9px] uppercase mb-0.5">Derivatives</div>
+                <div className="text-gray-200 font-mono">
+                  funding {(sensorium.deriv.fundingRate ?? 0).toFixed(4)} · oiΔ {(sensorium.deriv.oiDelta5m ?? 0).toFixed(2)} · liqP {(sensorium.deriv.liquidationPressure ?? 0).toFixed(2)}
+                </div>
+              </div>
+            )}
+            {sensorium.opportunity && (
+              <div className="bg-black/60 rounded p-2 border border-white/5">
+                <div className="text-gray-500 text-[9px] uppercase mb-0.5">Opportunity</div>
+                <div className="text-gray-200 font-mono">
+                  <strong>{sensorium.opportunity.direction}</strong> @ {(sensorium.opportunity.score ?? 0).toFixed(2)} · {sensorium.opportunity.confluenceCount}/{sensorium.opportunity.totalSensors} confluence
+                </div>
+              </div>
+            )}
+            {sensorium.stance && (
+              <div className="bg-black/60 rounded p-2 border border-white/5">
+                <div className="text-gray-500 text-[9px] uppercase mb-0.5">Stance (consensus)</div>
+                <div className="text-gray-200 font-mono">
+                  {sensorium.stance.currentDirection} @ {((sensorium.stance.currentConsensus ?? 0) * 100).toFixed(0)}% · drift {(sensorium.stance.driftFromEntry ?? 0).toFixed(2)}
+                </div>
+              </div>
+            )}
+            {sensorium.alpha && (
+              <div className="bg-black/60 rounded p-2 border border-white/5">
+                <div className="text-gray-500 text-[9px] uppercase mb-0.5">Alpha library</div>
+                <div className="text-gray-200 font-mono">
+                  {sensorium.alpha.activePatternCount} active · {sensorium.alpha.decayedPatternCount} decayed · winRate {((sensorium.alpha.weightedWinRate ?? 0) * 100).toFixed(0)}%
+                </div>
+              </div>
+            )}
+            {sensorium.portfolio && (
+              <div className="bg-black/60 rounded p-2 border border-white/5 md:col-span-2">
+                <div className="text-gray-500 text-[9px] uppercase mb-0.5">Portfolio</div>
+                <div className="text-gray-200 font-mono">
+                  equity ${(sensorium.portfolio.equity ?? 0).toFixed(2)} · daily {(sensorium.portfolio.dailyPnlPercent ?? 0).toFixed(2)}% · {sensorium.portfolio.openPositionCount ?? 0} open · circuit {sensorium.portfolio.dailyLossCircuitTripped ? 'TRIPPED' : 'ok'}
+                </div>
+              </div>
+            )}
+          </div>
           {sensorium?.agentVotes && (
             <div className="space-y-2">
               <h4 className="text-xs uppercase text-gray-400">Agent vote tally ({sensorium.agentVotes.votes?.length ?? 0} agents heard)</h4>

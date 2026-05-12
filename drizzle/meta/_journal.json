@@ -176,6 +176,13 @@
       "when": 1778572800000,
       "tag": "0024_phase83_brain_decisions",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1778586866714,
+      "tag": "0025_large_serpent_society",
+      "breakpoints": true
     }
   ]
 }

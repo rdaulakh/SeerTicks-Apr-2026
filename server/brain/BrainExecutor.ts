@@ -97,19 +97,28 @@ class BrainExecutor extends EventEmitter {
             .catch((err: Error) => ({ success: false, error: err?.message } as any));
           if ((r as any)?.success) {
             logger.info(`[BrainExecutor] 🧠💰 LIVE EXIT routed via EngineAdapter id=${numericId} ${liveRow.symbol} ${liveRow.side} → engine closed @ $${(r as any).price ?? currentPrice} reason="${reason}"`);
+            // Phase 89 — compute realizedPnl BEFORE both the learning loop and
+            // the event emit, so both code paths get the same value. Previously
+            // realizedPnl lived inside the learning-loop try block and the
+            // brain_position_closed emit (PatternPopulator's input) was missing
+            // it → live exits silently corrupted the alpha library with NaN.
+            const exitPrice = (r as any).price ?? currentPrice;
+            const entryPx = parseFloat(liveRow.entryPrice);
+            const qty = parseFloat(liveRow.quantity);
+            const sideMul = liveRow.side === 'long' ? 1 : -1;
+            const realizedPnl = sideMul * (exitPrice - entryPx) * qty;
+
             // Learning loop: feed real-money outcome too.
             try {
               const { getDecisionEvaluator } = await import('../services/DecisionEvaluator');
               const evaluator = getDecisionEvaluator(liveRow.userId);
-              const exitPrice = (r as any).price ?? currentPrice;
-              const entryPx = parseFloat(liveRow.entryPrice);
-              const qty = parseFloat(liveRow.quantity);
-              const sideMul = liveRow.side === 'long' ? 1 : -1;
-              const realizedPnl = sideMul * (exitPrice - entryPx) * qty;
               evaluator.recordTradeOutcome(liveRow.symbol, realizedPnl, exitPrice, `brain:${reason}`, { tradeId: numericId, tradingMode: 'live' })
                 .catch((err: Error) => logger.warn('[BrainExecutor] live learning-loop failed', { error: err?.message }));
             } catch { /* never block exit on learning */ }
-            this.emit('brain_position_closed', { positionId: numericId, symbol: liveRow.symbol, side: liveRow.side, exitPrice: (r as any).price ?? currentPrice, reason, mode: 'live' });
+            this.emit('brain_position_closed', {
+              positionId: numericId, symbol: liveRow.symbol, side: liveRow.side,
+              exitPrice, realizedPnl, reason, mode: 'live',
+            });
             return { ok: true, affectedRows: 1, reason };
           }
           // Live attempted but failed — return structured failure (do NOT

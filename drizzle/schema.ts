@@ -4130,3 +4130,34 @@ export const brainDecisions = mysqlTable("brainDecisions", {
 }));
 export type BrainDecision = typeof brainDecisions.$inferSelect;
 export type InsertBrainDecision = typeof brainDecisions.$inferInsert;
+
+// Phase 89 — Persisted entry contexts for the alpha-library writer.
+//
+// Captured at brain_position_opened time, consumed at brain_position_closed
+// time. The PatternPopulator service uses these to categorize each closed
+// trade into a `winningPatterns` row.
+//
+// Why this table exists: pre-Phase-89, contexts were Map-only, so any
+// server restart between an open and its close DROPPED the context →
+// pattern row never written → alpha library missed the learning. With this
+// table, contexts survive restarts and the populator rehydrates on boot.
+//
+// Rows are auto-deleted on successful close (the populator handles cleanup);
+// stale rows (>24h) are reaped by a periodic sweep.
+export const brainEntryContexts = mysqlTable("brainEntryContexts", {
+  id: int("id").autoincrement().primaryKey(),
+  // positionId is the brain's view of the trade — usually paperPositions.id
+  // (number) for paper, or live positions.id, or a string id for live entries
+  // routed via EngineAdapter.
+  positionId: varchar("positionId", { length: 64 }).notNull(),
+  symbol: varchar("symbol", { length: 20 }).notNull(),
+  side: varchar("side", { length: 5 }).notNull(),               // 'long' | 'short'
+  patternName: varchar("patternName", { length: 100 }).notNull(),
+  openedAtMs: bigint("openedAtMs", { mode: "number" }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  positionIdx: uniqueIndex("idx_brainEntryCtx_position").on(table.positionId),
+  createdIdx: index("idx_brainEntryCtx_created").on(table.createdAt),
+}));
+export type BrainEntryContext = typeof brainEntryContexts.$inferSelect;
+export type InsertBrainEntryContext = typeof brainEntryContexts.$inferInsert;

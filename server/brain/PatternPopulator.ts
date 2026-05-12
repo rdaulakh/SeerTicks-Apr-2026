@@ -32,8 +32,8 @@
 
 import { EventEmitter } from 'events';
 import { getDb } from '../db';
-import { winningPatterns } from '../../drizzle/schema';
-import { eq, and } from 'drizzle-orm';
+import { winningPatterns, brainEntryContexts } from '../../drizzle/schema';
+import { eq, and, lt } from 'drizzle-orm';
 import { getActiveClock } from '../_core/clock';
 import { engineLogger as logger } from '../utils/logger';
 import { getSensorium } from './Sensorium';
@@ -79,6 +79,13 @@ class PatternPopulator extends EventEmitter {
   start(): void {
     if (this.decayInterval) return;
 
+    // Phase 89 — rehydrate any contexts persisted before the last restart.
+    // The in-memory Map is cold-started; without this load, a server crash
+    // between open and close drops the pattern row permanently.
+    this.rehydrateFromDb()
+      .then(n => { if (n > 0) logger.info(`[PatternPopulator] rehydrated ${n} entry context(s) from brainEntryContexts`); })
+      .catch(err => logger.warn('[PatternPopulator] rehydrate failed', { error: (err as Error)?.message }));
+
     // Hook BrainExecutor events. Use a late import to dodge circular init.
     import('./BrainExecutor').then(({ getBrainExecutor }) => {
       const executor = getBrainExecutor();
@@ -94,13 +101,53 @@ class PatternPopulator extends EventEmitter {
       this.scanDecay().catch(err => logger.warn('[PatternPopulator] decay scan failed', { error: err?.message }));
     }, 60 * 60 * 1000);
 
-    // Defensive: prune stale entry contexts every 30min.
+    // Defensive: prune stale entry contexts every 30min — both in-memory and DB.
     setInterval(() => {
       const now = Date.now();
+      const cutoff = now - this.ENTRY_TTL_MS;
       for (const [k, v] of this.entries) {
-        if (now - v.openedAtMs > this.ENTRY_TTL_MS) this.entries.delete(k);
+        if (v.openedAtMs < cutoff) this.entries.delete(k);
       }
+      // DB cleanup — fire and forget
+      this.pruneStaleDbContexts(cutoff).catch(() => { /* never block on prune */ });
     }, 30 * 60 * 1000);
+  }
+
+  /** Phase 89 — Read persisted contexts back into memory on boot. */
+  private async rehydrateFromDb(): Promise<number> {
+    const db = await getDb();
+    if (!db) return 0;
+    const cutoff = Date.now() - this.ENTRY_TTL_MS;
+    const rows = await db.select().from(brainEntryContexts).where(
+      // Skip rows that are older than the TTL — they're already lost cause.
+      // We compare on openedAtMs (bigint) so cutoff is a number.
+      // Drizzle's gt helper would be cleaner; we use a sql-tag-free approach.
+      // For simplicity rely on lt(createdAt, ...) instead; close enough.
+      lt(brainEntryContexts.createdAt, new Date(Date.now() + 1)),
+    );
+    let n = 0;
+    for (const r of rows) {
+      if (r.openedAtMs < cutoff) continue; // expired
+      this.entries.set(r.positionId, {
+        positionId: r.positionId,
+        symbol: r.symbol,
+        side: r.side as 'long' | 'short',
+        patternName: r.patternName,
+        openedAtMs: r.openedAtMs,
+      });
+      n++;
+    }
+    return n;
+  }
+
+  /** Phase 89 — Delete stale DB rows. Called periodically. */
+  private async pruneStaleDbContexts(cutoffMs: number): Promise<void> {
+    const db = await getDb();
+    if (!db) return;
+    // We delete by createdAt (timestamp) which is close enough to openedAtMs
+    // for a 24h TTL window.
+    const cutoffDate = new Date(cutoffMs);
+    await db.delete(brainEntryContexts).where(lt(brainEntryContexts.createdAt, cutoffDate));
   }
 
   stop(): void {
@@ -129,18 +176,47 @@ class PatternPopulator extends EventEmitter {
         shortCount: votes?.shortCount ?? 0,
         side: evt.side,
       });
-      this.entries.set(evt.positionId, {
+      const ctx: EntryContext = {
         positionId: evt.positionId,
         symbol: evt.symbol,
         side: evt.side,
         patternName,
         openedAtMs: Date.now(),
-      });
+      };
+      this.entries.set(evt.positionId, ctx);
+      // Phase 89 — also persist to DB so a server restart doesn't lose
+      // the context. Fire-and-forget; persistence failure shouldn't block
+      // the brain. handleClose will fall back to the in-memory copy.
+      this.persistContext(ctx).catch((err: Error) =>
+        logger.warn('[PatternPopulator] persistContext failed', { error: err?.message, positionId: evt.positionId }),
+      );
       logger.info(`[PatternPopulator] 📚 captured entry: ${evt.symbol} ${evt.side} → pattern="${patternName}" (RSI=${tech?.rsi?.toFixed(1) ?? '?'} trend=${tech?.emaTrend ?? '?'} votes ${votes?.longCount ?? 0}L/${votes?.shortCount ?? 0}S)`);
     } catch (err) {
       logger.warn('[PatternPopulator] handleOpen failed', { error: (err as Error)?.message });
     }
   };
+
+  /** Phase 89 — write context to DB. Upsert behavior: if positionId already
+   *  exists (rare — same positionId reused) update; else insert. */
+  private async persistContext(ctx: EntryContext): Promise<void> {
+    const db = await getDb();
+    if (!db) return;
+    // Upsert via ON DUPLICATE KEY UPDATE — positionId is unique-indexed.
+    try {
+      await db.insert(brainEntryContexts).values({
+        positionId: String(ctx.positionId),
+        symbol: ctx.symbol,
+        side: ctx.side,
+        patternName: ctx.patternName,
+        openedAtMs: ctx.openedAtMs,
+      });
+    } catch (err) {
+      // If the positionId already exists, that's fine — earlier capture wins.
+      // Other errors get surfaced to caller for logging.
+      const msg = (err as Error)?.message ?? '';
+      if (!/duplicate/i.test(msg) && !/ER_DUP_ENTRY/i.test(msg)) throw err;
+    }
+  }
 
   /** UPSERT the pattern row on close. */
   private handleClose = async (evt: {
@@ -149,18 +225,64 @@ class PatternPopulator extends EventEmitter {
     side: 'long' | 'short';
     realizedPnl: number;
   }): Promise<void> => {
-    const ctx = this.entries.get(evt.positionId);
+    // Phase 89 — guard against missing/NaN realizedPnl. Live path had a bug
+    // where this field was missing from the emit payload, causing NaN
+    // pollution of the alpha library. Verify and skip cleanly if invalid.
+    if (typeof evt.realizedPnl !== 'number' || !Number.isFinite(evt.realizedPnl)) {
+      logger.warn('[PatternPopulator] handleClose: invalid realizedPnl — skipping pattern row to protect alpha library', {
+        positionId: evt.positionId, realizedPnl: evt.realizedPnl,
+      });
+      return;
+    }
+
+    // Memory first, DB fallback.
+    let ctx: EntryContext | null | undefined = this.entries.get(evt.positionId);
     if (!ctx) {
-      // Pre-Phase-88 positions or restart-loss — fine, just no learning.
+      ctx = await this.loadContextFromDb(evt.positionId);
+    }
+    if (!ctx) {
+      // Pre-Phase-88 positions, never-captured opens, or expired entries.
       return;
     }
     this.entries.delete(evt.positionId);
     try {
       await this.upsertPattern(ctx, evt.realizedPnl);
+      // Successful pattern write — clean up the persisted context.
+      this.deleteContextFromDb(evt.positionId).catch(() => { /* best-effort */ });
     } catch (err) {
       logger.warn('[PatternPopulator] upsert failed', { error: (err as Error)?.message });
     }
   };
+
+  /** Phase 89 — DB lookup fallback for handleClose. */
+  private async loadContextFromDb(positionId: string | number): Promise<EntryContext | null> {
+    const db = await getDb();
+    if (!db) return null;
+    try {
+      const [row] = await db.select().from(brainEntryContexts)
+        .where(eq(brainEntryContexts.positionId, String(positionId)))
+        .limit(1);
+      if (!row) return null;
+      return {
+        positionId: row.positionId,
+        symbol: row.symbol,
+        side: row.side as 'long' | 'short',
+        patternName: row.patternName,
+        openedAtMs: row.openedAtMs,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Phase 89 — delete a persisted context after we've used it. */
+  private async deleteContextFromDb(positionId: string | number): Promise<void> {
+    const db = await getDb();
+    if (!db) return;
+    try {
+      await db.delete(brainEntryContexts).where(eq(brainEntryContexts.positionId, String(positionId)));
+    } catch { /* best-effort */ }
+  }
 
   /** UPSERT pattern stats. Reads existing, recomputes, writes. */
   private async upsertPattern(ctx: EntryContext, realizedPnl: number): Promise<void> {

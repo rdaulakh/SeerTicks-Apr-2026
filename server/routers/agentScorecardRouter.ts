@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../_core/trpc';
 import { getDb } from '../db';
-import { agentSignals, agentAccuracy, agentPnlAttribution, brainDecisions, systemConfig, paperPositions } from '../../drizzle/schema';
+import { agentSignals, agentAccuracy, agentPnlAttribution, brainDecisions, systemConfig, paperPositions, winningPatterns } from '../../drizzle/schema';
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
 
 const WINDOW_HOURS = z.number().int().min(1).max(168).default(24);
@@ -617,6 +617,109 @@ export const agentScorecardRouter = router({
   // ─────────────────────────────────────────────────────────────────────
   // Phase 85 — operator console: read brain's mind + steer it
   // ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * Phase 89 — alpha library summary for the operator console.
+   * Returns: total active patterns, total decayed, top-5 by win rate,
+   * bottom-5 by win rate (decayed first), and rows added in last 24h.
+   * Powers the new 'Alpha library' health card.
+   */
+  getAlphaLibrarySummary: protectedProcedure
+    .query(async () => {
+      const db = await getDb();
+      if (!db) return { totalActive: 0, totalDecayed: 0, top: [], bottom: [], recentlyAdded: 0 };
+
+      const allRows = await db.select().from(winningPatterns);
+      const active = allRows.filter(r => r.isActive && !r.alphaDecayFlag);
+      const decayed = allRows.filter(r => r.alphaDecayFlag);
+
+      const day = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recentlyAdded = allRows.filter(r => r.createdAt >= day).length;
+
+      // Top 5: highest winRate × sample-size confidence
+      const ranked = active.map(r => {
+        const wr = parseFloat(r.winRate ?? '0');
+        const n = r.totalTrades ?? 0;
+        return { pattern: r.patternName, symbol: r.symbol, winRate: wr, trades: n, avgPnl: parseFloat(r.avgPnl ?? '0'), score: wr * Math.min(1, n / 50) };
+      });
+      ranked.sort((a, b) => b.score - a.score);
+
+      const bottomCandidates = active.filter(r => parseFloat(r.winRate ?? '0') < 0.55 && (r.totalTrades ?? 0) >= 5)
+        .map(r => ({
+          pattern: r.patternName, symbol: r.symbol,
+          winRate: parseFloat(r.winRate ?? '0'),
+          trades: r.totalTrades ?? 0,
+          avgPnl: parseFloat(r.avgPnl ?? '0'),
+        }))
+        .sort((a, b) => a.winRate - b.winRate);
+
+      return {
+        totalActive: active.length,
+        totalDecayed: decayed.length,
+        recentlyAdded,
+        top: ranked.slice(0, 5),
+        bottom: bottomCandidates.slice(0, 5),
+      };
+    }),
+
+  /**
+   * Phase 89 — Bulk operator actions for the brain.
+   * close-all-brain-positions: emits exit_full for every brain-opened paper
+   *   position. Used when operator wants to flatten the brain's book without
+   *   stopping the brain itself.
+   * pause-entries: sets a deadline in systemConfig that decideEntry consults;
+   *   when in the future, brain abstains all entries with pipelineStep
+   *   'should_enter:operator_pause'.
+   */
+  bulkBrainAction: protectedProcedure
+    .input(z.object({
+      action: z.enum(['close_all_brain_positions', 'pause_entries', 'resume_entries']),
+      pauseMinutes: z.number().int().min(1).max(1440).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error('db_unavailable');
+
+      if (input.action === 'close_all_brain_positions') {
+        const open = await db.select().from(paperPositions)
+          .where(and(eq(paperPositions.status, 'open'), eq(paperPositions.strategy, 'brain_v2_entry')));
+        const { getBrainExecutor } = await import('../brain/BrainExecutor');
+        const executor = getBrainExecutor();
+        let closed = 0;
+        for (const p of open) {
+          // currentPrice fallback: use entryPrice if currentPrice not set
+          const px = parseFloat(p.currentPrice ?? p.entryPrice);
+          const r = await executor.exitFull(p.id, px, `operator_close_all (user ${ctx.user.id})`);
+          if (r.ok && r.affectedRows > 0) closed++;
+        }
+        return { ok: true, action: input.action, closed, attempted: open.length };
+      }
+
+      if (input.action === 'pause_entries') {
+        const pauseUntil = Date.now() + (input.pauseMinutes ?? 30) * 60 * 1000;
+        const [existing] = await db.select().from(systemConfig)
+          .where(eq(systemConfig.configKey, 'brain.pauseEntriesUntilMs')).limit(1);
+        if (existing) {
+          await db.update(systemConfig)
+            .set({ configValue: pauseUntil as any, updatedAt: new Date() })
+            .where(eq(systemConfig.configKey, 'brain.pauseEntriesUntilMs'));
+        } else {
+          await db.insert(systemConfig).values({
+            userId: 0, configKey: 'brain.pauseEntriesUntilMs',
+            configValue: pauseUntil as any,
+            description: `Brain entry pause set by user ${ctx.user.id}`,
+          });
+        }
+        return { ok: true, action: input.action, pauseUntilMs: pauseUntil };
+      }
+
+      if (input.action === 'resume_entries') {
+        await db.delete(systemConfig).where(eq(systemConfig.configKey, 'brain.pauseEntriesUntilMs'));
+        return { ok: true, action: input.action };
+      }
+
+      throw new Error('unknown_action');
+    }),
 
   /**
    * Phase 88 — brain vs legacy comparison: cumulative P&L over time, split by
