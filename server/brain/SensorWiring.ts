@@ -21,7 +21,7 @@
  * StanceSensor we drive on every brain tick (1Hz) since they're in-memory.
  */
 
-import { getSensorium, type TechnicalSensation, type FlowSensation, type PositionSensation, type StanceSensation, type MarketSensation } from './Sensorium';
+import { getSensorium, type TechnicalSensation, type FlowSensation, type PositionSensation, type StanceSensation, type MarketSensation, type OpportunitySensation, type PortfolioSensation } from './Sensorium';
 import { engineLogger as logger } from '../utils/logger';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -54,7 +54,21 @@ export function startSensorWiring(): void {
     });
   }, 1000));
 
-  logger.info('[SensorWiring] started — 4 sensors active');
+  // ─── Opportunity: every 3s, synthesize from agent sensations ──────────
+  intervalIds.push(setInterval(() => {
+    pullOpportunitySensor().catch(err => {
+      logger.warn('[SensorWiring] opportunity pull failed', { error: err?.message });
+    });
+  }, 3000));
+
+  // ─── Portfolio: every 5s, read wallet + position state from DB ────────
+  intervalIds.push(setInterval(() => {
+    pullPortfolioSensor().catch(err => {
+      logger.warn('[SensorWiring] portfolio pull failed', { error: err?.message });
+    });
+  }, 5000));
+
+  logger.info('[SensorWiring] started — 6 sensors active');
 }
 
 export function stopSensorWiring(): void {
@@ -266,5 +280,145 @@ async function pullMarketSensor(): Promise<void> {
       lastTickMs: book.tradeTime ?? book.eventTime ?? Date.now(),
     };
     sensorium.updateMarket(sensation);
+  }
+}
+
+// ─── Phase 84 — Opportunity sensor ────────────────────────────────────
+// Synthesizes per-symbol opportunity score from sensations already in
+// Sensorium plus the live agent consensus. Score = weighted-vote of
+// (technical, flow, stance) toward a common direction. Confluence count =
+// how many of the contributors agree with the dominant direction.
+async function pullOpportunitySensor(): Promise<void> {
+  const sensorium = getSensorium();
+  const symbols = ['BTC-USD', 'ETH-USD', 'SOL-USD'];
+  for (const symbol of symbols) {
+    const tech = sensorium.getTechnical(symbol);
+    const flow = sensorium.getFlow(symbol);
+    const stance = sensorium.getStance(symbol);
+    const market = sensorium.getMarket(symbol);
+
+    // Critical-data freshness: market must be < 5s; technical < 30s
+    const marketStale = !market || market.stalenessMs > 5_000;
+    const technicalStale = !tech || tech.stalenessMs > 30_000;
+    const criticalDataStale = marketStale || technicalStale;
+
+    let longVotes = 0, shortVotes = 0, totalSensors = 0;
+
+    // Technical signal: RSI + SuperTrend + EMA trend
+    if (tech) {
+      totalSensors++;
+      const t = tech.sensation;
+      let techScore = 0;
+      if (t.rsi < 30) techScore += 1; else if (t.rsi > 70) techScore -= 1;
+      if (t.superTrend === 'bullish') techScore += 1; else if (t.superTrend === 'bearish') techScore -= 1;
+      if (t.emaTrend === 'up') techScore += 1; else if (t.emaTrend === 'down') techScore -= 1;
+      if (t.macdHist > 0) techScore += 0.5; else if (t.macdHist < 0) techScore -= 0.5;
+      if (techScore > 0.5) longVotes++;
+      else if (techScore < -0.5) shortVotes++;
+    }
+
+    // Flow signal: taker imbalance + depth imbalance
+    if (flow) {
+      totalSensors++;
+      const f = flow.sensation;
+      const composite = f.takerImbalance5s * 0.5 + f.depthImbalance5bp * 0.5;
+      if (composite > 0.15) longVotes++;
+      else if (composite < -0.15) shortVotes++;
+    }
+
+    // Stance signal: live consensus
+    if (stance) {
+      totalSensors++;
+      const s = stance.sensation;
+      if (s.currentDirection === 'bullish' && s.currentConsensus > 0.5) longVotes++;
+      else if (s.currentDirection === 'bearish' && s.currentConsensus > 0.5) shortVotes++;
+    }
+
+    if (totalSensors === 0) continue;
+
+    const dominantVotes = Math.max(longVotes, shortVotes);
+    const direction: 'long' | 'short' | 'abstain' =
+      dominantVotes < 1 ? 'abstain'
+        : longVotes > shortVotes ? 'long'
+          : shortVotes > longVotes ? 'short' : 'abstain';
+    const score = direction === 'abstain' ? 0 : dominantVotes / Math.max(1, totalSensors);
+
+    const sensation: OpportunitySensation = {
+      symbol,
+      score,
+      direction,
+      confluenceCount: dominantVotes,
+      totalSensors,
+      criticalDataStale,
+    };
+    sensorium.updateOpportunity(sensation);
+  }
+}
+
+// ─── Phase 84 — Portfolio sensor ──────────────────────────────────────
+// Reads wallet equity + position counts + daily P&L from DB. Brain's
+// PORTFOLIO_GUARD pre-step gates on this.
+async function pullPortfolioSensor(): Promise<void> {
+  const sensorium = getSensorium();
+  try {
+    const { getDb } = await import('../db');
+    const { paperPositions, paperTrades, paperWallets } = await import('../../drizzle/schema');
+    const { eq, and, gte, sql } = await import('drizzle-orm');
+    const db = await getDb();
+    if (!db) return;
+
+    // Open positions count (paper for now — brain runs paper-mode-only)
+    const openPositions = await db.select({ count: sql<number>`count(*)` })
+      .from(paperPositions)
+      .where(eq(paperPositions.status, 'open'));
+    const openCount = Number(openPositions[0]?.count ?? 0);
+
+    // Daily realized P&L (UTC midnight). paperTrades stores signed $ in the
+    // `pnl` varchar column and a `timestamp` of trade close.
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    let dailyRealizedPnl = 0;
+    try {
+      const dailyTradesAgg = await db.select({
+        total: sql<string>`sum(cast(pnl as decimal(18,4)))`,
+      })
+        .from(paperTrades)
+        .where(gte(paperTrades.timestamp, today));
+      dailyRealizedPnl = parseFloat((dailyTradesAgg[0]?.total ?? '0') as string) || 0;
+    } catch { /* column name may differ across phases; keep 0 */ }
+
+    // Latest wallet equity — paperWallets stores live equity per (userId, tradingMode).
+    // Brain runs paper-mode-only for v1; sum equity across paper wallets so the
+    // guard reflects platform-wide equity even if multiple users are active.
+    let equity = 10_000;
+    try {
+      const agg = await db.select({
+        total: sql<string>`sum(cast(equity as decimal(18,4)))`,
+      })
+        .from(paperWallets)
+        .where(eq(paperWallets.tradingMode, 'paper'));
+      const summed = parseFloat((agg[0]?.total ?? '0') as string);
+      if (Number.isFinite(summed) && summed > 0) equity = summed;
+    } catch { /* schema may differ; keep default */ }
+    void and;
+
+    const dailyPnlPercent = equity > 0 ? (dailyRealizedPnl / equity) * 100 : 0;
+
+    const sensation: PortfolioSensation = {
+      equity,
+      dailyRealizedPnl,
+      dailyPnlPercent,
+      openPositionCount: openCount,
+      portfolioVarPercent: 0, // v2 wiring — Week9RiskManager.getPortfolioVar()
+      dailyLossCircuitTripped: dailyPnlPercent <= -5.0,
+      limits: {
+        maxDailyLossPercent: 5.0,
+        maxPortfolioVarPercent: 8.0,
+        maxOpenPositions: 5,
+      },
+    };
+    sensorium.updatePortfolio(sensation);
+  } catch (err) {
+    logger.warn('[SensorWiring] pullPortfolioSensor failed', { error: (err as Error)?.message });
   }
 }

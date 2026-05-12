@@ -104,6 +104,54 @@ export interface StanceSensation {
   driftVelocityPerMin: number;
 }
 
+// ─── Phase 84 — Entry brain sensation ────────────────────────────────────
+// Per-symbol opportunity reading the brain uses to decide whether to OPEN a
+// new position. Synthesized from the agent sensations + consensus + market
+// regime. The brain's SHOULD_ENTER pipeline step reads this when no
+// position exists for the symbol.
+export interface OpportunitySensation {
+  symbol: string;
+  /** Synthesized 0..1 score for entering this symbol. */
+  score: number;
+  /** Direction the score favors. */
+  direction: 'long' | 'short' | 'abstain';
+  /** Number of sensors actively voting in favor of `direction`. */
+  confluenceCount: number;
+  /** Total reporting sensors at the time of synthesis. */
+  totalSensors: number;
+  /** Bayesian posterior mean (if available from consensus aggregator). */
+  posteriorMean?: number;
+  /** Bayesian posterior std (if available). */
+  posteriorStd?: number;
+  /** Window of stale-data flags — true if any critical sensor is stale. */
+  criticalDataStale: boolean;
+}
+
+// ─── Phase 84 — Portfolio sensation ──────────────────────────────────────
+// Account-level risk state. The brain's PORTFOLIO_GUARD pipeline step (the
+// pre-step that runs BEFORE step 1) reads this. If any limit is breached
+// the brain BLOCKS new entries and may ACCELERATE exits on losers.
+export interface PortfolioSensation {
+  /** Total wallet equity (USD). */
+  equity: number;
+  /** Realized P&L since UTC midnight. */
+  dailyRealizedPnl: number;
+  /** Realized + unrealized since UTC midnight, as % of equity. */
+  dailyPnlPercent: number;
+  /** Number of open positions right now. */
+  openPositionCount: number;
+  /** Computed portfolio VaR (95%) as % of equity. */
+  portfolioVarPercent: number;
+  /** Daily loss circuit breaker tripped? */
+  dailyLossCircuitTripped: boolean;
+  /** Hard configured limits the brain must respect. */
+  limits: {
+    maxDailyLossPercent: number;
+    maxPortfolioVarPercent: number;
+    maxOpenPositions: number;
+  };
+}
+
 // ─── The store ─────────────────────────────────────────────────────────
 
 interface StoredEntry<T> {
@@ -120,6 +168,9 @@ class Sensorium {
   private sentiment: StoredEntry<SentimentSensation> | null = null; // platform-wide
   private positions = new Map<string | number, StoredEntry<PositionSensation>>();
   private stances = new Map<string, StoredEntry<StanceSensation>>();
+  // Phase 84 — entry brain inputs
+  private opportunities = new Map<string, StoredEntry<OpportunitySensation>>();
+  private portfolio: StoredEntry<PortfolioSensation> | null = null;
 
   // ─── Push API (sensors call these) ───────────────────────────────────
   updateMarket(s: MarketSensation): void { this.market.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
@@ -130,6 +181,8 @@ class Sensorium {
   updateSentiment(s: SentimentSensation): void { this.sentiment = { value: s, receivedAtMs: getActiveClock().now() }; }
   updatePosition(s: PositionSensation): void { this.positions.set(s.positionId, { value: s, receivedAtMs: getActiveClock().now() }); }
   updateStance(s: StanceSensation): void { this.stances.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
+  updateOpportunity(s: OpportunitySensation): void { this.opportunities.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
+  updatePortfolio(s: PortfolioSensation): void { this.portfolio = { value: s, receivedAtMs: getActiveClock().now() }; }
   removePosition(positionId: string | number): void { this.positions.delete(positionId); }
 
   // ─── Pull API (brain calls these) ────────────────────────────────────
@@ -164,6 +217,26 @@ class Sensorium {
   getStance(symbol: string): { sensation: StanceSensation; stalenessMs: number } | null {
     const e = this.stances.get(symbol);
     return e ? { sensation: e.value, stalenessMs: getActiveClock().now() - e.receivedAtMs } : null;
+  }
+  getOpportunity(symbol: string): { sensation: OpportunitySensation; stalenessMs: number } | null {
+    const e = this.opportunities.get(symbol);
+    return e ? { sensation: e.value, stalenessMs: getActiveClock().now() - e.receivedAtMs } : null;
+  }
+  getAllOpportunities(): OpportunitySensation[] {
+    return Array.from(this.opportunities.values()).map(e => e.value);
+  }
+  getPortfolio(): { sensation: PortfolioSensation; stalenessMs: number } | null {
+    return this.portfolio ? { sensation: this.portfolio.value, stalenessMs: getActiveClock().now() - this.portfolio.receivedAtMs } : null;
+  }
+  /** Enumerate active position IDs without exposing the internal map. */
+  getActivePositionIds(): Array<string | number> {
+    return Array.from(this.positions.keys());
+  }
+  /** Enumerate symbols WITHOUT an open position (entry candidates). */
+  getSymbolsWithoutPosition(allSymbols: string[]): string[] {
+    const occupied = new Set<string>();
+    for (const e of this.positions.values()) occupied.add(e.value.symbol);
+    return allSymbols.filter(s => !occupied.has(s));
   }
 
   // ─── Snapshot for DecisionTrace (full inputs the brain saw) ──────────

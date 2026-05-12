@@ -52,7 +52,11 @@ export type BrainAction =
   | { kind: 'hold'; pipelineStep: string; reason: string }
   | { kind: 'tighten_stop'; pipelineStep: string; reason: string; newStopLoss: number }
   | { kind: 'take_partial'; pipelineStep: string; reason: string; exitQuantityPercent: number; urgency: 'now' | 'soon' }
-  | { kind: 'exit_full'; pipelineStep: string; reason: string; urgency: 'now' | 'soon' };
+  | { kind: 'exit_full'; pipelineStep: string; reason: string; urgency: 'now' | 'soon' }
+  // Phase 84 — entry brain
+  | { kind: 'enter_long'; pipelineStep: string; reason: string; symbol: string; size: number; stopLoss: number; takeProfit: number; opportunityScore: number }
+  | { kind: 'enter_short'; pipelineStep: string; reason: string; symbol: string; size: number; stopLoss: number; takeProfit: number; opportunityScore: number }
+  | { kind: 'abstain'; pipelineStep: string; reason: string; symbol: string };
 
 export interface BrainConfig {
   dryRun: boolean;
@@ -61,6 +65,18 @@ export interface BrainConfig {
   staleHoldMinutes: number;             // (default 30)
   stalePeakPnlPct: number;              // (default 0.30)
   adaptiveTargetAtrMult: number;        // (default 1.5)
+  // Phase 84 — entry brain
+  minOpportunityScore: number;         // 0..1; gate for SHOULD_ENTER (default 0.55)
+  minConfluenceCount: number;          // sensors that must agree to enter (default 3)
+  /** Default size per entry as fraction of wallet equity (default 0.10 = 10%). */
+  entrySizeEquityFraction: number;
+  /** Kelly fraction applied on top (default 0.25 = quarter-Kelly). */
+  kellyFraction: number;
+  /** Default stop / TP distances if Sensorium ATR is unavailable. */
+  defaultStopLossPercent: number;       // -1.2 (negative is loss side)
+  defaultTakeProfitPercent: number;     // 1.0
+  /** Symbols the brain may consider for entry. */
+  candidateSymbols: string[];
 }
 
 const DEFAULT_CONFIG: BrainConfig = {
@@ -70,6 +86,13 @@ const DEFAULT_CONFIG: BrainConfig = {
   staleHoldMinutes: 30,
   stalePeakPnlPct: 0.30,
   adaptiveTargetAtrMult: 1.5,
+  minOpportunityScore: 0.55,
+  minConfluenceCount: 3,
+  entrySizeEquityFraction: 0.10,
+  kellyFraction: 0.25,
+  defaultStopLossPercent: 1.2,
+  defaultTakeProfitPercent: 1.0,
+  candidateSymbols: ['BTC-USD', 'ETH-USD', 'SOL-USD'],
 };
 
 class TraderBrain {
@@ -148,6 +171,45 @@ class TraderBrain {
     // (Quick path: scan via the trace cache; for v1 the iteration cost is fine.)
     const inWarmup = !this.config.dryRun && (Date.now() - this.startedAtMs < this.WARMUP_MS);
 
+    // Phase 84 — PORTFOLIO_GUARD: compute once per tick, applies to all positions
+    // AND to entry decisions. If tripped, the entry side is BLOCKED and exits on
+    // losers may accelerate (handled inside decide()).
+    const portfolioGuard = this.evaluatePortfolioGuard(sensorium);
+
+    // ─── Entry brain: evaluate symbols WITHOUT an open position ──────────
+    if (portfolioGuard.allowNewEntries) {
+      const candidates = sensorium.getSymbolsWithoutPosition(this.config.candidateSymbols);
+      for (const symbol of candidates) {
+        try {
+          const entryDecision = this.decideEntry(symbol);
+          if (!entryDecision) continue;
+          const elapsedUs = Number((process.hrtime.bigint() - start) / 1000n);
+          getDecisionTrace().record({
+            positionId: `entry:${symbol}`,
+            symbol,
+            side: entryDecision.kind === 'enter_long' ? 'long' : entryDecision.kind === 'enter_short' ? 'short' : 'long',
+            kind: entryDecision.kind,
+            pipelineStep: entryDecision.pipelineStep,
+            reason: entryDecision.reason,
+            sensoriumSnapshot: this.entrySnapshot(symbol),
+            isDryRun: this.config.dryRun || inWarmup,
+            latencyUs: elapsedUs,
+          });
+          if ((entryDecision.kind === 'enter_long' || entryDecision.kind === 'enter_short')
+              && !this.config.dryRun && !inWarmup) {
+            const inFlightKey = `entry:${symbol}`;
+            if (this.inFlightExits.has(inFlightKey)) continue;
+            this.inFlightExits.add(inFlightKey);
+            this.executeEntry(entryDecision)
+              .catch(err => logger.warn('[TraderBrain] entry execute failed', { symbol, error: err?.message }))
+              .finally(() => this.inFlightExits.delete(inFlightKey));
+          }
+        } catch (err) {
+          logger.warn('[TraderBrain] entry-decision error', { symbol, error: (err as Error)?.message });
+        }
+      }
+    }
+
     for (const positionId of this.activePositionIds(sensorium)) {
       try {
         const decision = this.decide(positionId);
@@ -187,6 +249,144 @@ class TraderBrain {
         logger.warn('[TraderBrain] tick error', { positionId, error: (err as Error)?.message });
       }
     }
+  }
+
+  /**
+   * Phase 84 — PORTFOLIO_GUARD pre-step. Reads portfolio sensation;
+   * returns whether the brain may consider new entries this tick AND
+   * whether existing-position decisions should be biased toward exit.
+   */
+  private evaluatePortfolioGuard(sensorium: ReturnType<typeof getSensorium>): {
+    allowNewEntries: boolean;
+    accelerateExits: boolean;
+    reason: string;
+  } {
+    const port = sensorium.getPortfolio();
+    if (!port) {
+      // No portfolio reading yet — allow entries conservatively, no acceleration
+      return { allowNewEntries: true, accelerateExits: false, reason: 'no_portfolio_data' };
+    }
+    const p = port.sensation;
+    if (p.dailyLossCircuitTripped) {
+      return { allowNewEntries: false, accelerateExits: true, reason: `daily_loss_circuit_tripped (pnl ${p.dailyPnlPercent.toFixed(2)}%)` };
+    }
+    if (p.dailyPnlPercent <= -p.limits.maxDailyLossPercent) {
+      return { allowNewEntries: false, accelerateExits: true, reason: `daily_loss_limit (${p.dailyPnlPercent.toFixed(2)}% <= -${p.limits.maxDailyLossPercent}%)` };
+    }
+    if (p.portfolioVarPercent >= p.limits.maxPortfolioVarPercent) {
+      return { allowNewEntries: false, accelerateExits: false, reason: `var_ceiling (${p.portfolioVarPercent.toFixed(2)}% >= ${p.limits.maxPortfolioVarPercent}%)` };
+    }
+    if (p.openPositionCount >= p.limits.maxOpenPositions) {
+      return { allowNewEntries: false, accelerateExits: false, reason: `max_positions (${p.openPositionCount}/${p.limits.maxOpenPositions})` };
+    }
+    return { allowNewEntries: true, accelerateExits: false, reason: 'ok' };
+  }
+
+  /**
+   * Phase 84 — SHOULD_ENTER pipeline step. Runs once per tick per candidate
+   * symbol that has no open position. Reads opportunity + stance + market
+   * sensations. Outputs enter_long / enter_short / abstain.
+   */
+  decideEntry(symbol: string): BrainAction | null {
+    const sensorium = getSensorium();
+    const opp = sensorium.getOpportunity(symbol)?.sensation;
+    const market = sensorium.getMarket(symbol)?.sensation;
+    const stance = sensorium.getStance(symbol)?.sensation;
+    const port = sensorium.getPortfolio()?.sensation;
+
+    if (!opp || !market) {
+      // Insufficient inputs — never enter blind.
+      return { kind: 'abstain', pipelineStep: 'should_enter:no_data', reason: 'opportunity or market sensation missing', symbol };
+    }
+
+    // Gate 1: opportunity score
+    if (opp.score < this.config.minOpportunityScore) {
+      return { kind: 'abstain', pipelineStep: 'should_enter:score_low',
+        reason: `score ${opp.score.toFixed(2)} < ${this.config.minOpportunityScore}`, symbol };
+    }
+
+    // Gate 2: confluence
+    if (opp.confluenceCount < this.config.minConfluenceCount) {
+      return { kind: 'abstain', pipelineStep: 'should_enter:thin_confluence',
+        reason: `${opp.confluenceCount}/${opp.totalSensors} sensors agree (need ≥${this.config.minConfluenceCount})`, symbol };
+    }
+
+    // Gate 3: critical data not stale
+    if (opp.criticalDataStale) {
+      return { kind: 'abstain', pipelineStep: 'should_enter:stale_data',
+        reason: 'a critical sensor is stale', symbol };
+    }
+
+    // Gate 4: direction must be definite
+    if (opp.direction === 'abstain') {
+      return { kind: 'abstain', pipelineStep: 'should_enter:no_direction',
+        reason: 'opportunity has no decisive direction', symbol };
+    }
+
+    // Gate 5: stance must confirm or be quiet (not actively opposing)
+    if (stance && stance.currentConsensus > 0.6 &&
+        ((opp.direction === 'long' && stance.currentDirection === 'bearish') ||
+         (opp.direction === 'short' && stance.currentDirection === 'bullish'))) {
+      return { kind: 'abstain', pipelineStep: 'should_enter:stance_opposes',
+        reason: `consensus ${(stance.currentConsensus * 100).toFixed(0)}% ${stance.currentDirection} opposes opportunity ${opp.direction}`, symbol };
+    }
+
+    // Sizing: equity fraction × Kelly fraction × opportunity score
+    const equity = port?.equity ?? 10_000; // conservative fallback
+    const sizeUsd = equity * this.config.entrySizeEquityFraction * this.config.kellyFraction * opp.score;
+    const qty = sizeUsd / market.midPrice;
+
+    // Stop / take-profit from market regime ATR or defaults
+    const stopPct = this.config.defaultStopLossPercent / 100;
+    const tpPct = this.config.defaultTakeProfitPercent / 100;
+    const isLong = opp.direction === 'long';
+    const stopLoss = market.midPrice * (1 - (isLong ? 1 : -1) * stopPct);
+    const takeProfit = market.midPrice * (1 + (isLong ? 1 : -1) * tpPct);
+
+    if (!Number.isFinite(qty) || qty <= 0) {
+      return { kind: 'abstain', pipelineStep: 'should_enter:bad_size',
+        reason: `computed qty ${qty} invalid (equity ${equity}, mid ${market.midPrice})`, symbol };
+    }
+
+    return {
+      kind: isLong ? 'enter_long' : 'enter_short',
+      pipelineStep: 'should_enter:approved',
+      reason: `score ${opp.score.toFixed(2)} ${opp.direction}; ${opp.confluenceCount}/${opp.totalSensors} confluence; size $${sizeUsd.toFixed(0)} (${qty.toFixed(6)} ${symbol})`,
+      symbol,
+      size: qty,
+      stopLoss,
+      takeProfit,
+      opportunityScore: opp.score,
+    };
+  }
+
+  /** Snapshot for entry-decision trace (no position id; key on symbol). */
+  private entrySnapshot(symbol: string): Record<string, unknown> {
+    const s = getSensorium();
+    return {
+      opportunity: s.getOpportunity(symbol)?.sensation ?? null,
+      market: s.getMarket(symbol)?.sensation ?? null,
+      technical: s.getTechnical(symbol)?.sensation ?? null,
+      flow: s.getFlow(symbol)?.sensation ?? null,
+      stance: s.getStance(symbol)?.sensation ?? null,
+      portfolio: s.getPortfolio()?.sensation ?? null,
+    };
+  }
+
+  /** Phase 84 — execute an entry decision via BrainExecutor. */
+  private async executeEntry(decision: BrainAction): Promise<void> {
+    if (decision.kind !== 'enter_long' && decision.kind !== 'enter_short') return;
+    const { getBrainExecutor } = await import('./BrainExecutor');
+    const executor = getBrainExecutor();
+    const r = await executor.openPosition({
+      symbol: decision.symbol,
+      side: decision.kind === 'enter_long' ? 'long' : 'short',
+      quantity: decision.size,
+      stopLoss: decision.stopLoss,
+      takeProfit: decision.takeProfit,
+      reason: decision.reason,
+    });
+    logger.info(`[TraderBrain] 🧠→ ${decision.kind.toUpperCase()} ${decision.symbol} qty=${decision.size.toFixed(6)} sl=$${decision.stopLoss.toFixed(4)} tp=$${decision.takeProfit.toFixed(4)}: ${r.ok ? 'ok' : 'failed'} reason="${decision.pipelineStep}"`);
   }
 
   /**
@@ -339,16 +539,7 @@ class TraderBrain {
 
   // ─── Helpers ────────────────────────────────────────────────────────
   private activePositionIds(sensorium: ReturnType<typeof getSensorium>): Array<string | number> {
-    // Sensorium doesn't expose the position map directly; use a back-channel.
-    // For v1, we expose `_internalPositions` via a debug accessor.
-    const ids: Array<string | number> = [];
-    // Sensorium stores positions internally; we iterate via the snapshot health.
-    // Quick path: we'll add an enumerator method.
-    const enumerated = (sensorium as any)['positions'] as Map<string | number, unknown> | undefined;
-    if (enumerated) {
-      for (const id of enumerated.keys()) ids.push(id);
-    }
-    return ids;
+    return sensorium.getActivePositionIds();
   }
 
   status(): { running: boolean; dryRun: boolean; tickCount: number; tickMs: number } {

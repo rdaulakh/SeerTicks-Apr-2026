@@ -29,6 +29,8 @@ import {
   CheckCircle2,
   XCircle,
   CircleSlash,
+  Brain,
+  Zap,
 } from "lucide-react";
 
 function fmtPct(n: number | null | undefined, digits = 1): string {
@@ -113,6 +115,17 @@ export default function AgentScorecard() {
       },
     );
 
+  const { data: brainActivity } =
+    trpc.agentScorecard.getBrainActivity.useQuery(
+      { windowMinutes: Math.min(windowHours * 60, 1440), limit: 100 },
+      {
+        refetchInterval: 5_000,
+        placeholderData: (prev) => prev,
+        retry: 3,
+        staleTime: 4_000,
+      },
+    );
+
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -192,6 +205,9 @@ export default function AgentScorecard() {
 
       <Tabs defaultValue="agents" className="space-y-4">
         <TabsList className="bg-black/40 border border-white/10">
+          <TabsTrigger value="brain">
+            <Brain className="w-4 h-4 mr-1.5" /> Brain Activity
+          </TabsTrigger>
           <TabsTrigger value="agents">
             <Activity className="w-4 h-4 mr-1.5" /> Per-Agent Scorecard
           </TabsTrigger>
@@ -202,6 +218,136 @@ export default function AgentScorecard() {
             <Shield className="w-4 h-4 mr-1.5" /> Team Health
           </TabsTrigger>
         </TabsList>
+
+        {/* PHASE 84 — BRAIN ACTIVITY */}
+        <TabsContent value="brain" className="space-y-3">
+          {/* Brain status header */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card className="p-4 bg-black/40 border-white/10">
+              <div className="text-xs uppercase text-gray-400">Brain status</div>
+              <div className="text-2xl font-bold mt-1 flex items-center gap-2">
+                {brainActivity?.status?.running ? (
+                  <>
+                    <Zap className="w-5 h-5 text-emerald-400" />
+                    {brainActivity.status.dryRun ? 'Observing' : 'LIVE'}
+                  </>
+                ) : (
+                  <>
+                    <CircleSlash className="w-5 h-5 text-gray-400" /> Stopped
+                  </>
+                )}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {brainActivity?.status?.tickCount ?? 0} ticks @ {brainActivity?.status?.tickMs ?? 0}ms
+              </div>
+            </Card>
+            <Card className="p-4 bg-black/40 border-white/10">
+              <div className="text-xs uppercase text-gray-400">Live decisions</div>
+              <div className="text-2xl font-bold mt-1 text-emerald-300">{brainActivity?.totals?.live ?? 0}</div>
+              <div className="text-xs text-gray-500 mt-1">in {windowHours}h</div>
+            </Card>
+            <Card className="p-4 bg-black/40 border-white/10">
+              <div className="text-xs uppercase text-gray-400">Dry-run decisions</div>
+              <div className="text-2xl font-bold mt-1 text-gray-300">{brainActivity?.totals?.dry ?? 0}</div>
+              <div className="text-xs text-gray-500 mt-1">recorded only</div>
+            </Card>
+            <Card className="p-4 bg-black/40 border-white/10">
+              <div className="text-xs uppercase text-gray-400">Pipeline coverage</div>
+              <div className="text-2xl font-bold mt-1">{(brainActivity?.breakdown ?? []).length}</div>
+              <div className="text-xs text-gray-500 mt-1">distinct steps fired</div>
+            </Card>
+          </div>
+
+          {/* Breakdown by pipeline step */}
+          <Card className="bg-black/40 border-white/10 overflow-hidden">
+            <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
+              <Brain className="w-4 h-4 text-cyan-400" />
+              <h2 className="font-semibold">Pipeline step breakdown</h2>
+              <Badge variant="outline" className="border-white/20 ml-auto">
+                {(brainActivity?.breakdown ?? []).reduce((s: number, x: any) => s + x.n, 0)} total
+              </Badge>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-white/5">
+                  <tr className="text-left text-xs uppercase text-gray-400">
+                    <th className="px-4 py-2">Action</th>
+                    <th className="px-4 py-2">Pipeline step</th>
+                    <th className="px-4 py-2 text-right">Count</th>
+                    <th className="px-4 py-2 text-right">Avg latency</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!brainActivity || brainActivity.breakdown.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-6 text-center text-gray-400" colSpan={4}>
+                        No brain activity in window.
+                      </td>
+                    </tr>
+                  ) : (
+                    brainActivity.breakdown.map((b: any, i: number) => (
+                      <tr key={`${b.kind}-${b.pipelineStep}-${i}`} className="border-t border-white/5 hover:bg-white/5">
+                        <td className="px-4 py-2">
+                          <Badge className={
+                            b.kind === 'exit_full' ? 'bg-red-500/15 text-red-300 border-red-500/30'
+                            : b.kind === 'tighten_stop' ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                            : b.kind === 'take_partial' ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                            : b.kind === 'enter_long' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                            : b.kind === 'enter_short' ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                            : b.kind === 'abstain' ? 'bg-gray-500/15 text-gray-400 border-gray-500/30'
+                            : 'bg-gray-500/15 text-gray-300 border-gray-500/30'
+                          }>{b.kind}</Badge>
+                        </td>
+                        <td className="px-4 py-2 text-gray-300 text-xs font-mono">{b.pipelineStep ?? '—'}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{b.n}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-gray-400">{b.avgLatencyUs}µs</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {/* Recent decision stream */}
+          <Card className="bg-black/40 border-white/10 overflow-hidden">
+            <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-cyan-400" />
+              <h2 className="font-semibold">Decision stream (live)</h2>
+              <Badge variant="outline" className="border-white/20 ml-auto">
+                {brainActivity?.recent?.length ?? 0} entries
+              </Badge>
+            </div>
+            <div className="max-h-96 overflow-y-auto">
+              {!brainActivity || brainActivity.recent.length === 0 ? (
+                <div className="px-4 py-6 text-center text-gray-400 text-sm">No recent decisions.</div>
+              ) : (
+                <div className="divide-y divide-white/5">
+                  {brainActivity.recent.map((d: any) => (
+                    <div key={d.id} className="px-4 py-2 text-xs hover:bg-white/5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500 font-mono">{new Date(d.timestamp).toLocaleTimeString()}</span>
+                        <Badge className={
+                          d.kind === 'exit_full' ? 'bg-red-500/15 text-red-300 border-red-500/30'
+                          : d.kind === 'tighten_stop' ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                          : d.kind === 'enter_long' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                          : d.kind === 'enter_short' ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                          : 'bg-gray-500/15 text-gray-400 border-gray-500/30'
+                        }>{d.kind}</Badge>
+                        <span className="text-gray-300 font-medium">{d.symbol}</span>
+                        <span className="text-gray-500">·</span>
+                        <span className="font-mono text-gray-400">{d.pipelineStep}</span>
+                        {d.isDryRun && <Badge className="bg-gray-500/15 text-gray-400 border-gray-500/30 text-[10px]">DRY</Badge>}
+                        <span className="ml-auto text-gray-500">{d.latencyUs}µs</span>
+                      </div>
+                      <div className="text-gray-400 mt-0.5 pl-12">{d.reason}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+        </TabsContent>
 
         {/* PER-AGENT SCORECARD */}
         <TabsContent value="agents" className="space-y-3">

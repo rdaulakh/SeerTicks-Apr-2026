@@ -107,6 +107,26 @@ class BrainExecutor extends EventEmitter {
           }
         } catch { /* IEM may not be initialized */ }
 
+        // Phase 84 — close the learning loop. Fire DecisionEvaluator's
+        // recordTradeOutcome so AgentWeightManager updates per-agent Brier
+        // scores AND AgentPnlAttributor writes the signed-$ row. Fire-and-
+        // forget; learning failures NEVER block exit confirmation.
+        try {
+          const { getDecisionEvaluator } = await import('../services/DecisionEvaluator');
+          const evaluator = getDecisionEvaluator(row.userId);
+          evaluator
+            .recordTradeOutcome(
+              row.symbol,
+              realizedPnl,
+              currentPrice,
+              `brain:${reason}`,
+              { tradeId: numericId, tradingMode: row.tradingMode === 'live' ? 'live' : 'paper' },
+            )
+            .catch((err: Error) => logger.warn('[BrainExecutor] learning-loop recordTradeOutcome failed', { error: err?.message }));
+        } catch (err) {
+          logger.warn('[BrainExecutor] learning-loop wiring failed', { error: (err as Error)?.message });
+        }
+
         // Update PaperTradingEngine wallet via the position_closed event chain.
         // We emit our own brain_position_closed; UserTradingSession listens.
         this.emit('brain_position_closed', {
@@ -189,6 +209,82 @@ class BrainExecutor extends EventEmitter {
   ): Promise<ExecutionResult> {
     logger.warn(`[BrainExecutor] take_partial(${qtyPercent}%) — v1 implements as full exit. Defer for v2.`);
     return this.exitFull(positionId, currentPrice, `partial_as_full:${reason}`);
+  }
+
+  /**
+   * Phase 84 — open a new paper position via direct DB insert. Uses the
+   * SAME path UserTradingSession uses for direct-DB-fallback on the entry
+   * side. PaperTradingEngine's next loadOpenPositions or DB poll picks it
+   * up in its in-memory map.
+   *
+   * For v1 we go direct-DB to avoid coupling the brain to a per-user
+   * PaperTradingEngine instance. v2 will route through the engine for
+   * proper wallet-margin accounting and commission tracking.
+   */
+  async openPosition(args: {
+    symbol: string;
+    side: 'long' | 'short';
+    quantity: number;
+    stopLoss: number;
+    takeProfit: number;
+    reason: string;
+    userId?: number;
+    exchange?: 'coinbase' | 'binance';
+  }): Promise<ExecutionResult & { positionId?: number }> {
+    try {
+      const db = await getDb();
+      if (!db) return { ok: false, affectedRows: 0, error: 'db_unavailable', reason: args.reason };
+
+      // Resolve current price from PriceFabric / globals.
+      let entryPrice = 0;
+      try {
+        const fut = (global as any).__binanceFuturesBook ?? {};
+        const binSym = args.symbol.replace('-USD', 'USDT');
+        const book = fut[binSym];
+        if (book?.midPrice) entryPrice = book.midPrice;
+      } catch { /* fall back below */ }
+      if (!entryPrice || !Number.isFinite(entryPrice)) {
+        // Fall back to last paperPositions price for this symbol
+        const [row] = await db.select().from(paperPositions)
+          .where(eq(paperPositions.symbol, args.symbol))
+          .limit(1);
+        if (row?.currentPrice) entryPrice = parseFloat(row.currentPrice);
+      }
+      if (!entryPrice || !Number.isFinite(entryPrice)) {
+        return { ok: false, affectedRows: 0, error: 'no_price', reason: args.reason };
+      }
+
+      const inserted = await db.insert(paperPositions).values({
+        userId: args.userId ?? 1,
+        tradingMode: 'paper',
+        symbol: args.symbol,
+        exchange: args.exchange ?? 'coinbase',
+        side: args.side,
+        entryPrice: entryPrice.toString(),
+        currentPrice: entryPrice.toString(),
+        quantity: args.quantity.toString(),
+        stopLoss: args.stopLoss.toString(),
+        takeProfit: args.takeProfit.toString(),
+        entryTime: getActiveClock().date(),
+        unrealizedPnL: '0',
+        unrealizedPnLPercent: '0',
+        commission: '0',
+        strategy: 'brain_v2_entry',
+        status: 'open',
+      });
+      const insertedId = (inserted as any)?.[0]?.insertId ?? (inserted as any)?.insertId ?? null;
+      logger.info(`[BrainExecutor] 🧠🆕 OPENED ${args.symbol} ${args.side} qty=${args.quantity.toFixed(6)} @ $${entryPrice.toFixed(4)} sl=$${args.stopLoss.toFixed(4)} tp=$${args.takeProfit.toFixed(4)} id=${insertedId} reason="${args.reason}"`);
+      this.emit('brain_position_opened', {
+        positionId: insertedId, symbol: args.symbol, side: args.side,
+        entryPrice, quantity: args.quantity, stopLoss: args.stopLoss, takeProfit: args.takeProfit,
+        reason: args.reason,
+      });
+      return { ok: true, affectedRows: 1, reason: args.reason, positionId: insertedId };
+    } catch (err) {
+      const msg = (err as Error)?.message ?? 'unknown';
+      logger.error(`[BrainExecutor] openPosition threw: ${msg}`);
+      return { ok: false, affectedRows: 0, error: msg, reason: args.reason };
+    }
   }
 }
 

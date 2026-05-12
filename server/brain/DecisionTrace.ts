@@ -13,7 +13,10 @@ export interface TraceEntry {
   positionId: string | number;
   symbol: string;
   side: 'long' | 'short';
-  kind: 'hold' | 'tighten_stop' | 'take_partial' | 'exit_full';
+  // Phase 84 widened to include entry-side actions (enter_long / enter_short / abstain).
+  // DB column `kind` is varchar(32) — fits any of these values.
+  kind: 'hold' | 'tighten_stop' | 'take_partial' | 'exit_full'
+    | 'enter_long' | 'enter_short' | 'abstain';
   pipelineStep: string;
   reason: string;
   urgency?: 'now' | 'soon';

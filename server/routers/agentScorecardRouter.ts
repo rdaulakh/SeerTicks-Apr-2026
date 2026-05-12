@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../_core/trpc';
 import { getDb } from '../db';
-import { agentSignals, agentAccuracy, agentPnlAttribution } from '../../drizzle/schema';
+import { agentSignals, agentAccuracy, agentPnlAttribution, brainDecisions } from '../../drizzle/schema';
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
 
 const WINDOW_HOURS = z.number().int().min(1).max(168).default(24);
@@ -512,5 +512,105 @@ export const agentScorecardRouter = router({
         exitReason: r.exitReason,
         closedAt: r.closedAt,
       })).sort((a: any, b: any) => Math.abs(b.pnlContribution) - Math.abs(a.pnlContribution));
+    }),
+
+  /**
+   * Phase 84 — Brain activity feed for the UI's Brain tab.
+   * Returns recent brain decisions + per-step breakdown + status.
+   */
+  getBrainActivity: protectedProcedure
+    .input(z.object({ windowMinutes: z.number().int().min(1).max(1440).default(60), limit: z.number().int().min(1).max(500).default(100) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { recent: [], breakdown: [], status: null, totals: { live: 0, dry: 0 } };
+      const since = new Date(Date.now() - input.windowMinutes * 60 * 1000);
+
+      const recent = await db
+        .select({
+          id: brainDecisions.id,
+          timestamp: brainDecisions.timestamp,
+          positionId: brainDecisions.positionId,
+          symbol: brainDecisions.symbol,
+          side: brainDecisions.side,
+          kind: brainDecisions.kind,
+          pipelineStep: brainDecisions.pipelineStep,
+          reason: brainDecisions.reason,
+          urgency: brainDecisions.urgency,
+          newStopLoss: brainDecisions.newStopLoss,
+          isDryRun: brainDecisions.isDryRun,
+          latencyUs: brainDecisions.latencyUs,
+        })
+        .from(brainDecisions)
+        .where(gte(brainDecisions.timestamp, since))
+        .orderBy(desc(brainDecisions.id))
+        .limit(input.limit);
+
+      const breakdown = await db
+        .select({
+          kind: brainDecisions.kind,
+          pipelineStep: brainDecisions.pipelineStep,
+          n: sql<number>`count(*)`,
+          avgLatencyUs: sql<number>`avg(latencyUs)`,
+        })
+        .from(brainDecisions)
+        .where(gte(brainDecisions.timestamp, since))
+        .groupBy(brainDecisions.kind, brainDecisions.pipelineStep);
+
+      const [totals] = await db
+        .select({
+          live: sql<number>`sum(case when isDryRun = false then 1 else 0 end)`,
+          dry: sql<number>`sum(case when isDryRun = true then 1 else 0 end)`,
+        })
+        .from(brainDecisions)
+        .where(gte(brainDecisions.timestamp, since));
+
+      let status: any = null;
+      try {
+        const { getTraderBrain } = await import('../brain/TraderBrain');
+        status = getTraderBrain().status();
+      } catch { /* brain not initialized */ }
+
+      return {
+        recent: recent.map((r: any) => ({
+          ...r,
+          newStopLoss: r.newStopLoss !== null && r.newStopLoss !== undefined ? parseFloat(r.newStopLoss) : null,
+        })),
+        breakdown: breakdown.map((b: any) => ({
+          kind: b.kind,
+          pipelineStep: b.pipelineStep,
+          n: Number(b.n),
+          avgLatencyUs: Math.round(Number(b.avgLatencyUs ?? 0)),
+        })).sort((a, b) => b.n - a.n),
+        totals: { live: Number(totals?.live ?? 0), dry: Number(totals?.dry ?? 0) },
+        status,
+      };
+    }),
+
+  /**
+   * Phase 84 — Full sensorium snapshot + per-step trace for a specific position.
+   * Powers the "Why did this close?" explainer panel.
+   */
+  getBrainTraceForPosition: protectedProcedure
+    .input(z.object({ positionId: z.string(), limit: z.number().int().min(1).max(200).default(50) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const rows = await db.select().from(brainDecisions)
+        .where(eq(brainDecisions.positionId, input.positionId))
+        .orderBy(desc(brainDecisions.id))
+        .limit(input.limit);
+      return rows.map((r: any) => ({
+        id: r.id,
+        timestamp: r.timestamp,
+        symbol: r.symbol,
+        side: r.side,
+        kind: r.kind,
+        pipelineStep: r.pipelineStep,
+        reason: r.reason,
+        urgency: r.urgency,
+        newStopLoss: r.newStopLoss ? parseFloat(r.newStopLoss) : null,
+        latencyUs: r.latencyUs,
+        sensorium: r.sensorium,
+      }));
     }),
 });
