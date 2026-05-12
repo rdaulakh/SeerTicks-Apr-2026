@@ -645,16 +645,34 @@ class TraderBrain {
         reason: `market data ${(marketStaleMs/1000).toFixed(1)}s stale — holding (hard-stop still armed)`,
       };
     }
-    if (stance && stance.entryDirection !== null && pos.unrealizedPnlPercent > 0.10) {
-      // Drift > threshold against the entry direction = thesis dead
-      const flipDetected =
+    // Phase 93 — Two-tier consensus_flip:
+    //   Tier A (in profit > 0.10%): fire at config threshold (default 0.30) — bank the gain
+    //     before the thesis decays further.
+    //   Tier B (any P&L, even loss): fire at HIGH conviction (≥ 0.75) — when 75%+ of
+    //     agents believe the opposite direction, even a losing position should be cut.
+    //     This is the safety net for positions whose hard stop wasn't set (e.g.,
+    //     hydrated-from-exchange) or where flipping conviction outpaces the stop level.
+    //   Previously this branch was gated only on profit > 0.10%, which left losing
+    //     unstopped positions unmanaged — bug surfaced by audit of 3 open positions on
+    //     2026-05-13 (ETH/BTC shorts hydrated without stops, agents flipped bullish @
+    //     ~78% while positions kept bleeding; brain held because flip rule was skipped).
+    if (stance && stance.entryDirection !== null) {
+      const STRONG_FLIP_CONVICTION = 0.75;
+      const inProfit = pos.unrealizedPnlPercent > 0.10;
+      const baseFlipped =
         (stance.entryDirection === 'bullish' && stance.currentDirection === 'bearish' && stance.currentConsensus >= this.config.consensusFlipThreshold) ||
         (stance.entryDirection === 'bearish' && stance.currentDirection === 'bullish' && stance.currentConsensus >= this.config.consensusFlipThreshold);
+      const strongFlipped =
+        (stance.entryDirection === 'bullish' && stance.currentDirection === 'bearish' && stance.currentConsensus >= STRONG_FLIP_CONVICTION) ||
+        (stance.entryDirection === 'bearish' && stance.currentDirection === 'bullish' && stance.currentConsensus >= STRONG_FLIP_CONVICTION);
+      // Tier A: in profit + base threshold met. Tier B: strong flip regardless of P&L.
+      const flipDetected = (inProfit && baseFlipped) || strongFlipped;
       if (flipDetected) {
+        const tier = inProfit && baseFlipped && !strongFlipped ? 'A' : 'B';
         return {
           kind: 'exit_full',
           pipelineStep: 'consensus_flip',
-          reason: `Consensus flipped ${stance.entryDirection}→${stance.currentDirection} @ ${(stance.currentConsensus * 100).toFixed(0)}% conviction; trade thesis dead`,
+          reason: `Consensus flipped ${stance.entryDirection}→${stance.currentDirection} @ ${(stance.currentConsensus * 100).toFixed(0)}% conviction (tier ${tier}, pnl=${pos.unrealizedPnlPercent.toFixed(2)}%); trade thesis dead`,
           urgency: 'now',
         };
       }

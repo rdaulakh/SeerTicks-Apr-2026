@@ -475,6 +475,17 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
         // No DB row for this exchange position — insert one so the IEM can manage it.
         const symbolForDb = canonical;
         const exchangeForDb = 'binance';
+        // Phase 93 — Compute default stop loss and take profit on hydration.
+        // Previously these were left NULL, leaving hydrated positions completely
+        // unprotected: no hard-stop enforcement was possible because the brain
+        // had no stop level to enforce. Audit on 2026-05-13 found 2 short positions
+        // (ETH, BTC) hydrated from Binance with NULL stops; the consensus_flip exit
+        // rule was also gated on profit (separate fix in TraderBrain.ts), so the
+        // positions had no exit path at all until manual intervention.
+        // Defaults: -1.2% loss / 1.0% profit, matching TradingConfig.
+        const isShortPos = ex.side === 'short';
+        const hydStopLoss = isShortPos ? ex.entryPrice * 1.012 : ex.entryPrice * 0.988;
+        const hydTakeProfit = isShortPos ? ex.entryPrice * 0.99 : ex.entryPrice * 1.01;
         try {
           const insertResult = await db.insert(paperPositions).values({
             userId: this.config.userId,
@@ -485,6 +496,8 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
             entryPrice: ex.entryPrice.toString(),
             currentPrice: ex.currentPrice.toString(),
             quantity: ex.quantity.toString(),
+            stopLoss: hydStopLoss.toString(),
+            takeProfit: hydTakeProfit.toString(),
             entryTime: getActiveClock().date(),
             unrealizedPnL: ex.unrealizedPnl.toString(),
             unrealizedPnLPercent: '0',
@@ -508,12 +521,15 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
             unrealizedPnLPercent: 0,
             commission: 0,
             strategy: 'hydrated_from_exchange',
+            stopLoss: hydStopLoss,
+            takeProfit: hydTakeProfit,
           };
           // Phase 55.3 — same key fix as loadOpenPositionsFromDatabase.
           this.positions.set(`${newPos.symbol}_${newPos.exchange}`, newPos);
           inserted++;
           executionLogger.warn('Hydrated unknown exchange position into DB', {
-            symbol: symbolForDb, side: ex.side, qty: ex.quantity, entryPrice: ex.entryPrice, dbId: newDbId,
+            symbol: symbolForDb, side: ex.side, qty: ex.quantity, entryPrice: ex.entryPrice,
+            stopLoss: hydStopLoss, takeProfit: hydTakeProfit, dbId: newDbId,
           });
         } catch (insertErr) {
           executionLogger.error('Failed to persist hydrated position', { symbol: symbolForDb, error: (insertErr as Error)?.message });
