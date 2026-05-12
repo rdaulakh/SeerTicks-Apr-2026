@@ -40,7 +40,6 @@ export default defineConfig({
             '@radix-ui/react-tabs',
             '@radix-ui/react-select',
             '@radix-ui/react-tooltip',
-            '@radix-ui/react-toast',
           ],
         },
       },
