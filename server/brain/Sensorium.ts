@@ -312,11 +312,29 @@ class Sensorium extends EventEmitter {
   getActivePositionIds(): Array<string | number> {
     return Array.from(this.positions.keys());
   }
-  /** Enumerate symbols WITHOUT an open position (entry candidates). */
+  /** Enumerate symbols WITHOUT an open position (entry candidates).
+   *
+   * Phase 93.10 — "occupied" means ANY open position on the symbol regardless
+   * of side, exchange, strategy, or userId currently in the brain's view.
+   * The brain must NEVER open a second position on a symbol it already has
+   * exposure on — a LONG+SHORT pair is net-zero exposure that still pays
+   * fees on both sides, and adding a same-direction position over-concentrates
+   * conviction the existing position already represents.
+   */
   getSymbolsWithoutPosition(allSymbols: string[]): string[] {
     const occupied = new Set<string>();
     for (const e of this.positions.values()) occupied.add(e.value.symbol);
     return allSymbols.filter(s => !occupied.has(s));
+  }
+
+  /** Phase 93.10 — Synchronous "does the brain see ANY open position on this
+   * symbol?" check. Used by the entry executor as a final guard before the
+   * DB insert. Side-agnostic, exchange-agnostic, strategy-agnostic by design. */
+  hasOpenPositionOnSymbol(symbol: string): boolean {
+    for (const e of this.positions.values()) {
+      if (e.value.symbol === symbol) return true;
+    }
+    return false;
   }
 
   // ─── Snapshot for DecisionTrace (full inputs the brain saw) ──────────

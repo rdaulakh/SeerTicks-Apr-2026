@@ -400,6 +400,56 @@ class BrainExecutor extends EventEmitter {
       const db = await getDb();
       if (!db) return { ok: false, affectedRows: 0, error: 'db_unavailable', reason: args.reason };
 
+      // ──────────────────────────────────────────────────────────────────
+      // Phase 93.10 — SAME-SYMBOL EXPOSURE GUARD (belt-and-suspenders).
+      //
+      // Before opening ANY new position, verify the user has no other open
+      // position on this symbol — regardless of side, exchange, strategy,
+      // or which engine created it. A LONG+SHORT pair on the same symbol
+      // is net-zero exposure that pays fees on both sides; a same-direction
+      // pile-on over-concentrates conviction the prior position already
+      // represents. This authoritative DB check catches all code paths:
+      //   • Brain's own race (decideEntry ran before Sensorium re-polled)
+      //   • Legacy enhanced_automated path (EnhancedTradeExecutor)
+      //   • Live hydration (RealTradingEngine.hydrateFromExchange)
+      //   • Concurrent brain ticks at 10Hz
+      //
+      // Bug reported 2026-05-13: paperPositions had BTC-USD SHORT #129 +
+      // BTC-USD LONG #138 simultaneously, ETH-USD LONG + SHORT pair too.
+      // Sensorium-level checks alone were insufficient because of the 1s
+      // polling lag between table state and Sensorium state.
+      // ──────────────────────────────────────────────────────────────────
+      const userIdForCheck = args.userId ?? 1;
+      const [existing] = await db.select({ id: paperPositions.id, side: paperPositions.side, strategy: paperPositions.strategy })
+        .from(paperPositions)
+        .where(and(
+          eq(paperPositions.userId, userIdForCheck),
+          eq(paperPositions.symbol, args.symbol),
+          eq(paperPositions.status, 'open'),
+        ))
+        .limit(1);
+      if (existing) {
+        logger.warn(`[BrainExecutor] 🧠⛔ openPosition REFUSED: ${args.symbol} ${args.side} blocked — existing open position id=${existing.id} side=${existing.side} strategy=${existing.strategy} (user ${userIdForCheck}). Same-symbol exposure guard active.`);
+        return { ok: false, affectedRows: 0, error: 'same_symbol_exposure', reason: args.reason };
+      }
+      // Also check the live `positions` table for the same user/symbol —
+      // live and paper trades can coexist for the same user but should
+      // never simultaneously hold opposite-side exposure on one symbol.
+      try {
+        const [liveExisting] = await db.select({ id: livePositionsTable.id, side: livePositionsTable.side })
+          .from(livePositionsTable)
+          .where(and(
+            eq(livePositionsTable.userId, userIdForCheck),
+            eq(livePositionsTable.symbol, args.symbol),
+            eq(livePositionsTable.status, 'open'),
+          ))
+          .limit(1);
+        if (liveExisting) {
+          logger.warn(`[BrainExecutor] 🧠⛔ openPosition REFUSED: ${args.symbol} ${args.side} blocked — existing LIVE position id=${liveExisting.id} side=${liveExisting.side} (user ${userIdForCheck}). Same-symbol exposure guard active.`);
+          return { ok: false, affectedRows: 0, error: 'same_symbol_exposure', reason: args.reason };
+        }
+      } catch { /* live table probe is best-effort; the paper-tbl check above is the primary gate */ }
+
       // Phase 86 — live entries via EngineAdapter.placeOrder (paper/real
       // engines route under the same interface). Still gated by feature flag.
       if (args.mode === 'live') {

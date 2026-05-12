@@ -222,7 +222,11 @@ class TraderBrain {
       if (!breached) continue;
       // Fire immediate exit. Skip the trace+decision plumbing of the regular
       // tick — log directly and route through the executor.
+      // Phase 93.10 — set entry cooldown on the symbol BEFORE the exit fires
+      // so the brain can't re-enter in the opposite direction in the next
+      // tick (the LONG+SHORT-same-symbol bug surfaced via this path too).
       this.inFlightExits.add(positionId);
+      this.entryCooldown.set(symbol, Date.now() + this.ENTRY_COOLDOWN_MS);
       logger.warn(`[TraderBrain] ⚡🧠⛔ FAST HARD-STOP ${symbol} ${pos.side} id=${positionId}: price ${currentPrice} ${pos.side === 'long' ? '≤' : '≥'} stop ${stop} — immediate exit`);
       try {
         const { getBrainExecutor } = await import('./BrainExecutor');
@@ -658,7 +662,11 @@ class TraderBrain {
 
   /** Phase 84 — execute an entry decision via BrainExecutor.
    *  Phase 86 — route to the primary user's wallet via portfolio sensor +
-   *  enforce per-symbol cooldown to prevent same-symbol over-firing. */
+   *  enforce per-symbol cooldown to prevent same-symbol over-firing.
+   *  Phase 93.10 — final Sensorium check + same-symbol DB exposure check
+   *  to prevent simultaneous LONG+SHORT on the same symbol regardless of
+   *  which code path (brain entry, legacy enhanced_automated, hydration)
+   *  created the prior position. */
   private async executeEntry(decision: BrainAction): Promise<void> {
     if (decision.kind !== 'enter_long' && decision.kind !== 'enter_short') return;
 
@@ -667,6 +675,20 @@ class TraderBrain {
       // Still cooling down on this symbol — skip silently.
       return;
     }
+
+    // Phase 93.10 — DEFENSE LAYER 1: re-check Sensorium synchronously, just
+    // before we call into the executor. decideEntry() ran earlier in the
+    // tick loop and the Sensorium state might have flipped (another tick
+    // path opened, a hydrate pulled in an exchange position, etc.). If we
+    // now see ANY position on this symbol — abstain.
+    const sensorium = getSensorium();
+    if (sensorium.hasOpenPositionOnSymbol(decision.symbol)) {
+      logger.warn(`[TraderBrain] 🧠⛔ entry blocked at execute-time: open position already on ${decision.symbol} (Sensorium guard)`);
+      // Set a brief cooldown so we don't spam the log every 100ms tick.
+      this.entryCooldown.set(decision.symbol, Date.now() + this.ENTRY_COOLDOWN_MS);
+      return;
+    }
+
     // Set the cooldown FIRST (before the async DB call) so concurrent ticks
     // can't race past us. We'll relax it only on failure so we can retry.
     this.entryCooldown.set(decision.symbol, Date.now() + this.ENTRY_COOLDOWN_MS);
@@ -685,15 +707,31 @@ class TraderBrain {
       userId,
     });
     if (!r.ok) {
-      // Release the cooldown on failure so the next tick can retry.
-      this.entryCooldown.delete(decision.symbol);
+      // Phase 93.10 — if the executor rejected because an open position
+      // already exists, KEEP the cooldown active. Releasing it would cause
+      // the next 100ms tick to retry and flood the DB with the same probe.
+      if (r.error === 'same_symbol_exposure') {
+        // Extend cooldown rather than retry — the position needs to close first.
+        this.entryCooldown.set(decision.symbol, Date.now() + this.ENTRY_COOLDOWN_MS);
+      } else {
+        // Other failures — release so the next tick can retry.
+        this.entryCooldown.delete(decision.symbol);
+      }
     }
-    logger.info(`[TraderBrain] 🧠→ ${decision.kind.toUpperCase()} ${decision.symbol} user=${userId} qty=${decision.size.toFixed(6)} sl=$${decision.stopLoss.toFixed(4)} tp=$${decision.takeProfit.toFixed(4)}: ${r.ok ? 'ok' : 'failed'} reason="${decision.pipelineStep}"`);
+    logger.info(`[TraderBrain] 🧠→ ${decision.kind.toUpperCase()} ${decision.symbol} user=${userId} qty=${decision.size.toFixed(6)} sl=$${decision.stopLoss.toFixed(4)} tp=$${decision.takeProfit.toFixed(4)}: ${r.ok ? 'ok' : 'failed'} reason="${decision.pipelineStep}" ${r.ok ? '' : `(err=${r.error ?? 'unknown'})`}`);
   }
 
   /**
    * Phase 83.2 — execute a non-hold decision via BrainExecutor.
    * Fire-and-forget from the hot loop; failures recorded to trace.
+   *
+   * Phase 93.10 — when we EXIT a position, set an entry cooldown on that
+   * symbol so the brain doesn't immediately re-enter in the opposite
+   * direction before the Sensorium poll (1s cadence) has even noticed the
+   * exit. Without this, the SHORT-just-closed-by-consensus-flip pattern
+   * fires a LONG on the same symbol within the next 100ms tick → the very
+   * "LONG+SHORT simultaneously" bug. Cooldown clears naturally on the next
+   * SensorWiring poll seeing 0 open positions on this symbol.
    */
   private async executeDecision(
     positionId: string | number,
@@ -703,12 +741,17 @@ class TraderBrain {
     const executor = getBrainExecutor();
     const symbol = pos.symbol;
     if (decision.kind === 'exit_full') {
+      // Set the post-exit entry cooldown FIRST so concurrent ticks can't
+      // race past us into a re-entry.
+      this.entryCooldown.set(symbol, Date.now() + this.ENTRY_COOLDOWN_MS);
       const r = await executor.exitFull(positionId, pos.currentPrice, decision.reason);
       logger.info(`[TraderBrain] 🧠→ EXIT_FULL ${symbol} id=${positionId}: ${r.ok ? 'ok' : 'failed'} affected=${r.affectedRows} reason="${decision.pipelineStep}"`);
     } else if (decision.kind === 'tighten_stop') {
       const r = await executor.updateStop(positionId, decision.newStopLoss, decision.reason);
       logger.info(`[TraderBrain] 🧠→ TIGHTEN_STOP ${symbol} id=${positionId} → $${decision.newStopLoss.toFixed(4)}: ${r.ok ? 'ok' : 'failed'}`);
     } else if (decision.kind === 'take_partial') {
+      // Partial is implemented as full close in v1 — same re-entry-risk applies.
+      this.entryCooldown.set(symbol, Date.now() + this.ENTRY_COOLDOWN_MS);
       const r = await executor.exitPartial(positionId, decision.exitQuantityPercent, pos.currentPrice, decision.reason);
       logger.info(`[TraderBrain] 🧠→ TAKE_PARTIAL ${symbol} id=${positionId} (${decision.exitQuantityPercent}%): ${r.ok ? 'ok' : 'failed'}`);
     }
