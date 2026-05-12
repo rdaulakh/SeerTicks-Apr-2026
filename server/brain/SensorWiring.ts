@@ -75,7 +75,12 @@ export function startSensorWiring(): void {
     pullAllAgentSignals().catch(err => {
       logger.warn('[SensorWiring] all-agent pull failed', { error: err?.message });
     });
-  }, 3000));
+    // Phase 92 — was 3s. With 33 agents × ~750k signals/day, a 3s pull
+    // creates significant DB pressure (full table scan before the composite
+    // index existed; even with index, frequent reads compete with writes).
+    // 10s is plenty fast — the brain's tick is 1Hz and the sensorium
+    // staleness window is 30s.
+  }, 10_000));
 
   // ─── Position + Stance: every 1s, read live IEM map + consensus cache ──
   intervalIds.push(setInterval(() => {
@@ -164,9 +169,12 @@ async function pullAllAgentSignals(): Promise<void> {
   if (!db) return;
 
   const sensorium = getSensorium();
-  // Window: 90s gives slow agents (sentiment/news/macro refresh every 60s) a
-  // chance to be heard; fast agents will always have multiple rows here.
-  const since = new Date(Date.now() - 90_000);
+  // Phase 92 — Window halved (90s → 45s) and limit cut (4000 → 1500). Pre-
+  // fix this query was full-table-scanning 4.9M rows every 3s, exhausting
+  // the DB pool and timing out tRPC queries from the browser. Phase 92 also
+  // adds the (agentName, timestamp DESC) composite index in DB so the
+  // query is now index-supported.
+  const since = new Date(Date.now() - 45_000);
 
   const rows = await db
     .select({
@@ -180,7 +188,7 @@ async function pullAllAgentSignals(): Promise<void> {
       inArray(agentSignals.agentName, ALL_AGENTS),
     ))
     .orderBy(desc(agentSignals.timestamp))
-    .limit(4000); // 33 agents × ~5 syms × ~24 ticks/90s = ~4k upper bound
+    .limit(1500); // 33 agents × ~3 syms × ~15 ticks/45s ≈ 1.5k
 
   // Deduplicate: keep newest per (agentName, symbol).
   const newest = new Map<string, { sd: any; ts: number }>();
