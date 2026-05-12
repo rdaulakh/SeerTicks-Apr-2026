@@ -35,22 +35,37 @@ echo "==> Rebuilding CLIENT (vite build → dist/public.new, atomic swap)..."
 # clicking a route mid-deploy. With atomic swap, the live dist/public stays
 # intact until the new build is complete and verified. Old build kept as
 # dist/public.old until the next deploy (rollback safety).
-rm -rf dist/public.new
-mkdir -p dist/public.new
-# vite.config sets `root: client/` so a RELATIVE --outDir resolves under
-# client/ — not what we want. Pass an ABSOLUTE path so the output lands
-# at <project>/dist/public.new regardless of vite's root setting.
-ABS_OUTDIR="$(pwd)/dist/public.new"
-npx vite build --outDir "$ABS_OUTDIR" --emptyOutDir
-# Also handle the case where vite still wrote to client/dist/public.new
-# (older vite versions on some hosts): if the canonical dir is empty but
-# the client-relative one has content, move it.
-if [ ! -f "$ABS_OUTDIR/index.html" ] && [ -f "client/dist/public.new/index.html" ]; then
-  echo "    Detected vite output under client/ — relocating to canonical dist/public.new"
-  rm -rf "$ABS_OUTDIR"
-  mv client/dist/public.new "$ABS_OUTDIR"
-  rmdir client/dist 2>/dev/null || true
+PROJECT_ROOT="$(pwd)"
+ABS_OUTDIR="$PROJECT_ROOT/dist/public.new"
+# vite.config sets `root: client/`. Both relative and absolute --outDir args
+# get resolved against client/ in this setup (verified empirically on the
+# Tokyo box). Easiest robust approach: build to a TEMP scratch dir, then
+# unconditionally move the resulting tree to the canonical staging path.
+SCRATCH_DIR="$PROJECT_ROOT/dist/_vite_scratch_$$"
+rm -rf "$SCRATCH_DIR" "$ABS_OUTDIR"
+mkdir -p "$SCRATCH_DIR"
+npx vite build --outDir "$SCRATCH_DIR" --emptyOutDir
+# vite may have written either to $SCRATCH_DIR (good) or to
+# client/$SCRATCH_DIR (root-rooted resolution). Find the actual location
+# of index.html and move it to the canonical staging path.
+ACTUAL_OUT=""
+if [ -f "$SCRATCH_DIR/index.html" ]; then
+  ACTUAL_OUT="$SCRATCH_DIR"
+elif [ -f "client$SCRATCH_DIR/index.html" ]; then
+  ACTUAL_OUT="client$SCRATCH_DIR"
+else
+  # Last resort: scan for any newly-written index.html
+  FOUND=$(find "$PROJECT_ROOT" -maxdepth 6 -name index.html -newer "$SCRATCH_DIR" 2>/dev/null | grep -E "(dist|scratch)" | head -1)
+  if [ -n "$FOUND" ]; then ACTUAL_OUT="$(dirname "$FOUND")"; fi
 fi
+if [ -z "$ACTUAL_OUT" ] || [ ! -f "$ACTUAL_OUT/index.html" ]; then
+  echo "    ERROR: could not locate vite output (no index.html anywhere) — keeping current dist/public live."
+  exit 1
+fi
+mv "$ACTUAL_OUT" "$ABS_OUTDIR"
+# Clean up any empty parent dirs vite may have created.
+rmdir client/dist 2>/dev/null || true
+rmdir "$(dirname "$SCRATCH_DIR")" 2>/dev/null || true
 # Sanity-check: index.html must exist before we swap.
 if [ ! -f dist/public.new/index.html ]; then
   echo "    ERROR: dist/public.new/index.html missing after build — aborting swap, keeping current dist/public live."
