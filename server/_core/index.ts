@@ -661,17 +661,21 @@ async function startServer() {
       // -book; pair with spot bookTicker to compute the premium. forceOrder
       // stays — fires only on actual liquidations (rare in calm markets, that's
       // the point: when it fires, it matters).
-      // Phase 53.5 — also subscribe to @aggTrade on futures so we can compute
-      // perp taker-flow imbalance (CVD). Aggressive taker fills lead price by
-      // 500ms–2s on the same venue when they cluster directionally.
-      // Phase 53.8 — also @depth5@100ms for top-5 order book imbalance.
-      // bookTicker is only top-of-book; depth5 reveals wall structure (sum of
-      // top-5 bids vs top-5 asks). Persistent imbalance often leads price.
+      // Phase 53.5 — perp taker-flow for CVD / imbalance / outlier detection.
+      // Phase 82.4 — switched from @aggTrade to @trade because Binance Futures
+      // USDT-M's @aggTrade stream silently emits ZERO messages (verified live:
+      // direct subscription returned 0 fills in 10s while @bookTicker on the
+      // same WS got 2113 messages). @trade returns 1197 fills in 8s with the
+      // same `s/p/q/m/T` fields we need. This is the single fix that
+      // resurrects 6 zombie agents (PerpTakerFlow, VWAPDivergence, TradeBurst,
+      // TradeSizeOutlier, CVDDivergence, PriceImpact) — all of them depend on
+      // `__binancePerpTakerFlow` being populated.
+      // Phase 53.8 — @depth5@100ms for top-5 order book imbalance.
       const streams = futuresSymbols
         .flatMap(s => [
           `${s.toLowerCase()}@forceOrder`,
           `${s.toLowerCase()}@bookTicker`,
-          `${s.toLowerCase()}@aggTrade`,
+          `${s.toLowerCase()}@trade`,
           `${s.toLowerCase()}@depth5@100ms`,
         ])
         .join('/');
@@ -720,10 +724,13 @@ async function startServer() {
               tradeTime: data.T,
               eventTime: data.E,
             };
-          } else if (stream.includes('@aggTrade')) {
-            // Phase 53.5 — perp aggressive trades. data.m === true means the
-            // BUYER is the maker, i.e. the taker SOLD into the bid (sell flow).
-            // data.m === false means the taker BOUGHT (buy flow).
+          } else if (stream.includes('@trade')) {
+            // Phase 82.4 — perp trades (was @aggTrade, but Binance Futures
+            // @aggTrade silently emits 0 messages — see boot comment above).
+            // @trade has the same `m`/`p`/`q`/`s`/`T` fields, just per-fill
+            // instead of per-aggregated-taker-order. Net effect on imbalance
+            // calculation is identical (we're summing notional × side anyway).
+            // data.m === true means BUYER is maker (taker SOLD); false = taker BOUGHT.
             const price = parseFloat(data.p);
             const qty = parseFloat(data.q);
             if (!isFinite(price) || !isFinite(qty) || qty <= 0) return;
@@ -732,7 +739,7 @@ async function startServer() {
             (global as any).__binancePerpTakerFlow = (global as any).__binancePerpTakerFlow || {};
             const ring = (global as any).__binancePerpTakerFlow[data.s] || [];
             ring.push({ side, price, qty, notional, timestamp: data.T });
-            // Keep last 500 fills per symbol (~30-60s on liquid majors).
+            // Keep last 500 fills per symbol (~5-10s on liquid majors at ~100 fills/sec).
             if (ring.length > 500) ring.splice(0, ring.length - 500);
             (global as any).__binancePerpTakerFlow[data.s] = ring;
           } else if (stream.includes('@depth5')) {
