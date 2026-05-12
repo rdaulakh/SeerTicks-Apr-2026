@@ -529,10 +529,18 @@ export class EnhancedTradeExecutor extends EventEmitter {
       // ETH shorts stacked on 2026-04-25 because each successive signal
       // believed there was no existing position. Read paperPositions directly
       // so the check actually sees what's there.
+      //
+      // Phase 93.10 update — was only blocking SAME-direction duplicates,
+      // which let SHORT+LONG pairs accumulate on the same symbol (audit on
+      // 2026-05-13 found ETH SHORT + ETH LONG and BTC SHORT + BTC LONG
+      // simultaneously held). New behaviour: block ANY existing open position
+      // on the symbol regardless of side. Matches the brain-side guard
+      // landed in Phase 93.10 (Sensorium.hasOpenPositionOnSymbol +
+      // BrainExecutor.openPosition DB preflight).
       const incomingDirection: 'long' | 'short' = recommendation.action === 'buy' ? 'long' : 'short';
-      let existingSameDir: { id: number | string } | undefined =
-        openPositions.find((p: any) => p.symbol === symbol && p.side === incomingDirection && p.status === 'open');
-      if (!existingSameDir) {
+      let existingOnSymbol: { id: number | string; side?: string } | undefined =
+        openPositions.find((p: any) => p.symbol === symbol && p.status === 'open');
+      if (!existingOnSymbol) {
         // Fallback to direct paperPositions read — covers the paper-mode gap.
         try {
           const { getDb } = await import('../db');
@@ -540,22 +548,23 @@ export class EnhancedTradeExecutor extends EventEmitter {
           const { eq, and } = await import('drizzle-orm');
           const db = await getDb();
           if (db) {
+            // Phase 93.10 — side filter REMOVED so opposite-direction also blocks.
             const rows = await db.select().from(paperPositions).where(and(
               eq(paperPositions.userId, this.userId),
               eq(paperPositions.symbol, symbol),
-              eq(paperPositions.side, incomingDirection),
               eq(paperPositions.status, 'open'),
             )).limit(1);
-            if (rows.length > 0) existingSameDir = { id: rows[0].id };
+            if (rows.length > 0) existingOnSymbol = { id: rows[0].id, side: rows[0].side };
           }
         } catch (dupCheckErr) {
           console.warn('[EnhancedTradeExecutor] paperPositions duplicate-check query failed:', (dupCheckErr as Error)?.message);
           // Fall through — caller will still proceed; better to allow than to fail-closed on a query error.
         }
       }
-      if (existingSameDir) {
-        console.log(`[EnhancedTradeExecutor] ⛔ DUPLICATE BLOCKED: Already have ${incomingDirection} position for ${symbol} (#${existingSameDir.id})`);
-        await this.logRejection(signal, `Duplicate position blocked: already ${incomingDirection} on ${symbol}`, latencyContextId);
+      if (existingOnSymbol) {
+        const existingSide = existingOnSymbol.side ?? 'unknown';
+        console.log(`[EnhancedTradeExecutor] ⛔ DUPLICATE BLOCKED: Already have ${existingSide} position #${existingOnSymbol.id} on ${symbol} — refusing ${incomingDirection} entry (same-symbol exposure rule)`);
+        await this.logRejection(signal, `Same-symbol exposure blocked: existing ${existingSide} #${existingOnSymbol.id} on ${symbol}; would have entered ${incomingDirection}`, latencyContextId);
         return;
       }
 
