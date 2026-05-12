@@ -21,6 +21,28 @@ class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
+  // Phase 93.5 — auto-recover from chunk-load failures after a deploy.
+  // See PageErrorBoundary for full rationale. Mirrored here so both
+  // boundary variants behave consistently.
+  componentDidCatch(error: Error): void {
+    const msg = (error?.message || error?.toString() || '').toLowerCase();
+    const isChunkLoadFailure =
+      msg.includes('failed to fetch dynamically imported module') ||
+      msg.includes('failed to fetch dynamically imported') ||
+      msg.includes('loading chunk') ||
+      msg.includes('loading css chunk') ||
+      msg.includes('importing a module script failed') ||
+      /[a-z0-9_-]+-[a-z0-9_-]{8,}\.js/i.test(msg);
+    if (isChunkLoadFailure) {
+      const flag = 'seer:chunk_reload_attempted';
+      if (!sessionStorage.getItem(flag)) {
+        console.warn('[ErrorBoundary] chunk-load failure detected — reloading.');
+        sessionStorage.setItem(flag, String(Date.now()));
+        window.location.reload();
+      }
+    }
+  }
+
   render() {
     if (this.state.hasError) {
       return (

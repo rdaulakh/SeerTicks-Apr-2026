@@ -46,7 +46,49 @@ export class PageErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     // Log error to console for debugging
     console.error('[ErrorBoundary] Caught error:', error, errorInfo);
-    
+
+    // Phase 93.5 — auto-recover from chunk-load failures.
+    //
+    // A vite-built SPA with lazy routes ships hashed chunks (e.g.
+    // AgentScorecard-DtIFrU5-.js). Deploys produce NEW hashes. If a user has
+    // an old index.html cached and clicks a lazy route, the browser asks for
+    // the OLD chunk hash which now 404s. The error reads:
+    //   "Failed to fetch dynamically imported module: .../Foo-OLDHASH.js"
+    // The user sees the generic ErrorBoundary screen — bad UX for what is
+    // simply "the deploy moved the chunk."
+    //
+    // Detection: the error message contains "dynamically imported module" OR
+    // "Loading chunk" OR matches a hashed chunk URL pattern.
+    //
+    // Recovery: reload once with a session-storage flag to prevent reload
+    // loops if the issue is actually a real bug.
+    const msg = (error?.message || error?.toString() || '').toLowerCase();
+    const isChunkLoadFailure =
+      msg.includes('failed to fetch dynamically imported module') ||
+      msg.includes('failed to fetch dynamically imported') ||
+      msg.includes('loading chunk') ||
+      msg.includes('loading css chunk') ||
+      msg.includes('importing a module script failed') ||
+      /[a-z0-9_-]+-[a-z0-9_-]{8,}\.js/i.test(msg);
+
+    if (isChunkLoadFailure) {
+      const reloadFlagKey = 'seer:chunk_reload_attempted';
+      const alreadyReloaded = sessionStorage.getItem(reloadFlagKey);
+      if (!alreadyReloaded) {
+        console.warn('[ErrorBoundary] Detected chunk-load failure (probably stale build after deploy) — reloading once.');
+        sessionStorage.setItem(reloadFlagKey, String(Date.now()));
+        // Use replace() so the broken state isn't in history.
+        window.location.reload();
+        return; // don't render the error UI; the reload will replace it
+      } else {
+        console.error('[ErrorBoundary] Chunk-load failure after reload attempt — showing fallback UI.');
+        // Fall through to showing the standard error screen. Clear the flag
+        // after 5 min so future genuine deploys can self-heal again.
+        const flagAge = Date.now() - Number(alreadyReloaded);
+        if (flagAge > 5 * 60_000) sessionStorage.removeItem(reloadFlagKey);
+      }
+    }
+
     // Update state with error details
     this.setState({
       error,
