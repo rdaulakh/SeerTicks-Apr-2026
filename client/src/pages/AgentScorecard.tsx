@@ -222,15 +222,16 @@ export default function AgentScorecard() {
   });
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-7xl space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    <div className="min-h-screen bg-slate-950 pt-16 lg:pt-20">
+    <div className="container mx-auto px-3 sm:px-4 lg:px-6 py-4 lg:py-6 max-w-7xl space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Trophy className="w-6 h-6 text-amber-400" />
+          <h1 className="text-xl lg:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+            <Trophy className="w-5 h-5 lg:w-6 lg:h-6 text-amber-400" />
             Agent Scorecard
           </h1>
-          <p className="text-sm text-gray-400">
-            Per-agent performance, watchdog status, and signed-$ contribution.
+          <p className="text-xs text-slate-400 mt-0.5 hidden sm:block">
+            Per-agent performance, watchdog status, signed-$ attribution.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -238,71 +239,71 @@ export default function AgentScorecard() {
           <Button
             size="sm"
             variant={showAdvancedOps ? "default" : "outline"}
-            className={showAdvancedOps ? "bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30" : "border-white/10 text-gray-400 hover:text-gray-200"}
+            className={showAdvancedOps ? "h-8 text-xs bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/25" : "h-8 text-xs border-slate-700 text-slate-400 hover:text-slate-200"}
             onClick={() => setShowAdvancedOps(v => !v)}
             title={showAdvancedOps ? "Hide operator controls — system runs autonomously" : "Show operator controls (start/stop, dry-run, config tuning)"}
           >
-            {showAdvancedOps ? "🔓 Advanced Ops" : "🤖 Autonomous"}
+            {showAdvancedOps ? "Advanced ops" : "Autonomous"}
           </Button>
-          <span className="text-xs text-gray-400">Window:</span>
+          <span className="text-[10px] uppercase tracking-wider text-slate-400 hidden sm:inline">Window</span>
           <Select value={String(windowHours)} onValueChange={(v) => setWindowHours(Number(v))}>
-            <SelectTrigger className="w-32 bg-black/40 border-white/10">
+            <SelectTrigger className="w-24 h-8 text-xs bg-slate-900/60 border-slate-700">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="1">Last 1h</SelectItem>
-              <SelectItem value="6">Last 6h</SelectItem>
-              <SelectItem value="24">Last 24h</SelectItem>
-              <SelectItem value="72">Last 3d</SelectItem>
-              <SelectItem value="168">Last 7d</SelectItem>
+              <SelectItem value="1">1h</SelectItem>
+              <SelectItem value="6">6h</SelectItem>
+              <SelectItem value="24">24h</SelectItem>
+              <SelectItem value="72">3d</SelectItem>
+              <SelectItem value="168">7d</SelectItem>
             </SelectContent>
           </Select>
         </div>
       </div>
 
       {/* Summary tiles */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="p-4 bg-black/40 border-white/10">
-          <div className="text-xs uppercase text-gray-400">Signals in window</div>
-          <div className="text-2xl font-bold mt-1">{summary?.signals?.total ?? "—"}</div>
-          <div className="text-xs text-gray-500 mt-1">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 lg:gap-3">
+        <Card className="p-3 bg-slate-900/40 border-slate-800/60">
+          <div className="text-[10px] uppercase tracking-wider text-slate-400">Signals in window</div>
+          <div className="text-xl lg:text-2xl font-bold text-white font-mono tabular-nums mt-0.5">{summary?.signals?.total ?? "—"}</div>
+          <div className="text-[10px] text-slate-500 mt-0.5 font-mono tabular-nums">
             {summary?.signals?.distinctAgents ?? 0} agents firing
           </div>
         </Card>
-        <Card className="p-4 bg-black/40 border-white/10">
-          <div className="text-xs uppercase text-gray-400">Agents w/ accuracy</div>
-          <div className="text-2xl font-bold mt-1">
+        <Card className="p-3 bg-slate-900/40 border-slate-800/60">
+          <div className="text-[10px] uppercase tracking-wider text-slate-400">Agents w/ accuracy</div>
+          <div className="text-xl lg:text-2xl font-bold text-white font-mono tabular-nums mt-0.5">
             {summary?.accuracy?.agentsWithRecords ?? 0}
           </div>
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="text-[10px] text-slate-500 mt-0.5 font-mono tabular-nums">
             {summary?.accuracy?.totalTrades ?? 0} trades evaluated
           </div>
         </Card>
-        <Card className="p-4 bg-black/40 border-white/10">
-          <div className="text-xs uppercase text-gray-400">Weighted accuracy</div>
-          <div className="text-2xl font-bold mt-1">
+        <Card className="p-3 bg-slate-900/40 border-slate-800/60">
+          <div className="text-[10px] uppercase tracking-wider text-slate-400">Weighted accuracy</div>
+          <div className="text-xl lg:text-2xl font-bold text-white font-mono tabular-nums mt-0.5">
             {fmtPct(summary?.accuracy?.weightedAccuracy ?? null)}
           </div>
-          <div className="text-xs text-gray-500 mt-1">across all agents</div>
+          <div className="text-[10px] text-slate-500 mt-0.5">across all agents</div>
         </Card>
-        <Card className="p-4 bg-black/40 border-white/10">
-          <div className="text-xs uppercase text-gray-400">Engine heartbeat</div>
-          <div className="text-2xl font-bold mt-1 flex items-center gap-2">
+        <Card className="p-3 bg-slate-900/40 border-slate-800/60">
+          <div className="text-[10px] uppercase tracking-wider text-slate-400">Engine heartbeat</div>
+          <div className="text-xl lg:text-2xl font-bold mt-0.5 flex items-center gap-2">
             {summary?.watchdog?.haltActive ? (
               <>
-                <XCircle className="w-5 h-5 text-red-400" /> Halted
+                <XCircle className="w-4 h-4 text-red-400" /> <span className="text-red-400">Halted</span>
               </>
             ) : summary?.watchdog?.healthy ? (
               <>
-                <CheckCircle2 className="w-5 h-5 text-emerald-400" /> Active
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" /> <span className="text-emerald-400">Active</span>
               </>
             ) : (
               <>
-                <AlertTriangle className="w-5 h-5 text-yellow-400" /> Idle
+                <AlertTriangle className="w-4 h-4 text-yellow-400" /> <span className="text-yellow-400">Idle</span>
               </>
             )}
           </div>
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="text-[10px] text-slate-500 mt-0.5 truncate">
             {summary?.watchdog?.haltReason ?? "no halt"}
           </div>
         </Card>
@@ -338,17 +339,18 @@ export default function AgentScorecard() {
           {/* Phase 93.9 — Brain control bar hidden behind Advanced Ops toggle.
               Autonomous mode shows ONLY a read-only status pill. */}
           {!showAdvancedOps && (
-            <Card className="bg-black/40 border-white/10 p-3">
+            <Card className="bg-slate-900/40 border-slate-800/60 p-3">
               <div className="flex flex-wrap items-center gap-3 text-xs">
                 <div className="flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${brainCH?.status?.running ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
-                  <span className="text-gray-400">Brain:</span>
-                  <strong className="text-gray-200">{brainCH?.status?.running ? (brainCH.status.dryRun ? 'OBSERVING (dry-run)' : 'LIVE — execution authority') : 'STOPPED'}</strong>
+                  <span className="text-slate-400 uppercase tracking-wider text-[10px]">Brain</span>
+                  <strong className="text-slate-200">{brainCH?.status?.running ? (brainCH.status.dryRun ? 'OBSERVING (dry-run)' : 'LIVE — execution authority') : 'STOPPED'}</strong>
                 </div>
-                <div className="flex items-center gap-1.5 text-gray-400">
-                  Live entries: <strong className={brainCH?.liveEntriesEnabled ? 'text-emerald-300' : 'text-gray-500'}>{brainCH?.liveEntriesEnabled ? 'ON' : 'OFF'}</strong>
+                <div className="flex items-center gap-1.5 text-slate-400">
+                  <span className="text-[10px] uppercase tracking-wider">Live entries</span>
+                  <strong className={brainCH?.liveEntriesEnabled ? 'text-emerald-300' : 'text-slate-500'}>{brainCH?.liveEntriesEnabled ? 'ON' : 'OFF'}</strong>
                 </div>
-                <div className="text-gray-500 ml-auto">Tick: {brainCH?.status?.tickMs ?? '—'}ms</div>
+                <div className="text-slate-500 font-mono tabular-nums ml-auto">Tick {brainCH?.status?.tickMs ?? '—'}ms</div>
               </div>
             </Card>
           )}
@@ -458,7 +460,7 @@ export default function AgentScorecard() {
                 <div className="text-xl font-bold mt-1 text-emerald-300">
                   {alphaLib?.totalActive ?? 0}
                   {alphaLib && alphaLib.totalDecayed > 0 && (
-                    <span className="text-xs text-red-400 ml-1">/{alphaLib.totalDecayed}†</span>
+                    <span className="text-xs text-red-400 ml-1">/{alphaLib.totalDecayed} decayed</span>
                   )}
                 </div>
                 <div className="text-[10px] text-gray-500">
@@ -493,7 +495,7 @@ export default function AgentScorecard() {
                 disabled={bulkActionMut.isPending}
                 onClick={() => bulkActionMut.mutate({ action: 'pause_entries', pauseMinutes: 30 })}
               >
-                ⏸ Pause entries 30 min
+                Pause entries 30 min
               </Button>
               <Button
                 size="sm"
@@ -502,7 +504,7 @@ export default function AgentScorecard() {
                 disabled={bulkActionMut.isPending}
                 onClick={() => bulkActionMut.mutate({ action: 'resume_entries' })}
               >
-                ▶ Resume entries
+                Resume entries
               </Button>
               <span className="ml-auto text-[10px] text-gray-500">
                 Bulk actions affect brain_v2_entry only · legacy untouched
@@ -551,8 +553,8 @@ export default function AgentScorecard() {
                     const tickMs = brainActivity.status.tickMs;
                     const stalled = age > tickMs * 5;
                     return (
-                      <span className={stalled ? 'text-amber-400 font-semibold' : 'text-emerald-400'}>
-                        ❤ last tick {age < 1000 ? `${age}ms` : `${(age/1000).toFixed(1)}s`} ago{stalled ? ' ⚠ STALLED' : ''}
+                      <span className={stalled ? 'text-amber-400 font-semibold font-mono tabular-nums' : 'text-emerald-400 font-mono tabular-nums'}>
+                        last tick {age < 1000 ? `${age}ms` : `${(age/1000).toFixed(1)}s`} ago{stalled ? ' STALLED' : ''}
                       </span>
                     );
                   })()}
@@ -731,19 +733,19 @@ export default function AgentScorecard() {
                 {/* Phase 89 — call out low statistical significance */}
                 {bvl?.stats && Math.min(bvl.stats.brain.trades, bvl.stats.legacy.trades) < 5 && (
                   <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/40 text-[10px]">
-                    ⚠ Low N — not yet statistically significant
+                    Low N &mdash; not yet statistically significant
                   </Badge>
                 )}
               </div>
               <div className="flex items-center gap-3 text-[11px]">
                 {bvl?.stats?.brain && (
-                  <span className="text-cyan-300">
-                    🧠 brain: {bvl.stats.brain.trades} trades · {fmtPct(bvl.stats.brain.winRate)} · <strong>{fmtUsd(bvl.stats.brain.totalPnl)}</strong>
+                  <span className="text-cyan-300 font-mono tabular-nums">
+                    brain: {bvl.stats.brain.trades} trades · {fmtPct(bvl.stats.brain.winRate)} · <strong>{fmtUsd(bvl.stats.brain.totalPnl)}</strong>
                   </span>
                 )}
                 {bvl?.stats?.legacy && (
-                  <span className="text-gray-300">
-                    🛠 legacy: {bvl.stats.legacy.trades} trades · {fmtPct(bvl.stats.legacy.winRate)} · <strong>{fmtUsd(bvl.stats.legacy.totalPnl)}</strong>
+                  <span className="text-slate-300 font-mono tabular-nums">
+                    legacy: {bvl.stats.legacy.trades} trades · {fmtPct(bvl.stats.legacy.winRate)} · <strong>{fmtUsd(bvl.stats.legacy.totalPnl)}</strong>
                   </span>
                 )}
               </div>
@@ -766,8 +768,8 @@ export default function AgentScorecard() {
                       formatter={(v: number) => [`$${v.toFixed(2)}`, undefined]}
                     />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Line data={bvl.brain} type="monotone" dataKey="cumPnl" name="🧠 Brain (cum)" stroke="#06b6d4" strokeWidth={2} dot={false} />
-                    <Line data={bvl.legacy} type="monotone" dataKey="cumPnl" name="🛠 Legacy (cum)" stroke="#9CA3AF" strokeWidth={2} strokeDasharray="4 2" dot={false} />
+                    <Line data={bvl.brain} type="monotone" dataKey="cumPnl" name="Brain (cum)" stroke="#06b6d4" strokeWidth={2} dot={false} />
+                    <Line data={bvl.legacy} type="monotone" dataKey="cumPnl" name="Legacy (cum)" stroke="#9CA3AF" strokeWidth={2} strokeDasharray="4 2" dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -812,7 +814,7 @@ export default function AgentScorecard() {
                           : isVeto ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold'
                           : d.kind === 'abstain' ? 'bg-gray-500/15 text-gray-400 border-gray-500/30'
                           : 'bg-gray-500/15 text-gray-300 border-gray-500/30'
-                        }>{isVeto ? '⚠ VETO' : d.kind}</Badge>
+                        }>{isVeto ? 'VETO' : d.kind}</Badge>
                         <span className="text-gray-300 font-medium">{d.symbol}</span>
                         <span className="text-gray-500">·</span>
                         <span className="font-mono text-gray-400">{d.pipelineStep}</span>
@@ -1065,6 +1067,7 @@ export default function AgentScorecard() {
         </TabsContent>
       </Tabs>
     </div>
+    </div>
   );
 }
 
@@ -1143,7 +1146,7 @@ function SensoriumDrill({ kind, rows }: { kind: string | null; rows: any[] }) {
                 else if (kind === 'flow') detail = `imb5s=${(s.takerImb5s ?? 0).toFixed(2)}`;
                 else if (kind === 'whale') detail = `netFlow=$${((s.netFlow ?? 0) / 1000).toFixed(0)}k`;
                 else if (kind === 'deriv') detail = `funding=${(s.funding ?? 0).toFixed(4)} · OIΔ=${(s.oiDelta ?? 0).toFixed(2)}`;
-                else if (kind === 'agentVotes') detail = `↑${s.longCount} ↓${s.shortCount} •${s.neutralCount}${s.vetoActive ? ' ⚠ VETO' : ''}`;
+                else if (kind === 'agentVotes') detail = `↑${s.longCount} ↓${s.shortCount} •${s.neutralCount}${s.vetoActive ? ' VETO' : ''}`;
                 else if (kind === 'opportunity') detail = `${s.direction} · score ${(s.score ?? 0).toFixed(2)} · ${s.confluence ?? 0} agree`;
                 else if (kind === 'alpha') detail = `${s.activePatternCount} active · ${s.decayedPatternCount} decayed · winRate ${((s.weightedWinRate ?? 0) * 100).toFixed(0)}%`;
               }
@@ -1352,7 +1355,7 @@ function BrainDecisionDrill({ positionId, decision }: { positionId?: string; dec
                 </Badge>
                 {sensorium.agentVotes.anyVetoActive && (
                   <Badge className="bg-amber-500/15 text-amber-300 border-amber-500/30">
-                    ⚠ VETO: {(sensorium.agentVotes.vetoReasons ?? []).join('; ')}
+                    VETO: {(sensorium.agentVotes.vetoReasons ?? []).join('; ')}
                   </Badge>
                 )}
               </div>
@@ -1375,7 +1378,7 @@ function BrainDecisionDrill({ positionId, decision }: { positionId?: string; dec
                         </span>
                         <span className="text-gray-300 truncate flex-1">{v.agentName}</span>
                         <span className="text-gray-500 font-mono">{(v.confidence ?? 0).toFixed(2)}</span>
-                        {v.vetoActive && <span className="text-amber-400">⚠</span>}
+                        {v.vetoActive && <span className="text-amber-400 text-[9px] font-bold">VETO</span>}
                       </div>
                   ))}
                 </div>
