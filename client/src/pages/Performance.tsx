@@ -648,46 +648,38 @@ export default function Performance() {
           </Card>
         )}
 
-        {/* Performance Overview Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <Card className="glass-card p-6 border-slate-800/50">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-slate-400">ROI</p>
-              <Target className="w-5 h-5 text-blue-500" />
-            </div>
-            <p className={`text-3xl font-bold ${parseFloat(roi) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {parseFloat(roi) >= 0 ? '+' : ''}{roi}%
-            </p>
-            <p className="text-xs text-slate-500 mt-1">Return on investment</p>
-          </Card>
+        {/* Phase 93.9.1 — Removed the OLD "Performance Overview Cards" (ROI,
+            Sharpe, Win Rate, Max Drawdown). These were redundant with the new
+            time-windowed stats strip above and pulled from a separate
+            (sometimes-stale) data source (orderHistory.getAnalytics). The
+            time-window strip now covers win rate, P&L, profit factor, best/
+            worst, commissions — all live from paperPositions. Sharpe and
+            Max Drawdown remain visible below in the per-symbol breakdown
+            and the P&L chart. */}
 
-          <Card className="glass-card p-6 border-slate-800/50">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-slate-400">Sharpe Ratio</p>
-              <Award className="w-5 h-5 text-purple-500" />
+        {/* Phase 93.9.1 — Risk metrics row (ROI + Max Drawdown + Sharpe in one tight strip). */}
+        <Card className="glass-card border-slate-800/50 p-4">
+          <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-3">Risk metrics</h2>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs text-slate-400">ROI</p>
+              <p className={`text-2xl font-bold font-mono ${parseFloat(roi) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {parseFloat(roi) >= 0 ? '+' : ''}{roi}%
+              </p>
+              <p className="text-[10px] text-slate-500">return on starting capital</p>
             </div>
-            <p className="text-3xl font-bold text-white">{sharpeRatio}</p>
-            <p className="text-xs text-slate-500 mt-1">Risk-adjusted returns</p>
-          </Card>
-
-          <Card className="glass-card p-6 border-slate-800/50">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-slate-400">Win Rate</p>
-              <Target className="w-5 h-5 text-green-500" />
+            <div>
+              <p className="text-xs text-slate-400">Sharpe Ratio</p>
+              <p className="text-2xl font-bold font-mono text-white">{sharpeRatio}</p>
+              <p className="text-[10px] text-slate-500">risk-adjusted returns</p>
             </div>
-            <p className="text-3xl font-bold text-white">{winRate.toFixed(1)}%</p>
-            <p className="text-xs text-slate-500 mt-1">{winningTrades}W / {losingTrades}L</p>
-          </Card>
-
-          <Card className="glass-card p-6 border-slate-800/50">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-slate-400">Max Drawdown</p>
-              <TrendingDown className="w-5 h-5 text-red-500" />
+            <div>
+              <p className="text-xs text-slate-400">Max Drawdown</p>
+              <p className="text-2xl font-bold font-mono text-red-400">-{maxDrawdown.toFixed(2)}%</p>
+              <p className="text-[10px] text-slate-500">largest peak-to-trough</p>
             </div>
-            <p className="text-3xl font-bold text-red-400">-{maxDrawdown.toFixed(2)}%</p>
-            <p className="text-xs text-slate-500 mt-1">Largest peak-to-trough</p>
-          </Card>
-        </div>
+          </div>
+        </Card>
 
         {/* P&L Chart */}
         <Card className="glass-card p-6 border-slate-800/50">
