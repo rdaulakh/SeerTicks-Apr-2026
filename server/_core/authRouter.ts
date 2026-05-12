@@ -120,10 +120,12 @@ authRouter.post('/login', async (req: Request, res: Response) => {
     });
     
   } catch (error: any) {
-    authLogger.error('Login error', { error: error.message });
-    return res.status(500).json({ 
-      success: false, 
-      error: `Login failed: ${error.message}` 
+    // Phase 90 — never echo internal error messages to the client.
+    // Full detail is logged server-side; client gets a generic message.
+    authLogger.error('Login error', { error: error.message, stack: error.stack });
+    return res.status(500).json({
+      success: false,
+      error: 'Login failed. Please try again.',
     });
   }
 });
@@ -144,7 +146,7 @@ authRouter.get('/me', async (req: Request, res: Response) => {
     
     let decoded: { userId: number; email: string };
     try {
-      decoded = jwt.verify(token, JWT_SECRET) as { userId: number; email: string };
+      decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }) as { userId: number; email: string };
     } catch (jwtError) {
       // Invalid or expired token
       return res.json({ user: null });

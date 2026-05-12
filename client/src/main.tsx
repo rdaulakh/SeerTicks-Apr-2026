@@ -103,18 +103,25 @@ const trpcClient = trpc.createClient({
     httpBatchLink({
       url: "/api/trpc",
       transformer: superjson,
+      // Phase 90 — CSRF defense: send 'x-trpc-source' on every request.
+      // Server's createContext rejects mutations without it (custom headers
+      // require CORS preflight, which our origin allowlist blocks for
+      // attackers — classic browser-CSRF can't set this header).
+      headers() {
+        return { 'x-trpc-source': 'web' };
+      },
       fetch(input, init) {
         // Determine timeout based on the request URL
         const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : '';
         const isAuthRequest = url.includes('auth.me') || url.includes('auth.logout') || url.includes('auth.login') || url.includes('auth.register');
         const timeoutMs = isAuthRequest ? AUTH_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
-        
+
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
           console.warn(`[TRPC] Request timeout after ${timeoutMs / 1000}s:`, url);
           controller.abort();
         }, timeoutMs);
-        
+
         return globalThis.fetch(input, {
           ...(init ?? {}),
           credentials: "include",

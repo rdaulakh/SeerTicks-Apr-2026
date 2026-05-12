@@ -357,24 +357,44 @@ async function startServer() {
   if (!ENV.isProduction) {
     allowedOrigins.push('http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000');
   }
+  // Phase 90 — CORS lockdown.
+  // Pre-fix: wildcard `*.manus.computer` allowed ANY subdomain (including
+  // attacker-registered sandboxes) to make credentialed requests with the
+  // victim's session cookie. Now an explicit allowlist from CORS_ORIGINS env.
   app.use(cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (server-to-server, curl, mobile apps)
       if (!origin) return callback(null, true);
-      // Allow if in whitelist or no origins configured (backward compat)
       if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
-      // Allow all Manus sandbox proxy origins (dynamic subdomains)
-      if (origin.endsWith('.manus.computer') || origin.endsWith('.manus-asia.computer')) {
-        return callback(null, true);
-      }
+      // Phase 90 — wildcard removed. To allow a Manus sandbox, add the exact
+      // origin to CORS_ORIGINS env var.
       callback(new Error(`CORS: origin ${origin} not allowed`));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'x-trpc-source'],
   }));
+
+  // Phase 90 — Security headers via helmet. Adds X-Frame-Options (clickjack
+  // defense), Strict-Transport-Security, X-Content-Type-Options, Referrer-Policy.
+  // Content-Security-Policy is left off for now because the SPA has inline
+  // <style> injections from chart.tsx — would need nonce/hash to enable safely.
+  try {
+    // Lazy load to keep startup error-tolerant if helmet isn't installed yet.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const helmetMod = require('helmet');
+    const helmet = helmetMod.default ?? helmetMod;
+    app.use(helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+    }));
+    console.log('[Security] helmet middleware enabled');
+  } catch (err) {
+    console.warn('[Security] helmet not installed — skipping security headers', (err as Error)?.message);
+  }
 
   // ============================================
   // TRPC MIDDLEWARE (rate limited: 30 req/min per user)
@@ -937,6 +957,16 @@ async function startServer() {
       // BEFORE the brain so the BrainExecutor's event listeners are attached
       // before the first open/close event fires.
       getPatternPopulator().start();
+
+      // Phase 90 — DB retention. DB grew to 14.5 GB; nightly sweep deletes
+      // old rows from append-only log tables to keep query times sane.
+      // First sweep runs 5 min after boot.
+      try {
+        const { getDataRetentionService } = await import('../services/DataRetentionService');
+        getDataRetentionService().start();
+      } catch (err) {
+        console.warn('[DataRetention] failed to start:', (err as Error)?.message);
+      }
 
       const brain = getTraderBrain();
       // Phase 83.2 — LIVE MODE. Brain has execution authority over the 6

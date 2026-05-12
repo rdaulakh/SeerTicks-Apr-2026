@@ -23,6 +23,28 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // Phase 90 — Vendor chunk splitting. Pre-fix: single 3.17 MB bundle.
+    // Heavy libraries (recharts ~400KB, lightweight-charts ~200KB) split off
+    // into their own chunks so they're browser-cached across page navigations.
+    // App pages already get per-route chunks via React.lazy in App.tsx.
+    chunkSizeWarningLimit: 1000, // raise from 500KB to 1MB
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-recharts': ['recharts'],
+          'vendor-charts': ['lightweight-charts'],
+          'vendor-react': ['react', 'react-dom', 'react/jsx-runtime'],
+          'vendor-trpc': ['@trpc/client', '@trpc/react-query', '@tanstack/react-query'],
+          'vendor-radix': [
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-tabs',
+            '@radix-ui/react-select',
+            '@radix-ui/react-tooltip',
+            '@radix-ui/react-toast',
+          ],
+        },
+      },
+    },
   },
   server: {
     host: true,

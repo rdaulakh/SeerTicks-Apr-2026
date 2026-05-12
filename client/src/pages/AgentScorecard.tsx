@@ -128,10 +128,12 @@ export default function AgentScorecard() {
     trpc.agentScorecard.getBrainActivity.useQuery(
       { windowMinutes: Math.min(windowHours * 60, 1440), limit: 100 },
       {
-        refetchInterval: 5_000,
+        // Phase 90 — was 5s. Brain decisions update on trade events, not on
+        // 5s ticks. 15s is plenty for an operator console.
+        refetchInterval: 15_000,
         placeholderData: (prev) => prev,
         retry: 3,
-        staleTime: 4_000,
+        staleTime: 12_000,
       },
     );
 
@@ -139,7 +141,8 @@ export default function AgentScorecard() {
   const utils = trpc.useUtils();
   const { data: brainCH, refetch: refetchBrainCH } =
     trpc.agentScorecard.getBrainConfigAndHealth.useQuery(undefined, {
-      refetchInterval: 5_000,
+      // Phase 90 — was 5s. Brain config rarely changes; this is fine at 30s.
+      refetchInterval: 30_000,
       placeholderData: (prev) => prev,
     });
   const setBrainModeMut = trpc.agentScorecard.setBrainMode.useMutation({
@@ -178,7 +181,8 @@ export default function AgentScorecard() {
   // (alpha library top/bottom patterns).
   const [drillSensorium, setDrillSensorium] = useState<null | 'market' | 'technical' | 'flow' | 'whale' | 'deriv' | 'agentVotes' | 'opportunity' | 'alpha' | 'positions'>(null);
   const { data: sensoriumPerSymbol } = trpc.agentScorecard.getSensoriumPerSymbol.useQuery(undefined, {
-    refetchInterval: 5_000,
+    // Phase 90 — was 5s. Modal-only; 10s is responsive enough.
+    refetchInterval: 10_000,
     placeholderData: (prev) => prev,
     enabled: !!drillSensorium,
   });
@@ -658,7 +662,9 @@ export default function AgentScorecard() {
                   onClick={() => {
                     const syms = symbolsText.split(/[,\s]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
                     if (syms.length === 0) return;
-                    setCandidateSymbolsMut.mutate({ symbols: syms });
+                    // Server validates via z.enum — invalid symbols will TRPC-error
+                    // and the toast onError handler surfaces it.
+                    setCandidateSymbolsMut.mutate({ symbols: syms as any });
                   }}
                 >
                   Update symbols

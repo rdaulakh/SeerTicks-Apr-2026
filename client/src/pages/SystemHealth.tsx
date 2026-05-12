@@ -115,33 +115,38 @@ export default function SystemHealth() {
   const { data: latestStartup, isLoading: startupLoading, refetch: refetchStartup } = trpc.health.getLatestStartup.useQuery();
   
   // Health Metrics Queries
+  // Phase 90 — polling reduced. Pre-fix: 2s and 5s polling with
+  // refetchIntervalInBackground=true → 43,200 server requests/day per user
+  // for ONE query (line 138 was 2s). Now: 10s when tab visible, paused when
+  // backgrounded. Server holds the truth; users don't need 2s polling on
+  // the health page.
   const { data: healthMetrics, isLoading: healthLoading, refetch: refetchHealth } = trpc.seerMulti.getHealthMetrics.useQuery(
     undefined,
-    { refetchInterval: 5000, refetchIntervalInBackground: true }
+    { refetchInterval: 15000 }
   );
 
   // Process Uptime — the REAL uptime from Node.js process.uptime()
   const { data: processUptime } = trpc.health.getProcessUptime.useQuery(
     undefined,
-    { refetchInterval: 10000, refetchIntervalInBackground: true }
+    { refetchInterval: 30000 }
   );
 
   // Agent Health
   const { data: agentHealth, isLoading: agentsLoading, refetch: refetchAgents } = trpc.seerMulti.getAgentHealthDetails.useQuery(
     undefined,
-    { refetchInterval: 5000, refetchIntervalInBackground: true }
+    { refetchInterval: 15000 }
   );
 
   // Latency Metrics
   const { data: latencyMetrics, refetch: refetchLatency } = trpc.seerMulti.getLatencyMetrics.useQuery(
     undefined,
-    { refetchInterval: 2000 }
+    { refetchInterval: 10000 }
   );
 
   // Historical data for charts
   const { data: history24h, isLoading: historyLoading } = trpc.seerMulti.getHealthMetricsHistory.useQuery(
     { hours: 24 },
-    { refetchInterval: 30000, refetchIntervalInBackground: true }
+    { refetchInterval: 60000 }
   );
 
   // Health check mutation
@@ -702,7 +707,8 @@ function SystemLogsPanel() {
   const [lastSeenId, setLastSeenId] = useState(0);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch logs with polling
+  // Phase 90 — log polling reduced from 2s to 10s. Pre-fix: refetched in
+  // background too, so 43k requests/day per user with the tab not even open.
   const { data: logsData, isLoading: logsLoading } = trpc.health.getServerLogs.useQuery(
     {
       limit: 300,
@@ -710,13 +716,13 @@ function SystemLogsPanel() {
       category: categoryFilter !== 'all' ? categoryFilter : undefined,
       search: searchText || undefined,
     },
-    { refetchInterval: 2000, refetchIntervalInBackground: true }
+    { refetchInterval: 10000 }
   );
 
   // Fetch log stats
   const { data: logStats } = trpc.health.getLogStats.useQuery(
     undefined,
-    { refetchInterval: 5000 }
+    { refetchInterval: 15000 }
   );
 
   // Fetch categories

@@ -27,7 +27,11 @@ function getAuthPool(): mysql.Pool {
  */
 async function authenticateLocalJwt(token: string): Promise<User | null> {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number; email: string; openId?: string };
+    // Phase 90 — pin algorithm. Without algorithms:['HS256'], jsonwebtoken
+    // accepts any signature algorithm the token header advertises, including
+    // (historically) 'none'. Algorithm confusion has been the root cause of
+    // multiple JWT auth bypass CVEs.
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }) as { userId: number; email: string; openId?: string };
     
     // Check for valid userId
     if (!decoded.userId) {
@@ -66,6 +70,22 @@ export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
   let user: User | null = null;
+
+  // Phase 90 — CSRF defense: require a custom header on tRPC requests.
+  // Genuine browser requests from our SPA set 'x-trpc-source: web' (or any
+  // non-empty value) via the trpc client config. Cross-origin form / image
+  // requests can't set custom headers without a CORS preflight, so this
+  // blocks classic CSRF. Skip for GET (read-only) requests.
+  const method = (opts.req.method ?? 'GET').toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+    const source = opts.req.headers['x-trpc-source'];
+    if (!source) {
+      // Returning null user makes protected procedures fail with UNAUTHORIZED.
+      // We log so unauthorized CSRF attempts are visible.
+      console.warn(`[CSRF] tRPC mutation without x-trpc-source header from ${opts.req.headers.origin ?? 'unknown'}`);
+      return { user: null, sdk, req: opts.req, res: opts.res } as TrpcContext;
+    }
+  }
 
   // Get the session cookie
   const cookieHeader = opts.req.headers.cookie;

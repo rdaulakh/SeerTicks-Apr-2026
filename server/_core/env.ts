@@ -5,12 +5,15 @@ import { randomBytes } from 'crypto';
  */
 function resolveJwtSecret(): string {
   const envSecret = process.env.JWT_SECRET;
-  if (envSecret && envSecret.length >= 16) {
+  // Phase 90 — bumped minimum to 32 chars. 16-char HS256 keys are
+  // brute-forceable offline once any signed token leaks. CLAUDE.md
+  // invariant: ≥32 chars, fatal exit if missing in production.
+  if (envSecret && envSecret.length >= 32) {
     return envSecret;
   }
 
   if (process.env.NODE_ENV === 'production') {
-    console.error('[FATAL] JWT_SECRET is missing or too short (min 16 chars). Cannot start in production.');
+    console.error('[FATAL] JWT_SECRET is missing or too short (min 32 chars). Cannot start in production.');
     process.exit(1);
   }
 

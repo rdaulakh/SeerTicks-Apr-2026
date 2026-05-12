@@ -12,7 +12,7 @@
  */
 
 import { z } from 'zod';
-import { router, protectedProcedure } from '../_core/trpc';
+import { router, protectedProcedure, adminProcedure } from '../_core/trpc';
 import { getDb } from '../db';
 import { agentSignals, agentAccuracy, agentPnlAttribution, brainDecisions, systemConfig, paperPositions, winningPatterns } from '../../drizzle/schema';
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
@@ -516,9 +516,10 @@ export const agentScorecardRouter = router({
 
   /**
    * Phase 84 — Brain activity feed for the UI's Brain tab.
+   * Phase 90 — admin-only: platform-wide brain state, not user-scoped.
    * Returns recent brain decisions + per-step breakdown + status.
    */
-  getBrainActivity: protectedProcedure
+  getBrainActivity: adminProcedure
     .input(z.object({ windowMinutes: z.number().int().min(1).max(1440).default(60), limit: z.number().int().min(1).max(500).default(100) }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -670,19 +671,31 @@ export const agentScorecardRouter = router({
    * pause-entries: sets a deadline in systemConfig that decideEntry consults;
    *   when in the future, brain abstains all entries with pipelineStep
    *   'should_enter:operator_pause'.
+   *
+   * Phase 90 — SECURITY: adminProcedure + userId scope on the close path.
+   * Pre-fix: any registered user could close every user's brain positions.
+   * Pre-fix: pauseMinutes max was 24h (1440); attacker could DoS brain for
+   * a full day. Bumped pauseMinutes max to 120 (2h); admin-only access.
    */
-  bulkBrainAction: protectedProcedure
+  bulkBrainAction: adminProcedure
     .input(z.object({
       action: z.enum(['close_all_brain_positions', 'pause_entries', 'resume_entries']),
-      pauseMinutes: z.number().int().min(1).max(1440).optional(),
+      pauseMinutes: z.number().int().min(1).max(120).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error('db_unavailable');
 
       if (input.action === 'close_all_brain_positions') {
+        // Phase 90 — scope to caller's userId. Even admin closes only their
+        // own positions via this endpoint (platform-wide flatten is a
+        // separate ops command, not exposed to UI).
         const open = await db.select().from(paperPositions)
-          .where(and(eq(paperPositions.status, 'open'), eq(paperPositions.strategy, 'brain_v2_entry')));
+          .where(and(
+            eq(paperPositions.status, 'open'),
+            eq(paperPositions.strategy, 'brain_v2_entry'),
+            eq(paperPositions.userId, ctx.user.id),
+          ));
         const { getBrainExecutor } = await import('../brain/BrainExecutor');
         const executor = getBrainExecutor();
         let closed = 0;
@@ -821,7 +834,7 @@ export const agentScorecardRouter = router({
    * Health cards show counts; this gives the operator the breakdown of
    * which symbols are fresh vs stale for each sensation kind.
    */
-  getSensoriumPerSymbol: protectedProcedure
+  getSensoriumPerSymbol: adminProcedure
     .query(async () => {
       const { getSensorium } = await import('../brain/Sensorium');
       const { getCachedCandidateSymbols } = await import('../brain/SensorWiring');
@@ -867,7 +880,7 @@ export const agentScorecardRouter = router({
    * Phase 85 — read brain's current config + Sensorium health.
    * Powers the operator console "what is the brain seeing right now" panel.
    */
-  getBrainConfigAndHealth: protectedProcedure
+  getBrainConfigAndHealth: adminProcedure
     .query(async () => {
       let status: any = null;
       let config: any = null;
@@ -916,7 +929,7 @@ export const agentScorecardRouter = router({
    * `mode = 'live'` = brain has execution authority. `mode = 'dry'` = brain
    * runs the pipeline but doesn't execute. `command = 'stop'` halts ticks.
    */
-  setBrainMode: protectedProcedure
+  setBrainMode: adminProcedure
     .input(z.object({
       command: z.enum(['start', 'stop', 'toggle_dry_run']),
       dryRun: z.boolean().optional(),
@@ -941,18 +954,22 @@ export const agentScorecardRouter = router({
    * Phase 85 — tune the brain's thresholds from the operator console.
    * Hot-reload via brain.configure(); no server restart needed.
    */
-  setBrainConfig: protectedProcedure
+  // Phase 90 — admin-only AND ranges tightened to TradingConfig invariants.
+  // Pre-fix: kellyFraction up to 1.0 (full Kelly = ruinous), stopLoss up to
+  // 10%, equity fraction up to 100% (all-in). An admin can still tune within
+  // reasonable bounds; out-of-bound values are a typo, not a feature.
+  setBrainConfig: adminProcedure
     .input(z.object({
-      minOpportunityScore: z.number().min(0).max(1).optional(),
-      minConfluenceCount: z.number().int().min(1).max(33).optional(),
-      entrySizeEquityFraction: z.number().min(0).max(1).optional(),
-      kellyFraction: z.number().min(0).max(1).optional(),
-      defaultStopLossPercent: z.number().min(0.1).max(10).optional(),
-      defaultTakeProfitPercent: z.number().min(0.1).max(20).optional(),
-      consensusFlipThreshold: z.number().min(0).max(1).optional(),
-      momentumCrashBpsPerS: z.number().min(0).max(10).optional(),
-      staleHoldMinutes: z.number().min(1).max(360).optional(),
-      stalePeakPnlPct: z.number().min(0).max(5).optional(),
+      minOpportunityScore: z.number().min(0.20).max(0.95).optional(),
+      minConfluenceCount: z.number().int().min(1).max(20).optional(),
+      entrySizeEquityFraction: z.number().min(0.01).max(0.30).optional(),
+      kellyFraction: z.number().min(0.05).max(0.50).optional(),
+      defaultStopLossPercent: z.number().min(0.3).max(3.0).optional(),
+      defaultTakeProfitPercent: z.number().min(0.3).max(5.0).optional(),
+      consensusFlipThreshold: z.number().min(0.10).max(0.90).optional(),
+      momentumCrashBpsPerS: z.number().min(0.1).max(5.0).optional(),
+      staleHoldMinutes: z.number().min(5).max(180).optional(),
+      stalePeakPnlPct: z.number().min(0.05).max(2.0).optional(),
     }))
     .mutation(async ({ input }) => {
       const { getTraderBrain } = await import('../brain/TraderBrain');
@@ -965,9 +982,16 @@ export const agentScorecardRouter = router({
    * Phase 85 — set the candidate symbol list (DB-driven, hot-reload).
    * SensorWiring picks up the change on its 15s cache refresh.
    */
-  setCandidateSymbols: protectedProcedure
+  setCandidateSymbols: adminProcedure
     .input(z.object({
-      symbols: z.array(z.string().regex(/^[A-Z0-9]{1,10}-USD$/, 'symbol must be e.g. BTC-USD')).min(1).max(20),
+      // Phase 90 — whitelist of known-tradeable pairs only. Regex was too
+      // permissive (matched '0000000000-USD'); a typo would bork SensorWiring's
+      // exchange WS subscriptions.
+      symbols: z.array(z.enum([
+        'BTC-USD', 'ETH-USD', 'SOL-USD', 'AVAX-USD', 'LINK-USD',
+        'MATIC-USD', 'DOT-USD', 'ADA-USD', 'XRP-USD', 'DOGE-USD',
+        'ARB-USD', 'OP-USD', 'ATOM-USD', 'NEAR-USD',
+      ])).min(1).max(10),
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -1000,7 +1024,7 @@ export const agentScorecardRouter = router({
    * When true, BrainExecutor will attempt live entries (currently still
    * gated on EngineAdapter wiring; this flag is the operator's seatbelt).
    */
-  setLiveEntriesEnabled: protectedProcedure
+  setLiveEntriesEnabled: adminProcedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();

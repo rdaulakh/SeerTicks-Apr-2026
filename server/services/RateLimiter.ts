@@ -49,6 +49,15 @@ export const RATE_LIMITS = {
     max: 200,
     message: 'Too many requests, please try again later.',
   },
+  // Phase 90 — Brain mutation endpoints: 10 requests/minute per user.
+  // bulkBrainAction, setBrainMode, setBrainConfig, setLiveEntriesEnabled,
+  // setCandidateSymbols. Prevents an attacker (even admin) from churning
+  // systemConfig + cache invalidation in a tight loop to DoS the brain.
+  brain: {
+    windowMs: 60 * 1000, // 1 minute
+    max: 10,
+    message: 'Too many brain control requests, please slow down.',
+  },
 };
 
 // Redis client for rate limiting
