@@ -44,6 +44,7 @@
 
 import { getSensorium, type PositionSensation, type StanceSensation } from './Sensorium';
 import { getDecisionTrace } from './DecisionTrace';
+import { getBrainExecutor } from './BrainExecutor';
 import { applyRatchet, type RatchetPosition } from '../services/ProfitRatchet';
 import { engineLogger as logger } from '../utils/logger';
 
@@ -77,6 +78,19 @@ class TraderBrain {
   private tickInterval: NodeJS.Timeout | null = null;
   private readonly TICK_MS = 1000;       // 1Hz brain tick — adjustable
   private tickCount = 0;
+  private startedAtMs = 0;
+  /**
+   * 60-second safety warm-up after start(). During this window the brain
+   * runs ticks + records to brainDecisions but does NOT execute, even if
+   * dryRun=false. Gives sensors time to populate (technical+flow poll
+   * every 5s; we want 12+ readings before acting on them).
+   */
+  private readonly WARMUP_MS = 60_000;
+  /**
+   * Per-tick lock to prevent the same position being acted on twice while
+   * an exit is in flight. Cleared after the executor returns.
+   */
+  private inFlightExits = new Set<string | number>();
   /**
    * The live IEM's last action per position, fed in via setLiveIEMAction().
    * Used in dryRun mode for side-by-side comparison.
@@ -91,8 +105,13 @@ class TraderBrain {
   start(): void {
     if (this.isRunning) return;
     this.isRunning = true;
+    this.startedAtMs = Date.now();
     this.tickInterval = setInterval(() => this.tick(), this.TICK_MS);
-    logger.info('[TraderBrain] 🧠 STARTED', { dryRun: this.config.dryRun, tickMs: this.TICK_MS });
+    if (this.config.dryRun) {
+      logger.info('[TraderBrain] 🧠 STARTED (DRY-RUN — observing only)', { tickMs: this.TICK_MS });
+    } else {
+      logger.warn(`[TraderBrain] 🧠⚠️  STARTED LIVE — brain has execution authority. ${this.WARMUP_MS / 1000}s warm-up before first action.`);
+    }
   }
 
   stop(): void {
@@ -127,6 +146,8 @@ class TraderBrain {
     // full set. For now, since positions are rare (1-10), we expose
     // snapshotForPosition + a helper "active position IDs" via direct map access.
     // (Quick path: scan via the trace cache; for v1 the iteration cost is fine.)
+    const inWarmup = !this.config.dryRun && (Date.now() - this.startedAtMs < this.WARMUP_MS);
+
     for (const positionId of this.activePositionIds(sensorium)) {
       try {
         const decision = this.decide(positionId);
@@ -134,6 +155,8 @@ class TraderBrain {
         const elapsedUs = Number((process.hrtime.bigint() - start) / 1000n);
         const pos = sensorium.getPosition(positionId);
         if (!pos) continue;
+
+        // Always TRACE — gives us the audit trail regardless of live/dry mode.
         getDecisionTrace().record({
           positionId,
           symbol: pos.sensation.symbol,
@@ -145,13 +168,47 @@ class TraderBrain {
           sensoriumSnapshot: sensorium.snapshotForPosition(positionId),
           newStopLoss: decision.kind === 'tighten_stop' ? decision.newStopLoss : null,
           exitQuantityPercent: decision.kind === 'take_partial' ? decision.exitQuantityPercent : null,
-          isDryRun: this.config.dryRun,
+          isDryRun: this.config.dryRun || inWarmup,
           liveIEMAction: this.liveIEMActions.get(positionId),
           latencyUs: elapsedUs,
         });
+
+        // Phase 83.2 — EXECUTE if live + past warm-up + non-hold + not in-flight.
+        if (!this.config.dryRun && !inWarmup && decision.kind !== 'hold') {
+          if (this.inFlightExits.has(positionId)) {
+            continue; // already acting on this position
+          }
+          this.inFlightExits.add(positionId);
+          this.executeDecision(positionId, pos.sensation, decision)
+            .catch(err => logger.warn('[TraderBrain] execute failed', { positionId, error: err?.message }))
+            .finally(() => this.inFlightExits.delete(positionId));
+        }
       } catch (err) {
         logger.warn('[TraderBrain] tick error', { positionId, error: (err as Error)?.message });
       }
+    }
+  }
+
+  /**
+   * Phase 83.2 — execute a non-hold decision via BrainExecutor.
+   * Fire-and-forget from the hot loop; failures recorded to trace.
+   */
+  private async executeDecision(
+    positionId: string | number,
+    pos: PositionSensation,
+    decision: BrainAction,
+  ): Promise<void> {
+    const executor = getBrainExecutor();
+    const symbol = pos.symbol;
+    if (decision.kind === 'exit_full') {
+      const r = await executor.exitFull(positionId, pos.currentPrice, decision.reason);
+      logger.info(`[TraderBrain] 🧠→ EXIT_FULL ${symbol} id=${positionId}: ${r.ok ? 'ok' : 'failed'} affected=${r.affectedRows} reason="${decision.pipelineStep}"`);
+    } else if (decision.kind === 'tighten_stop') {
+      const r = await executor.updateStop(positionId, decision.newStopLoss, decision.reason);
+      logger.info(`[TraderBrain] 🧠→ TIGHTEN_STOP ${symbol} id=${positionId} → $${decision.newStopLoss.toFixed(4)}: ${r.ok ? 'ok' : 'failed'}`);
+    } else if (decision.kind === 'take_partial') {
+      const r = await executor.exitPartial(positionId, decision.exitQuantityPercent, pos.currentPrice, decision.reason);
+      logger.info(`[TraderBrain] 🧠→ TAKE_PARTIAL ${symbol} id=${positionId} (${decision.exitQuantityPercent}%): ${r.ok ? 'ok' : 'failed'}`);
     }
   }
 

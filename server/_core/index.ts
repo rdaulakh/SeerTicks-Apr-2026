@@ -933,9 +933,14 @@ async function startServer() {
       startSensorWiring();
 
       const brain = getTraderBrain();
-      brain.configure({ dryRun: true });
+      // Phase 83.2 — LIVE MODE. Brain has execution authority over the 6
+      // open positions. 60s warm-up after start() before any execution
+      // fires (gives sensors time to populate). IEM still ticks but its
+      // exit signals will hit a position the brain has already closed
+      // (BrainExecutor notifies IEM to drop closed positions from its map).
+      brain.configure({ dryRun: false });
       brain.start();
-      console.log(`[${new Date().toLocaleTimeString()}] 🧠 TraderBrain v1 started (dryRun=true; comparing vs IEM via brainDecisions table)`);
+      console.log(`[${new Date().toLocaleTimeString()}] 🧠⚠️  TraderBrain v1 started LIVE — execution authority granted. 60s warm-up active.`);
     } catch (brainErr: any) {
       console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ TraderBrain start failed:`, brainErr?.message || brainErr);
     }
