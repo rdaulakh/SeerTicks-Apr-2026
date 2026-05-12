@@ -1,34 +1,36 @@
 /**
- * SEER Dashboard — War Room (Phase 93.7)
+ * SEER Dashboard — War Room (Phase 93.11)
  *
- * Replaces the previous Dashboard which was a generic component grid. The
- * old version had ~700 lines mixing 7 different visualizers, none of which
- * answered the operator's real questions on the critical path:
- *   - Is the brain alive RIGHT NOW?
- *   - What are my positions doing in real time?
- *   - What was the last decision the brain made?
- *   - Is the system in sync with the exchange?
+ * Phase 93.11 expanded the war room from a status-only view into the
+ * primary institutional surface — equivalent in density to Bloomberg /
+ * IBKR / Coinbase Pro. The previous build (93.7) had the right idea but
+ * was almost chart-free; this one keeps the proven status bar + position
+ * strip and layers on the data the operator actually needs:
  *
- * The war room is dense, real-time, and decision-oriented. Every panel is
- * polled on a tight interval (5-10s) and the open-position strip subscribes
- * to the Socket.IO price stream for sub-second P&L updates.
+ *   Row 1: Status bar — engine, brain tick, equity, today P&L, open count, sync
+ *   Row 2: Open positions strip (live WS prices)
+ *   Row 3: Equity curve (2/3) + Symbol ticker w/ sparklines (1/3)
+ *   Row 4: Agent heatmap (1/2) + Daily P&L bars (1/2)
+ *   Row 5: Brain activity stream (2/3) + Recent closed trades (1/3)
+ *   Row 6: WS / brain-mode / engine-ticks chips + perf summary card
  *
- * Layout (4 rows on desktop, stacking on mobile):
- *   1. Status bar: brain heartbeat | equity | today P&L | open count | uptime
- *   2. Position strip: each open position as a wide card with live P&L
- *   3. Brain activity (left) + Performance windows (right)
- *   4. Recent trades + Reconciliation status pill
+ * Layout collapses to a single column on mobile, two on tablet (md), full
+ * grid from lg up. All numerical content uses tabular-style monospace so
+ * digits line up. Polling intervals are intentionally varied — sub-second
+ * channels (WS) stay on WS; semi-stale channels (closed trades, daily
+ * P&L) refresh once a minute; the equity curve refreshes once a minute.
  *
- * Old visualizers (StrategyOrchestratorViz, AgentPerformanceLeaderboard,
- * etc.) live on their own pages — accessible via the side nav when needed.
- * Dashboard now stays focused on "what's happening right now."
+ * Heavy queries: pnlChart.getDateWisePnl is reused by EquityCurvePanel
+ * (90d window) and DailyPnLBars (14d window). tRPC dedups identical
+ * inputs, but the two callers use different startDate values so they
+ * issue separate requests — acceptable since pnlChart aggregates with
+ * SQL GROUP BY (one fast scan per request).
  */
 
 import { useEffect, useRef } from "react";
 import {
-  Activity, TrendingUp, TrendingDown, Zap, Brain, AlertCircle,
+  Activity, TrendingUp, TrendingDown, Zap, Brain,
   CheckCircle2, XCircle, ChevronRight, Cpu, Target, DollarSign,
-  Clock, ArrowUpRight, ArrowDownRight,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,6 +39,12 @@ import { cn } from "@/lib/utils";
 import { useSocketIOMulti } from "@/hooks/useSocketIOMulti";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+
+import EquityCurvePanel from "@/components/dashboard/EquityCurvePanel";
+import SymbolTickerStrip from "@/components/dashboard/SymbolTickerStrip";
+import AgentHeatmap from "@/components/dashboard/AgentHeatmap";
+import DailyPnLBars from "@/components/dashboard/DailyPnLBars";
+import RecentTradesFeed from "@/components/dashboard/RecentTradesFeed";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 function formatUSD(n: number, opts: { sign?: boolean; compact?: boolean } = {}): string {
@@ -99,6 +107,7 @@ export default function Dashboard() {
   // Prefer WS engine status when present (zero-latency); fall back to tRPC.
   const eng = wsEngineStatus || engineStatus;
   const isRunning = (eng as any)?.isRunning ?? (eng as any)?.running ?? false;
+  const symbolStates: any[] = ((eng as any)?.symbolStates as any[]) || [];
 
   // ─── Derived ──────────────────────────────────────────────────────
   const livePositionsMap = new Map((wsPositions || []).map((p: any) => [String(p.id ?? p.positionId), p]));
@@ -113,8 +122,6 @@ export default function Dashboard() {
   const driftCount = (reconciliation?.drifts ?? []).filter((d: any) => d.severity !== "ok").length;
   const equityDisplay = Number(reconciliation?.binance?.totalMarginBalance ??
     reconciliation?.seer?.wallet?.equity ?? 0);
-  const balanceDisplay = Number(reconciliation?.binance?.totalWalletBalance ??
-    reconciliation?.seer?.wallet?.balance ?? 0);
 
   const brainStatus = (brainActivity as any)?.status;
   const lastTickAgeMs = brainStatus?.ageMs;
@@ -279,15 +286,31 @@ export default function Dashboard() {
         )}
       </Card>
 
-      {/* ════════════════════ ROW 3: BRAIN + PERFORMANCE ════════════════════ */}
+      {/* ════════════════════ ROW 3: EQUITY CURVE + MARKETS ════════════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        {/* LEFT 2/3 — Brain activity stream */}
+        <div className="lg:col-span-2">
+          <EquityCurvePanel />
+        </div>
+        <div>
+          <SymbolTickerStrip symbolStates={symbolStates} />
+        </div>
+      </div>
+
+      {/* ════════════════════ ROW 4: AGENT HEATMAP + DAILY BARS ════════════════════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <AgentHeatmap symbolStates={symbolStates} />
+        <DailyPnLBars />
+      </div>
+
+      {/* ════════════════════ ROW 5: BRAIN ACTIVITY + RECENT TRADES ════════════════════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        {/* Brain activity stream */}
         <Card className="lg:col-span-2 glass-card border-slate-800/50 p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
               <Brain className="w-4 h-4 text-cyan-400" />
               Brain Activity Stream
-              <span className="text-xs text-slate-500 normal-case">(last 10 min)</span>
+              <span className="text-xs text-slate-500 normal-case">(decisions · last 10 min)</span>
             </h2>
             <div className="flex items-center gap-3 text-[11px] text-slate-400">
               <span title="Live decisions">
@@ -303,7 +326,7 @@ export default function Dashboard() {
           {(!brainActivity || brainActivity.recent.length === 0) ? (
             <p className="text-sm text-slate-500 py-4 text-center">No brain decisions in window</p>
           ) : (
-            <div className="space-y-1 max-h-[420px] overflow-y-auto pr-1">
+            <div className="space-y-1 max-h-[300px] overflow-y-auto pr-1">
               {brainActivity.recent.slice(0, 25).map((d: any) => (
                 <div key={d.id} className={cn(
                   "flex items-start gap-2 text-xs font-mono px-2 py-1.5 rounded border",
@@ -324,54 +347,44 @@ export default function Dashboard() {
           )}
         </Card>
 
-        {/* RIGHT 1/3 — Performance summary */}
-        <Card className="glass-card border-slate-800/50 p-4">
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-3 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-emerald-400" />
-            Performance
-          </h2>
-          <div className="space-y-3">
-            {/* Today */}
-            <div className="border border-slate-700/40 rounded p-3 bg-slate-800/20">
-              <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Today</p>
-              <div className="flex items-baseline justify-between">
-                <span className={cn(
-                  "text-xl font-bold font-mono",
-                  todayPnl >= 0 ? "text-green-400" : "text-red-400"
-                )}>{formatUSD(todayPnl, { sign: true })}</span>
-                <span className={cn(
-                  "text-sm font-mono",
-                  todayWinRate >= 50 ? "text-green-400" : todayWinRate >= 40 ? "text-yellow-400" : "text-red-400"
-                )}>{todayWinRate.toFixed(1)}% WR</span>
-              </div>
-              <p className="text-[10px] text-slate-500 mt-1">{todayTrades} trades</p>
-            </div>
-            {/* 7 days */}
-            <div className="border border-slate-700/40 rounded p-3 bg-slate-800/20">
-              <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Last 7 days</p>
-              <div className="flex items-baseline justify-between">
-                <span className={cn(
-                  "text-xl font-bold font-mono",
-                  week7Pnl >= 0 ? "text-green-400" : "text-red-400"
-                )}>{formatUSD(week7Pnl, { sign: true })}</span>
-                <span className={cn(
-                  "text-sm font-mono",
-                  week7WinRate >= 50 ? "text-green-400" : week7WinRate >= 40 ? "text-yellow-400" : "text-red-400"
-                )}>{week7WinRate.toFixed(1)}% WR</span>
-              </div>
-              <p className="text-[10px] text-slate-500 mt-1">{windowStats7d?.totalTrades ?? 0} trades · PF {windowStats7d?.profitFactor?.toFixed(2) ?? "—"}</p>
-            </div>
-            <Link href="/performance">
-              <Button variant="outline" size="sm" className="w-full text-xs">
-                Full performance <ChevronRight className="w-3 h-3 ml-1" />
-              </Button>
-            </Link>
-          </div>
-        </Card>
+        {/* Recent closed trades feed (different from brain decisions — these are outcomes) */}
+        <RecentTradesFeed />
       </div>
 
-      {/* ════════════════════ ROW 4: Connection state ════════════════════ */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {/* ════════════════════ ROW 6: PERFORMANCE + CONNECTION CHIPS ════════════════════ */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Performance summary card */}
+        <Card className="glass-card border-slate-800/50 p-3 md:col-span-2 lg:col-span-1">
+          <h2 className="text-[10px] uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-1.5">
+            <TrendingUp className="w-3 h-3 text-emerald-400" />
+            Performance
+          </h2>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-500">Today</p>
+              <p className={cn("font-bold font-mono", todayPnl >= 0 ? "text-green-400" : "text-red-400")}>
+                {formatUSD(todayPnl, { sign: true })}
+              </p>
+              <p className="text-[10px] text-slate-500">{todayTrades}t · {todayWinRate.toFixed(0)}%</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-500">7d</p>
+              <p className={cn("font-bold font-mono", week7Pnl >= 0 ? "text-green-400" : "text-red-400")}>
+                {formatUSD(week7Pnl, { sign: true })}
+              </p>
+              <p className="text-[10px] text-slate-500">
+                {windowStats7d?.totalTrades ?? 0}t · {week7WinRate.toFixed(0)}%
+              </p>
+            </div>
+          </div>
+          <Link href="/performance">
+            <Button variant="outline" size="sm" className="w-full text-[10px] mt-2 h-6">
+              Full performance <ChevronRight className="w-3 h-3 ml-1" />
+            </Button>
+          </Link>
+        </Card>
+
+        {/* WebSocket */}
         <Card className="glass-card border-slate-800/50 p-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {connected ? <CheckCircle2 className="w-4 h-4 text-green-400" /> : <XCircle className="w-4 h-4 text-red-400" />}
@@ -381,6 +394,8 @@ export default function Dashboard() {
             </div>
           </div>
         </Card>
+
+        {/* Brain mode */}
         <Card className="glass-card border-slate-800/50 p-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Cpu className="w-4 h-4 text-purple-400" />
@@ -392,12 +407,14 @@ export default function Dashboard() {
             </div>
           </div>
         </Card>
+
+        {/* Engine ticks */}
         <Card className="glass-card border-slate-800/50 p-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-yellow-400" />
             <div>
               <p className="text-[10px] uppercase tracking-wider text-slate-500">Engine ticks</p>
-              <p className="text-xs font-bold text-white">
+              <p className="text-xs font-bold font-mono text-white">
                 {(eng as any)?.tickCount?.toLocaleString() ?? 0}
               </p>
             </div>
