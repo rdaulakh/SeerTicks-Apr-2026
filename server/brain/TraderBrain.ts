@@ -362,17 +362,28 @@ class TraderBrain {
           const entryDecision = this.decideEntry(symbol);
           if (!entryDecision) continue;
           const elapsedUs = Number((process.hrtime.bigint() - start) / 1000n);
-          getDecisionTrace().record({
-            positionId: `entry:${symbol}`,
-            symbol,
-            side: entryDecision.kind === 'enter_long' ? 'long' : entryDecision.kind === 'enter_short' ? 'short' : 'long',
-            kind: entryDecision.kind,
-            pipelineStep: entryDecision.pipelineStep,
-            reason: entryDecision.reason,
-            sensoriumSnapshot: this.entrySnapshot(symbol),
-            isDryRun: this.config.dryRun || inWarmup,
-            latencyUs: elapsedUs,
-          });
+          // Phase 93.4 — same throttle as exit path. Abstain decisions repeat
+          // identically every tick (e.g. "score 0.25 < 0.5") and would flood
+          // the DB at 10Hz. Always write entries; throttle repeated abstains.
+          const entryKey = `entry:${symbol}`;
+          const lastEntry = this.lastTrace.get(entryKey);
+          const entryReasonChanged = !lastEntry || lastEntry.reason !== entryDecision.reason;
+          const entryGapElapsed = !lastEntry || (Date.now() - lastEntry.atMs) >= this.HOLD_TRACE_GAP_MS;
+          const shouldTraceEntry = entryDecision.kind !== 'abstain' || entryReasonChanged || entryGapElapsed;
+          if (shouldTraceEntry) {
+            getDecisionTrace().record({
+              positionId: entryKey,
+              symbol,
+              side: entryDecision.kind === 'enter_long' ? 'long' : entryDecision.kind === 'enter_short' ? 'short' : 'long',
+              kind: entryDecision.kind,
+              pipelineStep: entryDecision.pipelineStep,
+              reason: entryDecision.reason,
+              sensoriumSnapshot: this.entrySnapshot(symbol),
+              isDryRun: this.config.dryRun || inWarmup,
+              latencyUs: elapsedUs,
+            });
+            this.lastTrace.set(entryKey, { reason: entryDecision.reason, atMs: Date.now() });
+          }
           if ((entryDecision.kind === 'enter_long' || entryDecision.kind === 'enter_short')
               && !this.config.dryRun && !inWarmup) {
             const inFlightKey = `entry:${symbol}`;
