@@ -474,10 +474,30 @@ class TraderBrain {
     return getSensorium().snapshotForEntry(symbol);
   }
 
+  /**
+   * Phase 86 — per-symbol entry cooldown. After we open a position, the
+   * Sensorium's position map doesn't refresh until the next 1s pull. Without
+   * this cooldown, the brain re-fires entries on the same symbol every tick
+   * until the position sensor catches up, opening N positions in 2-3 seconds.
+   */
+  private entryCooldown = new Map<string, number>(); // symbol → expiresAt ms
+  private readonly ENTRY_COOLDOWN_MS = 5_000;
+
   /** Phase 84 — execute an entry decision via BrainExecutor.
-   *  Phase 86 — route to the primary user's wallet via portfolio sensor. */
+   *  Phase 86 — route to the primary user's wallet via portfolio sensor +
+   *  enforce per-symbol cooldown to prevent same-symbol over-firing. */
   private async executeEntry(decision: BrainAction): Promise<void> {
     if (decision.kind !== 'enter_long' && decision.kind !== 'enter_short') return;
+
+    const cooldownUntil = this.entryCooldown.get(decision.symbol) ?? 0;
+    if (Date.now() < cooldownUntil) {
+      // Still cooling down on this symbol — skip silently.
+      return;
+    }
+    // Set the cooldown FIRST (before the async DB call) so concurrent ticks
+    // can't race past us. We'll relax it only on failure so we can retry.
+    this.entryCooldown.set(decision.symbol, Date.now() + this.ENTRY_COOLDOWN_MS);
+
     const { getBrainExecutor } = await import('./BrainExecutor');
     const executor = getBrainExecutor();
     const port = getSensorium().getPortfolio()?.sensation;
@@ -491,6 +511,10 @@ class TraderBrain {
       reason: decision.reason,
       userId,
     });
+    if (!r.ok) {
+      // Release the cooldown on failure so the next tick can retry.
+      this.entryCooldown.delete(decision.symbol);
+    }
     logger.info(`[TraderBrain] 🧠→ ${decision.kind.toUpperCase()} ${decision.symbol} user=${userId} qty=${decision.size.toFixed(6)} sl=$${decision.stopLoss.toFixed(4)} tp=$${decision.takeProfit.toFixed(4)}: ${r.ok ? 'ok' : 'failed'} reason="${decision.pipelineStep}"`);
   }
 
