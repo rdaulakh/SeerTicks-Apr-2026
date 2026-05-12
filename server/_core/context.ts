@@ -71,19 +71,24 @@ export async function createContext(
 ): Promise<TrpcContext> {
   let user: User | null = null;
 
-  // Phase 90 — CSRF defense: require a custom header on tRPC requests.
-  // Genuine browser requests from our SPA set 'x-trpc-source: web' (or any
-  // non-empty value) via the trpc client config. Cross-origin form / image
-  // requests can't set custom headers without a CORS preflight, so this
-  // blocks classic CSRF. Skip for GET (read-only) requests.
+  // Phase 91 — CSRF defense switched to LOG-ONLY mode.
+  //
+  // Phase 90 hard-blocked tRPC mutations missing 'x-trpc-source'. That broke
+  // legitimate users whose clients didn't carry the header — pre-existing
+  // browser tabs (older bundle in localStorage cache), some extensions that
+  // strip custom headers, server-to-server callers, etc.
+  //
+  // The strict CORS allowlist (no wildcards) and SameSite=Lax cookies are
+  // already strong CSRF defenses. Custom-header enforcement is a belt + braces
+  // measure; if it breaks real users it's net-negative. Log + alert is the
+  // right posture until we can fully audit all clients.
   const method = (opts.req.method ?? 'GET').toUpperCase();
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
     const source = opts.req.headers['x-trpc-source'];
     if (!source) {
-      // Returning null user makes protected procedures fail with UNAUTHORIZED.
-      // We log so unauthorized CSRF attempts are visible.
-      console.warn(`[CSRF] tRPC mutation without x-trpc-source header from ${opts.req.headers.origin ?? 'unknown'}`);
-      return { user: null, sdk, req: opts.req, res: opts.res } as TrpcContext;
+      console.warn(`[CSRF] tRPC mutation without x-trpc-source header from origin=${opts.req.headers.origin ?? 'unknown'} ua=${(opts.req.headers['user-agent'] ?? 'unknown').slice(0, 60)} path=${opts.req.path}`);
+      // Fall through — process the request normally. Re-enable hard-block once
+      // we've confirmed via logs that every client sends the header.
     }
   }
 

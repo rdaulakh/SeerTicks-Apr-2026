@@ -735,6 +735,38 @@ export const agentScorecardRouter = router({
     }),
 
   /**
+   * Phase 91 — DataRetentionService status + last sweep summary.
+   * Powers the operator's data-management visibility card.
+   */
+  getDataRetentionStatus: adminProcedure
+    .query(async () => {
+      let serviceStatus: any = null;
+      try {
+        const { getDataRetentionService } = await import('../services/DataRetentionService');
+        serviceStatus = getDataRetentionService().status();
+      } catch { /* not started */ }
+
+      // Live DB stats so operator can see how much space is in use right now.
+      const db = await getDb();
+      const tables: Array<{ table: string; rows: number; sizeMb: number }> = [];
+      if (db) {
+        try {
+          const [rows] = await (db as any).execute(`
+            SELECT TABLE_NAME, TABLE_ROWS, ROUND((DATA_LENGTH + INDEX_LENGTH) / 1024 / 1024, 2) size_mb
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME IN ('ticks','agentSignals','agentSignalLog','apiCallLog','slowAgentLog','tradingPipelineLog','dataGapLogs','brainDecisions','executionLatencyLogs','tickHeartbeat','bayesianConsensusLog','consensusLog')
+            ORDER BY (DATA_LENGTH + INDEX_LENGTH) DESC
+          `);
+          for (const r of (rows as any[])) {
+            tables.push({ table: r.TABLE_NAME, rows: Number(r.TABLE_ROWS ?? 0), sizeMb: Number(r.size_mb ?? 0) });
+          }
+        } catch { /* skip */ }
+      }
+      return { serviceStatus, tables };
+    }),
+
+  /**
    * Phase 88 — brain vs legacy comparison: cumulative P&L over time, split by
    * which decision-maker opened the position. Brain trades use strategy
    * 'brain_v2_entry'; legacy trades have everything else (enhanced_automated,

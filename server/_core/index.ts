@@ -94,6 +94,38 @@ async function startServer() {
     },
   });
 
+  // Phase 91 — Brain-mutation specific limiter. Bound to URLs containing
+  // brain-control procedure names (setBrainMode, setBrainConfig,
+  // setCandidateSymbols, setLiveEntriesEnabled, bulkBrainAction).
+  // 10/min per user — way under generalLimiter's 200/min, so brain
+  // dashboards stay snappy while preventing fire-loop attacks.
+  const brainLimiter = await createRateLimiter('brain', {
+    keyGenerator: (req: any) => {
+      try {
+        const token = req.cookies?.[require('@shared/const').COOKIE_NAME];
+        if (token) {
+          const decoded = require('jsonwebtoken').verify(token, ENV.jwtSecret) as any;
+          if (decoded?.userId) return `brain-user:${decoded.userId}`;
+        }
+      } catch {}
+      return `brain-ip:${ipKeyGenerator(req.ip || req.connection?.remoteAddress || 'unknown')}`;
+    },
+    skip: (req: any) => {
+      // Only enforce when the request path mentions a brain-mutation procedure.
+      // tRPC batches route names into the URL (e.g.
+      // /api/trpc/agentScorecard.setBrainMode,agentScorecard.setBrainConfig).
+      const url = (req.originalUrl ?? req.url ?? '') as string;
+      if (req.method === 'GET' || req.method === 'HEAD') return true;
+      return !(
+        url.includes('setBrainMode') ||
+        url.includes('setBrainConfig') ||
+        url.includes('setCandidateSymbols') ||
+        url.includes('setLiveEntriesEnabled') ||
+        url.includes('bulkBrainAction')
+      );
+    },
+  });
+
   // ============================================
   // AUTHENTICATION ROUTES (Optimized, Fast)
   // ============================================
@@ -400,6 +432,9 @@ async function startServer() {
   // ============================================
   app.use(
     "/api/trpc",
+    // Phase 91 — brainLimiter runs first; for non-brain paths it skips and
+    // generalLimiter takes over. For brain-mutation paths it caps at 10/min.
+    brainLimiter,
     generalLimiter,
     createExpressMiddleware({
       router: appRouter,

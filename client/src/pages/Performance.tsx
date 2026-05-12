@@ -77,22 +77,27 @@ export default function Performance() {
     }
   );
 
-  // Add timeout state to prevent infinite loading
+  // Phase 91 — Show the page in <2s. Previously waited up to 10 SECONDS for
+  // every query to finish before rendering anything — and if any query failed
+  // silently (slow trpc batch, transient DB lock during retention sweep), the
+  // user saw a blank page until the 10s timeout expired.
+  // Now: render immediately as soon as critical (stats) loads, OR after 2s
+  // grace period, OR on any error. Individual sections still show their own
+  // skeletons via their loading flags.
   const [loadingTimeout, setLoadingTimeout] = useState(false);
-  
+
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (statsLoading || walletLoading || tradesLoading) {
-        setLoadingTimeout(true);
-      }
-    }, 10000); // 10 second timeout
-    
+      // After 2s, render with whatever we have. Per-section loaders take over.
+      setLoadingTimeout(true);
+    }, 2000);
     return () => clearTimeout(timer);
-  }, [statsLoading, walletLoading, tradesLoading]);
+  }, []);
 
   // Show content if data loaded OR if there's an error OR if timeout occurred
   const hasError = statsError || walletError || tradesError;
-  const isLoading = (statsLoading || walletLoading || tradesLoading) && !loadingTimeout && !hasError;
+  // Only gate on STATS — wallet + trades have their own per-section loaders.
+  const isLoading = statsLoading && !loadingTimeout && !hasError;
 
   // Calculate performance metrics from real data
   // Prefer order analytics for closed trade metrics (more accurate)
