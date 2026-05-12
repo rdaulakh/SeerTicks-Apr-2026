@@ -16,6 +16,8 @@ export default function Performance() {
   const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'year'>('month');
   const [filterSymbol, setFilterSymbol] = useState<string>('all');
   const [tradeType, setTradeType] = useState<'all' | 'live' | 'paper'>('all');
+  // Phase 93.6 — window selector for win-rate / P&L summary
+  const [statsWindow, setStatsWindow] = useState<'today' | '7d' | '30d' | 'all'>('all');
   
   // Get user for WebSocket connection
   const { user } = useAuth();
@@ -31,6 +33,17 @@ export default function Performance() {
     retry: 1,
     retryDelay: 1000,
     staleTime: 30000,
+  });
+  // Phase 93.6 — time-windowed stats (today/7d/30d/all)
+  const { data: windowStats } = trpc.trading.getStatsByWindow.useQuery(
+    { window: statsWindow },
+    { retry: 1, staleTime: 15000, refetchInterval: 30000 }
+  );
+  // Phase 93.6 — Binance/SEER reconciliation status
+  const { data: reconciliation } = trpc.trading.getReconciliation.useQuery(undefined, {
+    retry: 1,
+    staleTime: 30000,
+    refetchInterval: 60000,
   });
   const { data: paperWallet, isLoading: walletLoading, isError: walletError } = trpc.trading.getPaperWallet.useQuery(undefined, {
     retry: 1,
@@ -512,6 +525,128 @@ export default function Performance() {
             <p className="text-xl font-bold text-white">{positions?.length || 0}</p>
           </Card>
         </div>
+
+        {/* Phase 93.6 — Reconciliation banner. Surfaces any drift between
+            SEER's view and the actual exchange account. Stays green when
+            in sync; shows yellow/red when drift detected. */}
+        {reconciliation && (
+          <Card className={`glass-card p-4 border-2 ${
+            reconciliation.drifts.some(d => d.severity === 'critical') ? 'border-red-500/50 bg-red-500/5' :
+            reconciliation.drifts.some(d => d.severity === 'warn') ? 'border-yellow-500/50 bg-yellow-500/5' :
+            'border-green-500/30 bg-green-500/5'
+          }`}>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-2.5 h-2.5 rounded-full ${
+                  reconciliation.drifts.some(d => d.severity === 'critical') ? 'bg-red-400 animate-pulse' :
+                  reconciliation.drifts.some(d => d.severity === 'warn') ? 'bg-yellow-400' :
+                  'bg-green-400'
+                }`} />
+                <div>
+                  <p className="text-sm font-semibold text-white">
+                    Binance ↔ SEER Reconciliation
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Checked {new Date(reconciliation.checkedAt).toLocaleTimeString()} ·
+                    {' '}{reconciliation.binance ? 'Connected' : 'Cannot reach Binance'}
+                  </p>
+                </div>
+              </div>
+              {reconciliation.binance && reconciliation.seer?.wallet && (
+                <div className="grid grid-cols-3 gap-4 text-xs font-mono">
+                  <div>
+                    <p className="text-slate-500">Balance</p>
+                    <p className="text-white">Bin ${reconciliation.binance.totalWalletBalance.toFixed(2)}</p>
+                    <p className="text-slate-400">SEER ${reconciliation.seer.wallet.balance.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Equity</p>
+                    <p className="text-white">Bin ${reconciliation.binance.totalMarginBalance.toFixed(2)}</p>
+                    <p className="text-slate-400">SEER ${reconciliation.seer.wallet.equity.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Open positions</p>
+                    <p className="text-white">Bin {reconciliation.binance.openPositions.length}</p>
+                    <p className="text-slate-400">SEER {reconciliation.seer.openPositions.filter(p => p.exchange === 'binance').length}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+            {reconciliation.drifts.filter(d => d.severity !== 'ok').length > 0 && (
+              <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-1">
+                {reconciliation.drifts.filter(d => d.severity !== 'ok').slice(0, 4).map((d, i) => (
+                  <p key={i} className={`text-xs ${
+                    d.severity === 'critical' ? 'text-red-300' : 'text-yellow-300'
+                  }`}>
+                    {d.severity === 'critical' ? '⛔' : '⚠️'} {d.message}
+                  </p>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* Phase 93.6 — Time-window stats strip. Live win-rate / P&L /
+            profit-factor across today / 7d / 30d / all-time, switchable. */}
+        {windowStats && (
+          <Card className="glass-card p-4 border-slate-800/50">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+              <h2 className="text-base font-bold text-white">Performance window</h2>
+              <div className="flex gap-1">
+                {(['today', '7d', '30d', 'all'] as const).map(w => (
+                  <Button
+                    key={w}
+                    variant={statsWindow === w ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setStatsWindow(w)}
+                    className="text-xs px-3"
+                  >
+                    {w === 'today' ? 'Today' : w === '7d' ? '7 days' : w === '30d' ? '30 days' : 'All time'}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+              <div>
+                <p className="text-xs text-slate-400">Trades</p>
+                <p className="text-2xl font-bold text-white">{windowStats.totalTrades}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Win rate</p>
+                <p className={`text-2xl font-bold ${
+                  windowStats.winRate >= 50 ? 'text-green-400' :
+                  windowStats.winRate >= 40 ? 'text-yellow-400' : 'text-red-400'
+                }`}>{windowStats.winRate.toFixed(1)}%</p>
+                <p className="text-[10px] text-slate-500">{windowStats.wins}W / {windowStats.losses}L</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Net P&L</p>
+                <p className={`text-2xl font-bold ${windowStats.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {windowStats.totalPnl >= 0 ? '+' : ''}${windowStats.totalPnl.toFixed(2)}
+                </p>
+                <p className="text-[10px] text-slate-500">avg ${windowStats.avgPnl.toFixed(2)}/trade</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Profit factor</p>
+                <p className={`text-2xl font-bold ${
+                  (windowStats.profitFactor ?? 0) >= 1.5 ? 'text-green-400' :
+                  (windowStats.profitFactor ?? 0) >= 1 ? 'text-yellow-400' : 'text-red-400'
+                }`}>{windowStats.profitFactor !== null ? windowStats.profitFactor.toFixed(2) : '—'}</p>
+                <p className="text-[10px] text-slate-500">gross win/loss</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Best trade</p>
+                <p className="text-2xl font-bold text-green-400">+${windowStats.bestTrade.toFixed(2)}</p>
+                <p className="text-[10px] text-slate-500">worst ${windowStats.worstTrade.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Commissions</p>
+                <p className="text-2xl font-bold text-orange-300">${windowStats.totalCommission.toFixed(2)}</p>
+                <p className="text-[10px] text-slate-500">net ${windowStats.netPnlAfterCommissions.toFixed(2)}</p>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* Performance Overview Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">

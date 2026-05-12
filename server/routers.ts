@@ -788,6 +788,243 @@ export const appRouter = router({
       };
     }),
 
+    // Phase 93.6 — Time-windowed statistics
+    //
+    // Returns aggregate trade stats for a configurable time window. Drives the
+    // "today / 7d / 30d / all-time" selector on Performance and the war-room
+    // dashboard. Computes wins, losses, win rate, P&L, average trade, and
+    // profit factor (gross wins ÷ |gross losses|) directly from the
+    // paperPositions table — no dependence on the (often-stale) paperWallets
+    // counters.
+    getStatsByWindow: protectedProcedure
+      .input(z.object({
+        window: z.enum(['today', '7d', '30d', 'all']).default('all'),
+      }))
+      .query(async ({ ctx, input }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) return null;
+        const { paperPositions } = await import("../drizzle/schema");
+        const { eq, and, gte, sql: drzSql } = await import("drizzle-orm");
+
+        const windowMap: Record<typeof input.window, number> = {
+          today: 1, '7d': 7, '30d': 30, all: 3650,
+        };
+        const days = windowMap[input.window];
+        const cutoff = new Date(Date.now() - days * 86400_000);
+
+        const rows = await db.select().from(paperPositions).where(and(
+          eq(paperPositions.userId, ctx.user.id),
+          eq(paperPositions.status, 'closed'),
+          gte(paperPositions.exitTime, cutoff),
+        ));
+
+        let wins = 0, losses = 0, even = 0;
+        let totalPnl = 0, sumWins = 0, sumLosses = 0;
+        let totalCommission = 0;
+        let bestTrade = -Infinity, worstTrade = Infinity;
+        const symbolStats: Record<string, { n: number; pnl: number }> = {};
+
+        for (const r of rows) {
+          const pnl = parseFloat(r.realizedPnl ?? '0');
+          const comm = parseFloat(r.commission ?? '0');
+          totalPnl += pnl;
+          totalCommission += comm;
+          if (pnl > 0) { wins++; sumWins += pnl; }
+          else if (pnl < 0) { losses++; sumLosses += pnl; }
+          else even++;
+          if (pnl > bestTrade) bestTrade = pnl;
+          if (pnl < worstTrade) worstTrade = pnl;
+          if (!symbolStats[r.symbol]) symbolStats[r.symbol] = { n: 0, pnl: 0 };
+          symbolStats[r.symbol].n++;
+          symbolStats[r.symbol].pnl += pnl;
+        }
+        const totalTrades = rows.length;
+        const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
+        const avgPnl = totalTrades > 0 ? totalPnl / totalTrades : 0;
+        const avgWin = wins > 0 ? sumWins / wins : 0;
+        const avgLoss = losses > 0 ? sumLosses / losses : 0;
+        const profitFactor = sumLosses < 0 ? Math.abs(sumWins / sumLosses) : (sumWins > 0 ? Infinity : 0);
+        return {
+          window: input.window,
+          windowDays: days,
+          totalTrades, wins, losses, even,
+          winRate: Number(winRate.toFixed(2)),
+          totalPnl: Number(totalPnl.toFixed(2)),
+          avgPnl: Number(avgPnl.toFixed(2)),
+          avgWin: Number(avgWin.toFixed(2)),
+          avgLoss: Number(avgLoss.toFixed(2)),
+          profitFactor: Number.isFinite(profitFactor) ? Number(profitFactor.toFixed(2)) : null,
+          totalCommission: Number(totalCommission.toFixed(2)),
+          bestTrade: bestTrade === -Infinity ? 0 : Number(bestTrade.toFixed(2)),
+          worstTrade: worstTrade === Infinity ? 0 : Number(worstTrade.toFixed(2)),
+          netPnlAfterCommissions: Number((totalPnl - totalCommission).toFixed(2)),
+          bySymbol: Object.entries(symbolStats)
+            .map(([symbol, s]) => ({ symbol, trades: s.n, pnl: Number(s.pnl.toFixed(2)) }))
+            .sort((a, b) => b.pnl - a.pnl),
+        };
+      }),
+
+    // Phase 93.6 — Binance ↔ SEER reconciliation
+    //
+    // Returns the current reality on both sides + the deltas. Used by the
+    // Wallet/Reconciliation panel to surface drift to the operator the moment
+    // SEER's view falls out of sync with the exchange. ADMIN-only for now —
+    // exposes encrypted-key-derived API calls; we'll relax once the surface
+    // area is settled.
+    getReconciliation: protectedProcedure.query(async ({ ctx }) => {
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) throw new Error('db_unavailable');
+      const { paperPositions, paperWallets, exchanges, apiKeys } = await import("../drizzle/schema");
+      const { eq, and } = await import("drizzle-orm");
+
+      // Pull SEER's view
+      const seerOpenPositions = await db.select().from(paperPositions).where(and(
+        eq(paperPositions.userId, ctx.user.id),
+        eq(paperPositions.status, 'open'),
+      ));
+      const wallets = await db.select().from(paperWallets).where(eq(paperWallets.userId, ctx.user.id));
+      const liveWallet = wallets.find(w => w.tradingMode === 'live');
+
+      // Pull Binance ground truth (only if futures keys exist)
+      let binance: any = null;
+      try {
+        const exRow = await db.select().from(exchanges).where(and(
+          eq(exchanges.userId, ctx.user.id),
+          eq(exchanges.exchangeName, 'binance-futures'),
+        )).limit(1);
+        if (exRow.length > 0) {
+          const keyRow = await db.select().from(apiKeys).where(and(
+            eq(apiKeys.userId, ctx.user.id),
+            eq(apiKeys.exchangeId, exRow[0].id),
+          )).limit(1);
+          if (keyRow.length > 0) {
+            const { decrypt } = await import("./crypto");
+            const apiKey = decrypt(keyRow[0].encryptedApiKey, keyRow[0].apiKeyIv);
+            const apiSecret = decrypt(keyRow[0].encryptedApiSecret, keyRow[0].apiSecretIv);
+            const { createHmac } = await import("crypto");
+            const base = process.env.BINANCE_FUTURES_USE_TESTNET === '1'
+              ? 'https://testnet.binancefuture.com' : 'https://fapi.binance.com';
+            const ts = Date.now();
+            const qs = new URLSearchParams({ timestamp: String(ts), recvWindow: '10000' }).toString();
+            const sig = createHmac('sha256', apiSecret).update(qs).digest('hex');
+            const r = await fetch(`${base}/fapi/v2/account?${qs}&signature=${sig}`, {
+              headers: { 'X-MBX-APIKEY': apiKey },
+            });
+            if (r.ok) binance = await r.json();
+          }
+        }
+      } catch (err) {
+        console.warn('[reconciliation] binance fetch failed:', (err as Error)?.message);
+      }
+
+      // Compute drift
+      const drifts: Array<{ kind: string; severity: 'ok' | 'warn' | 'critical'; message: string; }> = [];
+
+      if (!binance) {
+        return {
+          binance: null,
+          seer: { wallet: liveWallet, openPositions: seerOpenPositions },
+          drifts: [{ kind: 'no_binance_data', severity: 'warn' as const, message: 'Could not reach Binance API — check keys.' }],
+          checkedAt: new Date().toISOString(),
+        };
+      }
+
+      // Wallet-level drift
+      if (liveWallet) {
+        const binBal = parseFloat(binance.totalWalletBalance);
+        const seerBal = parseFloat(liveWallet.balance);
+        const balDrift = Math.abs(binBal - seerBal);
+        if (balDrift > 5) drifts.push({
+          kind: 'wallet_balance_drift',
+          severity: balDrift > 50 ? 'critical' : 'warn',
+          message: `Wallet balance drift $${balDrift.toFixed(2)} (Binance $${binBal.toFixed(2)} vs SEER $${seerBal.toFixed(2)})`,
+        });
+      }
+
+      // Position-level drift
+      const binPositions = (binance.positions || []).filter((p: any) => parseFloat(p.positionAmt) !== 0);
+      const seerByCanonical = new Map<string, typeof seerOpenPositions[number]>(
+        seerOpenPositions.filter(p => p.exchange === 'binance').map(p => [p.symbol, p])
+      );
+      const binByCanonical = new Map<string, any>(
+        binPositions.map((p: any) => [p.symbol.replace('USDT', '-USD'), p])
+      );
+
+      for (const [sym, p] of seerByCanonical) {
+        if (!binByCanonical.has(sym)) drifts.push({
+          kind: 'orphan_position',
+          severity: 'critical',
+          message: `${sym}: SEER has position #${p.id} but Binance is flat (orphan)`,
+        });
+      }
+      for (const [sym, b] of binByCanonical) {
+        const s = seerByCanonical.get(sym);
+        if (!s) {
+          drifts.push({
+            kind: 'unhydrated_position',
+            severity: 'warn',
+            message: `${sym}: open on Binance but not in SEER`,
+          });
+          continue;
+        }
+        const binAmt = Math.abs(parseFloat((b as any).positionAmt));
+        const qtyDiff = Math.abs(binAmt - parseFloat(s.quantity));
+        if (qtyDiff > 0.001) drifts.push({
+          kind: 'qty_drift',
+          severity: qtyDiff > 0.01 ? 'critical' : 'warn',
+          message: `${sym}: quantity drift Δ=${qtyDiff.toFixed(6)} (Binance ${binAmt}, SEER ${s.quantity})`,
+        });
+      }
+
+      if (drifts.length === 0) drifts.push({ kind: 'in_sync', severity: 'ok', message: 'All values match exchange.' });
+
+      return {
+        binance: binance ? {
+          totalWalletBalance: parseFloat(binance.totalWalletBalance),
+          totalMarginBalance: parseFloat(binance.totalMarginBalance),
+          totalUnrealizedProfit: parseFloat(binance.totalUnrealizedProfit),
+          availableBalance: parseFloat(binance.availableBalance),
+          maxWithdrawAmount: parseFloat(binance.maxWithdrawAmount),
+          openPositions: binPositions.map((p: any) => ({
+            symbol: p.symbol,
+            side: parseFloat(p.positionAmt) > 0 ? 'long' : 'short',
+            quantity: Math.abs(parseFloat(p.positionAmt)),
+            entryPrice: parseFloat(p.entryPrice),
+            markPrice: parseFloat(p.markPrice ?? '0'),
+            unrealizedPnl: parseFloat(p.unrealizedProfit),
+          })),
+        } : null,
+        seer: {
+          wallet: liveWallet ? {
+            balance: parseFloat(liveWallet.balance),
+            equity: parseFloat(liveWallet.equity),
+            margin: parseFloat(liveWallet.margin),
+            unrealizedPnL: parseFloat(liveWallet.unrealizedPnL),
+            realizedPnL: parseFloat(liveWallet.realizedPnL),
+            totalCommission: parseFloat(liveWallet.totalCommission),
+            totalTrades: liveWallet.totalTrades ?? 0,
+            updatedAt: liveWallet.updatedAt,
+          } : null,
+          openPositions: seerOpenPositions.map(p => ({
+            id: p.id,
+            symbol: p.symbol,
+            side: p.side,
+            exchange: p.exchange,
+            strategy: p.strategy,
+            entryPrice: parseFloat(p.entryPrice),
+            quantity: parseFloat(p.quantity),
+            stopLoss: p.stopLoss ? parseFloat(p.stopLoss) : null,
+            takeProfit: p.takeProfit ? parseFloat(p.takeProfit) : null,
+            unrealizedPnL: parseFloat(p.unrealizedPnL ?? '0'),
+          })),
+        },
+        drifts,
+        checkedAt: new Date().toISOString(),
+      };
+    }),
+
     // Get recent trades for activity feed
     getRecentTrades: protectedProcedure
       .input(z.object({

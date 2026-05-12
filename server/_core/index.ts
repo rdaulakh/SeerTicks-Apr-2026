@@ -1002,6 +1002,18 @@ async function startServer() {
         console.warn('[DataRetention] failed to start:', (err as Error)?.message);
       }
 
+      // Phase 93.6 — Wallet reconcile. Pulls Binance truth every 5 min and
+      // updates paperWallets so the UI never lies about balance/equity/uPnl.
+      // Also recomputes totalTrades / wins / losses / winRate / commissions
+      // from paperPositions (the truth), since incremental counter updates
+      // drift over time (audit found SEER=59 actual=134).
+      try {
+        const { getWalletReconcileService } = await import('../services/WalletReconcileService');
+        getWalletReconcileService().start();
+      } catch (err) {
+        console.warn('[WalletReconcile] failed to start:', (err as Error)?.message);
+      }
+
       const brain = getTraderBrain();
       // Phase 83.2 — LIVE MODE. Brain has execution authority over the 6
       // open positions. 60s warm-up after start() before any execution
