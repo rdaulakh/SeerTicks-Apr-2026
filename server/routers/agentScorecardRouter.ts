@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../_core/trpc';
 import { getDb } from '../db';
-import { agentSignals, agentAccuracy, agentPnlAttribution, brainDecisions, systemConfig } from '../../drizzle/schema';
+import { agentSignals, agentAccuracy, agentPnlAttribution, brainDecisions, systemConfig, paperPositions } from '../../drizzle/schema';
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
 
 const WINDOW_HOURS = z.number().int().min(1).max(168).default(24);
@@ -617,6 +617,148 @@ export const agentScorecardRouter = router({
   // ─────────────────────────────────────────────────────────────────────
   // Phase 85 — operator console: read brain's mind + steer it
   // ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * Phase 88 — brain vs legacy comparison: cumulative P&L over time, split by
+   * which decision-maker opened the position. Brain trades use strategy
+   * 'brain_v2_entry'; legacy trades have everything else (enhanced_automated,
+   * hydrated_from_exchange, exit:..., etc).
+   *
+   * Returns hourly buckets with cumulative P&L per side, plus headline stats
+   * (count, win rate, total $). Powers the operator's "is the brain better
+   * than the legacy pipeline?" chart.
+   */
+  getBrainVsLegacyPnl: protectedProcedure
+    .input(z.object({ windowHours: z.number().int().min(1).max(720).default(168) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { brain: [], legacy: [], stats: null };
+      const since = new Date(Date.now() - input.windowHours * 60 * 60 * 1000);
+
+      // All closed positions in window. Group on the fly into brain vs legacy.
+      const rows = await db.select({
+        id: paperPositions.id,
+        symbol: paperPositions.symbol,
+        side: paperPositions.side,
+        strategy: paperPositions.strategy,
+        realizedPnl: paperPositions.realizedPnl,
+        exitTime: paperPositions.exitTime,
+      })
+        .from(paperPositions)
+        .where(and(
+          eq(paperPositions.status, 'closed'),
+          gte(paperPositions.exitTime, since),
+        ))
+        .orderBy(paperPositions.exitTime);
+
+      // Bucket by hour (UTC).
+      const brainBuckets = new Map<string, number>();
+      const legacyBuckets = new Map<string, number>();
+      const isBrain = (s: string | null | undefined) => (s ?? '').startsWith('brain_v2');
+      let brainCount = 0, legacyCount = 0;
+      let brainWins = 0, legacyWins = 0;
+      let brainSum = 0, legacySum = 0;
+      for (const r of rows) {
+        if (!r.exitTime) continue;
+        const pnl = parseFloat(r.realizedPnl ?? '0');
+        const bucket = new Date(r.exitTime).toISOString().slice(0, 13) + ':00'; // YYYY-MM-DDTHH:00
+        if (isBrain(r.strategy)) {
+          brainBuckets.set(bucket, (brainBuckets.get(bucket) ?? 0) + pnl);
+          brainCount++;
+          brainSum += pnl;
+          if (pnl > 0) brainWins++;
+        } else {
+          legacyBuckets.set(bucket, (legacyBuckets.get(bucket) ?? 0) + pnl);
+          legacyCount++;
+          legacySum += pnl;
+          if (pnl > 0) legacyWins++;
+        }
+      }
+
+      // Cumulative series — pad missing hours and compute running total.
+      const allHours = new Set([...brainBuckets.keys(), ...legacyBuckets.keys()]);
+      const sortedHours = Array.from(allHours).sort();
+      let bCum = 0, lCum = 0;
+      const brain: Array<{ hour: string; pnl: number; cumPnl: number }> = [];
+      const legacy: Array<{ hour: string; pnl: number; cumPnl: number }> = [];
+      for (const h of sortedHours) {
+        const bp = brainBuckets.get(h) ?? 0;
+        const lp = legacyBuckets.get(h) ?? 0;
+        bCum += bp;
+        lCum += lp;
+        brain.push({ hour: h, pnl: bp, cumPnl: bCum });
+        legacy.push({ hour: h, pnl: lp, cumPnl: lCum });
+      }
+
+      return {
+        brain,
+        legacy,
+        stats: {
+          windowHours: input.windowHours,
+          brain: {
+            trades: brainCount,
+            wins: brainWins,
+            winRate: brainCount > 0 ? brainWins / brainCount : 0,
+            totalPnl: brainSum,
+            avgPnl: brainCount > 0 ? brainSum / brainCount : 0,
+          },
+          legacy: {
+            trades: legacyCount,
+            wins: legacyWins,
+            winRate: legacyCount > 0 ? legacyWins / legacyCount : 0,
+            totalPnl: legacySum,
+            avgPnl: legacyCount > 0 ? legacySum / legacyCount : 0,
+          },
+        },
+      };
+    }),
+
+  /**
+   * Phase 88 — per-symbol Sensorium detail for the drilldown modal.
+   * Health cards show counts; this gives the operator the breakdown of
+   * which symbols are fresh vs stale for each sensation kind.
+   */
+  getSensoriumPerSymbol: protectedProcedure
+    .query(async () => {
+      const { getSensorium } = await import('../brain/Sensorium');
+      const { getCachedCandidateSymbols } = await import('../brain/SensorWiring');
+      const sensorium = getSensorium();
+      const candidateSymbols = getCachedCandidateSymbols();
+
+      // Include occupied positions too (operator wants to see them).
+      const activeIds = sensorium.getActivePositionIds();
+      const occupiedSyms = new Set<string>();
+      for (const id of activeIds) {
+        const p = sensorium.getPosition(id);
+        if (p) occupiedSyms.add(p.sensation.symbol);
+      }
+      const allSymbols = Array.from(new Set([...candidateSymbols, ...occupiedSyms])).sort();
+
+      return allSymbols.map(symbol => {
+        const m = sensorium.getMarket(symbol);
+        const t = sensorium.getTechnical(symbol);
+        const f = sensorium.getFlow(symbol);
+        const w = sensorium.getWhale(symbol);
+        const d = sensorium.getDeriv(symbol);
+        const av = sensorium.getAgentVotes(symbol);
+        const opp = sensorium.getOpportunity(symbol);
+        const alpha = sensorium.getAlpha(symbol);
+        const stance = sensorium.getStance(symbol);
+        return {
+          symbol,
+          occupied: occupiedSyms.has(symbol),
+          market: m ? { present: true, stalenessMs: m.stalenessMs, midPrice: m.sensation.midPrice } : { present: false },
+          technical: t ? { present: true, stalenessMs: t.stalenessMs, rsi: t.sensation.rsi, emaTrend: t.sensation.emaTrend } : { present: false },
+          flow: f ? { present: true, stalenessMs: f.stalenessMs, takerImb5s: f.sensation.takerImbalance5s } : { present: false },
+          whale: w ? { present: true, stalenessMs: w.stalenessMs, netFlow: w.sensation.netExchangeFlow5m } : { present: false },
+          deriv: d ? { present: true, stalenessMs: d.stalenessMs, funding: d.sensation.fundingRate, oiDelta: d.sensation.oiDelta5m } : { present: false },
+          agentVotes: av ? { present: true, stalenessMs: av.stalenessMs, longCount: av.sensation.longCount, shortCount: av.sensation.shortCount, neutralCount: av.sensation.neutralCount, vetoActive: av.sensation.anyVetoActive } : { present: false },
+          opportunity: opp ? { present: true, stalenessMs: opp.stalenessMs, score: opp.sensation.score, direction: opp.sensation.direction, confluence: opp.sensation.confluenceCount } : { present: false },
+          alpha: alpha ? { present: true, activePatternCount: alpha.sensation.activePatternCount, weightedWinRate: alpha.sensation.weightedWinRate, decayedPatternCount: alpha.sensation.decayedPatternCount } : { present: false },
+          stance: stance ? { present: true, stalenessMs: stance.stalenessMs, currentDirection: stance.sensation.currentDirection, currentConsensus: stance.sensation.currentConsensus } : { present: false },
+        };
+      });
+    }),
 
   /**
    * Phase 85 — read brain's current config + Sensorium health.

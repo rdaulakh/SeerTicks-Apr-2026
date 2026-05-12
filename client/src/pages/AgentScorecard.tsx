@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, Legend } from "recharts";
 import { trpc } from "@/lib/trpc";
 import {
   Trophy,
@@ -172,6 +173,18 @@ export default function AgentScorecard() {
   const [editConfig, setEditConfig] = useState<Record<string, string>>({});
   // Candidate symbols editor.
   const [symbolsText, setSymbolsText] = useState<string>("");
+  // Phase 88 — Sensorium-card drilldown: which sensation kind to inspect.
+  const [drillSensorium, setDrillSensorium] = useState<null | 'market' | 'technical' | 'flow' | 'whale' | 'deriv' | 'agentVotes' | 'opportunity' | 'alpha'>(null);
+  const { data: sensoriumPerSymbol } = trpc.agentScorecard.getSensoriumPerSymbol.useQuery(undefined, {
+    refetchInterval: 5_000,
+    placeholderData: (prev) => prev,
+    enabled: !!drillSensorium,
+  });
+  // Phase 88 — Brain vs Legacy P&L comparison
+  const { data: bvl } = trpc.agentScorecard.getBrainVsLegacyPnl.useQuery(
+    { windowHours: Math.max(24, windowHours) },
+    { refetchInterval: 30_000, placeholderData: (prev) => prev },
+  );
 
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl space-y-6">
@@ -316,43 +329,66 @@ export default function AgentScorecard() {
             </div>
           </Card>
 
-          {/* Phase 85 — Sensorium health: how many agents are talking to the brain */}
+          {/* Phase 85 — Sensorium health (Phase 88: clickable drilldown) */}
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-            <Card className="p-3 bg-black/40 border-white/10">
-              <div className="text-[10px] uppercase text-gray-400">Agent votes</div>
-              <div className="text-xl font-bold mt-1 text-cyan-300">
-                {brainCH?.sensoriumHealth?.agentVotes ?? 0}
-              </div>
-              <div className="text-[10px] text-gray-500">symbols heard</div>
-            </Card>
-            <Card className="p-3 bg-black/40 border-white/10">
-              <div className="text-[10px] uppercase text-gray-400">Market</div>
-              <div className="text-xl font-bold mt-1">{brainCH?.sensoriumHealth?.market ?? 0}</div>
-              <div className="text-[10px] text-gray-500">tick streams</div>
-            </Card>
-            <Card className="p-3 bg-black/40 border-white/10">
-              <div className="text-[10px] uppercase text-gray-400">Technical</div>
-              <div className="text-xl font-bold mt-1">{brainCH?.sensoriumHealth?.technical ?? 0}</div>
-              <div className="text-[10px] text-gray-500">syms</div>
-            </Card>
-            <Card className="p-3 bg-black/40 border-white/10">
-              <div className="text-[10px] uppercase text-gray-400">Flow / Whale / Deriv</div>
-              <div className="text-xl font-bold mt-1">
-                {(brainCH?.sensoriumHealth?.flow ?? 0)}/{(brainCH?.sensoriumHealth?.whale ?? 0)}/{(brainCH?.sensoriumHealth?.deriv ?? 0)}
-              </div>
-              <div className="text-[10px] text-gray-500">syms heard</div>
-            </Card>
+            <button onClick={() => setDrillSensorium('agentVotes')} className="text-left">
+              <Card className="p-3 bg-black/40 border-white/10 hover:border-cyan-500/40 transition cursor-pointer">
+                <div className="text-[10px] uppercase text-gray-400">Agent votes</div>
+                <div className="text-xl font-bold mt-1 text-cyan-300">
+                  {brainCH?.sensoriumHealth?.agentVotes ?? 0}
+                </div>
+                <div className="text-[10px] text-gray-500">symbols · click for detail</div>
+              </Card>
+            </button>
+            <button onClick={() => setDrillSensorium('market')} className="text-left">
+              <Card className="p-3 bg-black/40 border-white/10 hover:border-cyan-500/40 transition cursor-pointer">
+                <div className="text-[10px] uppercase text-gray-400">Market</div>
+                <div className="text-xl font-bold mt-1">{brainCH?.sensoriumHealth?.market ?? 0}</div>
+                <div className="text-[10px] text-gray-500">tick streams · click</div>
+              </Card>
+            </button>
+            <button onClick={() => setDrillSensorium('technical')} className="text-left">
+              <Card className="p-3 bg-black/40 border-white/10 hover:border-cyan-500/40 transition cursor-pointer">
+                <div className="text-[10px] uppercase text-gray-400">Technical</div>
+                <div className="text-xl font-bold mt-1">{brainCH?.sensoriumHealth?.technical ?? 0}</div>
+                <div className="text-[10px] text-gray-500">syms · click</div>
+              </Card>
+            </button>
+            <button onClick={() => setDrillSensorium('flow')} className="text-left">
+              <Card className="p-3 bg-black/40 border-white/10 hover:border-cyan-500/40 transition cursor-pointer">
+                <div className="text-[10px] uppercase text-gray-400">Flow / Whale / Deriv</div>
+                <div className="text-xl font-bold mt-1">
+                  {(brainCH?.sensoriumHealth?.flow ?? 0)}/{(brainCH?.sensoriumHealth?.whale ?? 0)}/{(brainCH?.sensoriumHealth?.deriv ?? 0)}
+                </div>
+                <div className="text-[10px] text-gray-500">syms heard · click</div>
+              </Card>
+            </button>
             <Card className="p-3 bg-black/40 border-white/10">
               <div className="text-[10px] uppercase text-gray-400">Positions</div>
               <div className="text-xl font-bold mt-1">{brainCH?.sensoriumHealth?.positions ?? 0}</div>
               <div className="text-[10px] text-gray-500">tracked</div>
             </Card>
-            <Card className="p-3 bg-black/40 border-white/10">
-              <div className="text-[10px] uppercase text-gray-400">Opportunities</div>
-              <div className="text-xl font-bold mt-1 text-amber-300">{brainCH?.sensoriumHealth?.opportunities ?? 0}</div>
-              <div className="text-[10px] text-gray-500">candidate scores</div>
-            </Card>
+            <button onClick={() => setDrillSensorium('opportunity')} className="text-left">
+              <Card className="p-3 bg-black/40 border-white/10 hover:border-amber-500/40 transition cursor-pointer">
+                <div className="text-[10px] uppercase text-gray-400">Opportunities</div>
+                <div className="text-xl font-bold mt-1 text-amber-300">{brainCH?.sensoriumHealth?.opportunities ?? 0}</div>
+                <div className="text-[10px] text-gray-500">scores · click</div>
+              </Card>
+            </button>
           </div>
+
+          {/* Phase 88 — Sensorium drilldown modal */}
+          <Dialog open={!!drillSensorium} onOpenChange={(o) => !o && setDrillSensorium(null)}>
+            <DialogContent className="max-w-3xl bg-black/95 border-white/10">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Brain className="w-5 h-5 text-cyan-400" />
+                  Sensorium · {drillSensorium}
+                </DialogTitle>
+              </DialogHeader>
+              <SensoriumDrill kind={drillSensorium} rows={sensoriumPerSymbol ?? []} />
+            </DialogContent>
+          </Dialog>
 
           {/* Brain status header */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -538,6 +574,57 @@ export default function AgentScorecard() {
               </div>
             </Card>
           </div>
+
+          {/* Phase 88 — Brain vs Legacy P&L over time */}
+          <Card className="bg-black/40 border-white/10 p-4">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-cyan-400" />
+                <h3 className="font-semibold text-sm">Brain vs Legacy P&L</h3>
+                <Badge variant="outline" className="border-white/20 text-[10px]">last {Math.max(24, windowHours)}h</Badge>
+              </div>
+              <div className="flex items-center gap-3 text-[11px]">
+                {bvl?.stats?.brain && (
+                  <span className="text-cyan-300">
+                    🧠 brain: {bvl.stats.brain.trades} trades · {fmtPct(bvl.stats.brain.winRate)} · <strong>{fmtUsd(bvl.stats.brain.totalPnl)}</strong>
+                  </span>
+                )}
+                {bvl?.stats?.legacy && (
+                  <span className="text-gray-300">
+                    🛠 legacy: {bvl.stats.legacy.trades} trades · {fmtPct(bvl.stats.legacy.winRate)} · <strong>{fmtUsd(bvl.stats.legacy.totalPnl)}</strong>
+                  </span>
+                )}
+              </div>
+            </div>
+            {bvl && (bvl.brain.length > 0 || bvl.legacy.length > 0) ? (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                    <XAxis
+                      dataKey="hour"
+                      type="category"
+                      allowDuplicatedCategory={false}
+                      tick={{ fontSize: 10, fill: '#9CA3AF' }}
+                      tickFormatter={(v: string) => v.slice(5, 13)}
+                    />
+                    <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} tickFormatter={(v: number) => `$${v.toFixed(0)}`} />
+                    <RTooltip
+                      contentStyle={{ background: '#0f172a', border: '1px solid #334155', fontSize: 11 }}
+                      formatter={(v: number) => [`$${v.toFixed(2)}`, undefined]}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Line data={bvl.brain} type="monotone" dataKey="cumPnl" name="🧠 Brain (cum)" stroke="#06b6d4" strokeWidth={2} dot={false} />
+                    <Line data={bvl.legacy} type="monotone" dataKey="cumPnl" name="🛠 Legacy (cum)" stroke="#9CA3AF" strokeWidth={2} strokeDasharray="4 2" dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-24 flex items-center justify-center text-xs text-gray-400">
+                No closed trades in window yet — chart will populate as positions close.
+              </div>
+            )}
+          </Card>
 
           {/* Recent decision stream (Phase 85 — rows are clickable for sensorium drill-down) */}
           <Card className="bg-black/40 border-white/10 overflow-hidden">
@@ -825,6 +912,67 @@ export default function AgentScorecard() {
           </Card>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// Phase 88 — Sensorium per-symbol drilldown panel. Operator clicks a health
+// card; this lists each symbol's freshness + key data for the chosen sensation.
+function SensoriumDrill({ kind, rows }: { kind: string | null; rows: any[] }) {
+  if (!kind) return null;
+  if (rows.length === 0) {
+    return <div className="text-sm text-gray-400">Loading per-symbol detail…</div>;
+  }
+
+  const ageLabel = (ms: number | undefined): { text: string; cls: string } => {
+    if (ms === undefined) return { text: '—', cls: 'text-gray-500' };
+    if (ms < 5_000) return { text: `${(ms / 1000).toFixed(1)}s`, cls: 'text-emerald-400' };
+    if (ms < 30_000) return { text: `${(ms / 1000).toFixed(1)}s`, cls: 'text-amber-400' };
+    return { text: `${(ms / 1000).toFixed(0)}s STALE`, cls: 'text-red-400 font-bold' };
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="text-xs text-gray-400">
+        {rows.length} symbol{rows.length !== 1 ? 's' : ''} · {kind} sensation
+      </div>
+      <div className="max-h-96 overflow-y-auto bg-black/60 rounded border border-white/5">
+        <table className="w-full text-xs">
+          <thead className="bg-white/5 sticky top-0">
+            <tr className="text-left text-[10px] uppercase text-gray-400">
+              <th className="px-3 py-2">Symbol</th>
+              <th className="px-3 py-2">Pos?</th>
+              <th className="px-3 py-2">Fresh</th>
+              <th className="px-3 py-2">Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const s = r[kind] ?? {};
+              const age = s.present ? ageLabel(s.stalenessMs) : { text: 'no data', cls: 'text-red-500' };
+              let detail = '—';
+              if (s.present) {
+                if (kind === 'market') detail = `mid=$${(s.midPrice ?? 0).toFixed(2)}`;
+                else if (kind === 'technical') detail = `RSI=${(s.rsi ?? 0).toFixed(1)} · ema ${s.emaTrend ?? '?'}`;
+                else if (kind === 'flow') detail = `imb5s=${(s.takerImb5s ?? 0).toFixed(2)}`;
+                else if (kind === 'whale') detail = `netFlow=$${((s.netFlow ?? 0) / 1000).toFixed(0)}k`;
+                else if (kind === 'deriv') detail = `funding=${(s.funding ?? 0).toFixed(4)} · OIΔ=${(s.oiDelta ?? 0).toFixed(2)}`;
+                else if (kind === 'agentVotes') detail = `↑${s.longCount} ↓${s.shortCount} •${s.neutralCount}${s.vetoActive ? ' ⚠ VETO' : ''}`;
+                else if (kind === 'opportunity') detail = `${s.direction} · score ${(s.score ?? 0).toFixed(2)} · ${s.confluence ?? 0} agree`;
+                else if (kind === 'alpha') detail = `${s.activePatternCount} active · ${s.decayedPatternCount} decayed · winRate ${((s.weightedWinRate ?? 0) * 100).toFixed(0)}%`;
+              }
+              return (
+                <tr key={r.symbol} className="border-t border-white/5">
+                  <td className="px-3 py-1.5 font-mono text-gray-300">{r.symbol}</td>
+                  <td className="px-3 py-1.5">{r.occupied ? <Badge className="bg-blue-500/15 text-blue-300 border-blue-500/30 text-[10px]">held</Badge> : <span className="text-gray-500">·</span>}</td>
+                  <td className={`px-3 py-1.5 ${age.cls}`}>{age.text}</td>
+                  <td className="px-3 py-1.5 text-gray-300">{detail}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

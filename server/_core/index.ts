@@ -926,11 +926,17 @@ async function startServer() {
       const { getDecisionTrace } = await import('../brain/DecisionTrace');
       const { getTraderBrain } = await import('../brain/TraderBrain');
       const { startSensorWiring } = await import('../brain/SensorWiring');
+      const { getPatternPopulator } = await import('../brain/PatternPopulator');
 
       // Force-construct singletons.
       void getSensorium();
       void getDecisionTrace();
       startSensorWiring();
+      // Phase 88 — alpha library writer. Listens to brain_position_opened/closed
+      // events from BrainExecutor and UPSERTs into winningPatterns. Must start
+      // BEFORE the brain so the BrainExecutor's event listeners are attached
+      // before the first open/close event fires.
+      getPatternPopulator().start();
 
       const brain = getTraderBrain();
       // Phase 83.2 — LIVE MODE. Brain has execution authority over the 6
