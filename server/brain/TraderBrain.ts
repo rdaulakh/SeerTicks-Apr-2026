@@ -83,7 +83,11 @@ const DEFAULT_CONFIG: BrainConfig = {
   dryRun: true,
   consensusFlipThreshold: 0.30,
   momentumCrashBpsPerS: 0.5,
-  staleHoldMinutes: 30,
+  // Phase 93.2 — cut from 30 → 25. Trade-history analysis on 2026-05-13 showed
+  // 30-60min hold bucket had win rate 41.2% with avg P&L -$0.51; 5-15min bucket
+  // had 66.7% win rate with avg +$1.51. Tighter time exit pushes us toward the
+  // profitable bucket and frees slots faster.
+  staleHoldMinutes: 25,
   stalePeakPnlPct: 0.30,
   adaptiveTargetAtrMult: 1.5,
   // Phase 86 — calibrated against 33-agent fan-in. Score is count-derived
@@ -472,9 +476,34 @@ class TraderBrain {
         reason: `consensus ${(stance.currentConsensus * 100).toFixed(0)}% ${stance.currentDirection} opposes opportunity ${opp.direction}`, symbol };
     }
 
-    // Sizing: equity fraction × Kelly fraction × opportunity score
+    // Sizing — Phase 93.2
+    //
+    // Previous formula:  equity × entrySizeEquityFraction × kellyFraction × opp.score
+    //   With defaults (0.10 × 0.25 × ~0.70 = 0.0175) this collapsed every trade to
+    //   ~1.75% of equity. Avg observed notional = $174 on a $10K bankroll — far
+    //   below the intended 10% target.
+    //
+    // The bug: entrySizeEquityFraction ALREADY encodes the post-Kelly conservative
+    // size (0.10 = "10% per trade" is the user's risk lever). Multiplying by
+    // kellyFraction (0.25) AGAIN compounds the safety factor and shrinks the
+    // position 4× below intent.
+    //
+    // New formula:  equity × entrySizeEquityFraction × opp.score
+    //   - Base size = entrySizeEquityFraction (10% of equity by default)
+    //   - opp.score scales 0.55..1.00 — at minimum opportunity we bet 5.5%, at
+    //     maximum opportunity we bet 10%. Score becomes a quality discount, not
+    //     a second safety multiplier.
+    //   - With $10K equity + opp.score ~0.70 → $700/trade. Matches the "10% per
+    //     trade" promise of the config knob.
+    //
+    // kellyFraction is preserved in config for future use (e.g. dynamic adjustment
+    // based on rolling win-rate) but is NOT applied in the base formula anymore.
+    //
+    // Minimum-notional gate ($50) added to kill dust entries — observed historical
+    // hydrated positions as small as $16 had no chance of overcoming fees.
     const equity = port?.equity ?? 10_000; // conservative fallback
-    const sizeUsd = equity * this.config.entrySizeEquityFraction * this.config.kellyFraction * opp.score;
+    const MIN_NOTIONAL_USD = 50;
+    const sizeUsd = equity * this.config.entrySizeEquityFraction * opp.score;
     const qty = sizeUsd / market.midPrice;
 
     // Stop / take-profit from market regime ATR or defaults
@@ -487,6 +516,10 @@ class TraderBrain {
     if (!Number.isFinite(qty) || qty <= 0) {
       return { kind: 'abstain', pipelineStep: 'should_enter:bad_size',
         reason: `computed qty ${qty} invalid (equity ${equity}, mid ${market.midPrice})`, symbol };
+    }
+    if (sizeUsd < MIN_NOTIONAL_USD) {
+      return { kind: 'abstain', pipelineStep: 'should_enter:below_min_notional',
+        reason: `size $${sizeUsd.toFixed(2)} below $${MIN_NOTIONAL_USD} minimum (equity ${equity}, score ${opp.score.toFixed(2)})`, symbol };
     }
 
     return {
