@@ -132,45 +132,73 @@ async function pullTechnicalAndFlowSensors(): Promise<void> {
 
 async function pullPositionAndStanceSensors(): Promise<void> {
   const sensorium = getSensorium();
+  const activeIds = new Set<string | number>();
 
-  // Position state — read directly from IEM in-memory positions
+  // Phase 83.1 — read positions DIRECTLY from paperPositions table. This
+  // decouples the brain from IEM's in-memory state (which may be empty if
+  // IEM hasn't loaded yet or per-user IEM is gated). The DB is the single
+  // source of truth; IEM and the brain are both consumers. We also pull
+  // IEM's enriched in-memory fields (peakPnlPercent, ratchetStep) as
+  // overrides where available.
+  let dbRows: any[] = [];
+  try {
+    const { getDb } = await import('../db');
+    const { paperPositions } = await import('../../drizzle/schema');
+    const { eq } = await import('drizzle-orm');
+    const db = await getDb();
+    if (db) {
+      dbRows = await db.select().from(paperPositions).where(eq(paperPositions.status, 'open')).limit(50);
+    }
+  } catch (err) {
+    logger.warn('[SensorWiring] DB position read failed', { error: (err as Error)?.message });
+  }
+
+  // Get IEM's in-memory map for enrichment (peakPnl, ratchetStep are NOT in DB).
   let iemPositions: Map<string, any> | null = null;
   try {
     const { getIntelligentExitManager } = await import('../services/IntelligentExitManager');
     const iem = getIntelligentExitManager();
-    // Access the positions map via cast — Sensorium is the audit consumer
     iemPositions = (iem as any).positions as Map<string, any>;
   } catch {
-    // IEM may not be initialized yet on startup
+    // IEM not initialized yet — proceed with DB-only data
   }
 
-  // Track which positions are currently known so we can prune Sensorium when one closes.
-  const activeIds = new Set<string | number>();
-
-  if (iemPositions && iemPositions.size > 0) {
-    for (const [_key, p] of iemPositions) {
-      if (!p || p.status === 'closed') continue;
-      const positionId = p.id ?? p.dbPositionId;
-      if (positionId === undefined || positionId === null) continue;
-      activeIds.add(positionId);
-      const sensation: PositionSensation = {
-        positionId,
-        symbol: p.symbol,
-        side: p.side,
-        entryPrice: p.entryPrice,
-        currentPrice: p.currentPrice ?? p.entryPrice,
-        unrealizedPnlPercent: p.unrealizedPnlPercent ?? 0,
-        peakPnlPercent: p.peakPnlPercent ?? 0,
-        holdMinutes: p.entryTime ? (Date.now() - new Date(p.entryTime).getTime()) / 60_000 : 0,
-        currentStopLoss: typeof p.stopLoss === 'number' ? p.stopLoss : null,
-        currentTakeProfit: typeof p.takeProfit === 'number' ? p.takeProfit : null,
-        ratchetStep: typeof p.ratchetStep === 'number' ? p.ratchetStep : -1,
-      };
-      sensorium.updatePosition(sensation);
+  // Build a lookup from IEM by dbPositionId for the in-memory enrichments.
+  const iemByDbId = new Map<number, any>();
+  if (iemPositions) {
+    for (const [_k, p] of iemPositions) {
+      if (p?.dbPositionId !== undefined && p?.dbPositionId !== null) {
+        iemByDbId.set(p.dbPositionId, p);
+      }
     }
   }
 
-  // Prune Sensorium entries for positions that are no longer tracked.
+  for (const row of dbRows) {
+    const positionId = row.id;
+    activeIds.add(positionId);
+    const iemP = iemByDbId.get(positionId);
+    const entryPrice = parseFloat(row.entryPrice);
+    const currentPrice = parseFloat(row.currentPrice ?? row.entryPrice);
+    const unrealizedPnlPercent = row.unrealizedPnLPercent
+      ? parseFloat(row.unrealizedPnLPercent)
+      : iemP?.unrealizedPnlPercent ?? 0;
+    const sensation: PositionSensation = {
+      positionId,
+      symbol: row.symbol,
+      side: row.side,
+      entryPrice,
+      currentPrice,
+      unrealizedPnlPercent,
+      peakPnlPercent: iemP?.peakPnlPercent ?? Math.max(unrealizedPnlPercent, 0),
+      holdMinutes: row.entryTime ? (Date.now() - new Date(row.entryTime).getTime()) / 60_000 : 0,
+      currentStopLoss: row.stopLoss ? parseFloat(row.stopLoss) : null,
+      currentTakeProfit: row.takeProfit ? parseFloat(row.takeProfit) : null,
+      ratchetStep: typeof iemP?.ratchetStep === 'number' ? iemP.ratchetStep : -1,
+    };
+    sensorium.updatePosition(sensation);
+  }
+
+  // Prune Sensorium entries for positions that closed.
   const existingPositions = (sensorium as any).positions as Map<string | number, unknown>;
   if (existingPositions) {
     for (const id of existingPositions.keys()) {
