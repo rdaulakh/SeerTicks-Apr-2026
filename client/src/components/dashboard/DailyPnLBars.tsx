@@ -71,7 +71,7 @@ export default function DailyPnLBars() {
   return (
     <Card className="glass-card border-slate-800/50 p-4 h-full">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+        <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
           <BarChart3 className="w-4 h-4 text-emerald-400" />
           Daily P&L
           <span className="text-xs text-slate-500 normal-case">(last {DAYS}d)</span>

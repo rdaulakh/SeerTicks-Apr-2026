@@ -44,10 +44,10 @@ function SparkRow({ symbol, price, change24h }: { symbol: string; price: number;
   return (
     <div className="flex items-center gap-2 py-2 px-2 border-b border-slate-800/40 last:border-b-0">
       <div className="w-16 shrink-0">
-        <p className="text-[11px] font-bold text-slate-200">{symbol}</p>
+        <p className="text-[11px] font-bold text-slate-700 dark:text-slate-200">{symbol}</p>
       </div>
       <div className="w-20 shrink-0 text-right">
-        <p className="text-[11px] font-mono text-white">{fmtPrice(price)}</p>
+        <p className="text-[11px] font-mono text-slate-900 dark:text-white">{fmtPrice(price)}</p>
       </div>
       <div className="w-16 shrink-0 flex items-center justify-end gap-0.5">
         {up ? (
@@ -112,7 +112,7 @@ export default function SymbolTickerStrip({
 
   return (
     <Card className="glass-card border-slate-800/50 p-3 h-full">
-      <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-2 flex items-center gap-2">
+      <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider mb-2 flex items-center gap-2">
         <BarChart3 className="w-4 h-4 text-cyan-400" />
         Markets
         <span className="text-xs text-slate-500 normal-case">(24h)</span>

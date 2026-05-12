@@ -164,7 +164,7 @@ export default function Dashboard() {
             <DollarSign className="w-4 h-4 text-emerald-400" />
             <div>
               <p className="text-[10px] uppercase tracking-wider text-slate-500">Equity</p>
-              <p className="text-sm font-bold font-mono text-white">
+              <p className="text-sm font-bold font-mono text-slate-900 dark:text-white">
                 {formatUSD(equityDisplay)}
               </p>
             </div>
@@ -186,7 +186,7 @@ export default function Dashboard() {
             <Target className="w-4 h-4 text-blue-400" />
             <div>
               <p className="text-[10px] uppercase tracking-wider text-slate-500">Open positions</p>
-              <p className="text-sm font-bold text-white">{positionsList.length}</p>
+              <p className="text-sm font-bold text-slate-900 dark:text-white">{positionsList.length}</p>
             </div>
           </div>
 
@@ -213,7 +213,7 @@ export default function Dashboard() {
       {/* ════════════════════ ROW 2: POSITION STRIP ════════════════════ */}
       <Card className="glass-card border-slate-800/50 p-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
             <Activity className="w-4 h-4 text-cyan-400" />
             Open Positions
             <span className="text-xs text-slate-500 normal-case">({positionsList.length})</span>
@@ -242,7 +242,7 @@ export default function Dashboard() {
                 )}>
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-white">{p.symbol}</span>
+                      <span className="text-sm font-bold text-slate-900 dark:text-white">{p.symbol}</span>
                       <span className={cn(
                         "text-[10px] font-bold px-1.5 py-0.5 rounded uppercase",
                         isLong ? "bg-green-500/20 text-green-300" : "bg-red-500/20 text-red-300"
@@ -307,7 +307,7 @@ export default function Dashboard() {
         {/* Brain activity stream */}
         <Card className="lg:col-span-2 glass-card border-slate-800/50 p-4">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
               <Brain className="w-4 h-4 text-cyan-400" />
               Brain Activity Stream
               <span className="text-xs text-slate-500 normal-case">(decisions · last 10 min)</span>
@@ -390,7 +390,7 @@ export default function Dashboard() {
             {connected ? <CheckCircle2 className="w-4 h-4 text-green-400" /> : <XCircle className="w-4 h-4 text-red-400" />}
             <div>
               <p className="text-[10px] uppercase tracking-wider text-slate-500">WebSocket</p>
-              <p className="text-xs font-bold text-white">{connected ? "Connected" : "Disconnected"}</p>
+              <p className="text-xs font-bold text-slate-900 dark:text-white">{connected ? "Connected" : "Disconnected"}</p>
             </div>
           </div>
         </Card>
@@ -401,7 +401,7 @@ export default function Dashboard() {
             <Cpu className="w-4 h-4 text-purple-400" />
             <div>
               <p className="text-[10px] uppercase tracking-wider text-slate-500">Brain mode</p>
-              <p className="text-xs font-bold text-white">
+              <p className="text-xs font-bold text-slate-900 dark:text-white">
                 {brainStatus?.dryRun ? "DRY-RUN" : "LIVE"} · {(brainStatus?.tickMs ?? 0)}ms tick
               </p>
             </div>
@@ -414,7 +414,7 @@ export default function Dashboard() {
             <Zap className="w-4 h-4 text-yellow-400" />
             <div>
               <p className="text-[10px] uppercase tracking-wider text-slate-500">Engine ticks</p>
-              <p className="text-xs font-bold font-mono text-white">
+              <p className="text-xs font-bold font-mono text-slate-900 dark:text-white">
                 {(eng as any)?.tickCount?.toLocaleString() ?? 0}
               </p>
             </div>

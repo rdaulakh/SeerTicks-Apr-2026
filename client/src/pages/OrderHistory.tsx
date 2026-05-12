@@ -197,20 +197,20 @@ export default function OrderHistory() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#0a0a0f] dark:bg-background text-slate-100 dark:text-foreground p-3 sm:p-4 lg:p-6">
-        <Skeleton className="h-96 w-full bg-slate-800/40" />
+      <div className="min-h-screen bg-background text-foreground p-3 sm:p-4 lg:p-6">
+        <Skeleton className="h-96 w-full" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] dark:bg-background text-slate-100 dark:text-foreground p-3 sm:p-4 lg:p-6">
+    <div className="min-h-screen bg-background text-foreground p-3 sm:p-4 lg:p-6">
       <div className="max-w-7xl mx-auto space-y-3 lg:space-y-4">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h1 className="text-xl lg:text-2xl font-bold tracking-tight">Order History</h1>
-            <p className="text-[11px] lg:text-xs text-slate-500 mt-0.5 hidden sm:block">
+            <h1 className="text-xl lg:text-2xl font-bold tracking-tight text-foreground">Order History</h1>
+            <p className="text-[11px] lg:text-xs text-muted-foreground mt-0.5 hidden sm:block">
               Closed positions · audit log
             </p>
           </div>
@@ -370,12 +370,12 @@ export default function OrderHistory() {
         )}
 
         {/* Trade History Table */}
-        <div className="rounded-lg border border-slate-800 bg-slate-900/40">
-          <div className="flex items-center justify-between px-3 py-2 lg:px-4 lg:py-2.5 border-b border-slate-800">
-            <h2 className="text-xs lg:text-sm font-bold uppercase tracking-wider text-slate-300">
+        <div className="rounded-lg border border-border bg-card">
+          <div className="flex items-center justify-between px-3 py-2 lg:px-4 lg:py-2.5 border-b border-border">
+            <h2 className="text-xs lg:text-sm font-bold uppercase tracking-wider text-foreground">
               Trade History
             </h2>
-            <span className="text-[11px] text-slate-500 font-mono">
+            <span className="text-[11px] text-muted-foreground font-mono">
               {positionCount.toLocaleString()} closed
             </span>
           </div>
@@ -504,9 +504,9 @@ export default function OrderHistory() {
             </div>
           ) : (
             <div className="text-center py-12 px-4">
-              <Calendar className="h-10 w-10 mx-auto mb-3 text-slate-600" />
-              <p className="text-sm text-slate-300 font-medium">No closed positions</p>
-              <p className="text-xs text-slate-500 mt-1">
+              <Calendar className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+              <p className="text-sm text-foreground font-medium">No closed positions</p>
+              <p className="text-xs text-muted-foreground mt-1">
                 {filtersActive
                   ? "Try adjusting your filters"
                   : "Closed trades will appear here"}
@@ -532,11 +532,11 @@ interface KpiTileProps {
 
 function KpiTile({ label, value, subtext, tone = "neutral", icon }: KpiTileProps) {
   const valueColor =
-    tone === "pos" ? "text-green-400" : tone === "neg" ? "text-red-400" : "text-white";
+    tone === "pos" ? "text-green-500 dark:text-green-400" : tone === "neg" ? "text-red-500 dark:text-red-400" : "text-foreground";
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2.5 lg:px-4 lg:py-3">
+    <div className="rounded-lg border border-border bg-card px-3 py-2.5 lg:px-4 lg:py-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
           {label}
         </span>
         {icon}

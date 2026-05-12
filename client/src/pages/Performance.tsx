@@ -213,10 +213,10 @@ export default function Performance() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-6">
           <SeerLoader size="lg" />
-          <p className="text-slate-400 text-sm">Loading performance data...</p>
+          <p className="text-muted-foreground text-sm">Loading performance data...</p>
         </div>
       </div>
     );
@@ -229,13 +229,13 @@ export default function Performance() {
     : 'ok';
 
   return (
-    <div className="min-h-screen bg-slate-950 dark:bg-slate-950 pt-16 lg:pt-20">
+    <div className="min-h-screen bg-background text-foreground pt-16 lg:pt-20">
       <div className="container mx-auto px-3 sm:px-4 lg:px-6 py-4 lg:py-6 space-y-4">
 
         {/* ─── HEADER ───────────────────────────────────────────── */}
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl lg:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+            <h1 className="text-xl lg:text-2xl font-bold text-foreground tracking-tight flex items-center gap-2">
               <BarChart2 className="w-5 h-5 lg:w-6 lg:h-6 text-purple-400" />
               Performance
             </h1>
@@ -286,10 +286,10 @@ export default function Performance() {
               <p className="text-[10px] uppercase tracking-wider text-slate-400">Deposit</p>
               <Activity className="w-3.5 h-3.5 text-slate-500" />
             </div>
-            <p className="text-base lg:text-lg font-bold text-slate-200 font-mono tabular-nums">
+            <p className="text-base lg:text-lg font-bold text-foreground font-mono tabular-nums">
               ${balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </p>
-            <p className="text-[10px] text-slate-500 mt-0.5">starting capital</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">starting capital</p>
           </Card>
 
           <Card className="border-slate-800/60 bg-slate-900/40 p-3">
@@ -343,7 +343,7 @@ export default function Performance() {
                   'bg-green-400'
                 }`} />
                 <div>
-                  <p className="text-xs font-semibold text-white">Binance &harr; SEER</p>
+                  <p className="text-xs font-semibold text-foreground">Binance &harr; SEER</p>
                   <p className="text-[10px] text-slate-400 font-mono">
                     {new Date(reconciliation.checkedAt).toLocaleTimeString()} ·{' '}
                     {reconciliation.binance ? 'connected' : 'unreachable'}
@@ -389,7 +389,7 @@ export default function Performance() {
         {windowStats && (
           <Card className="border-slate-800/60 bg-slate-900/40 p-3 lg:p-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
-              <h2 className="text-xs font-bold text-white uppercase tracking-wider">Performance window</h2>
+              <h2 className="text-xs font-bold text-foreground uppercase tracking-wider">Performance window</h2>
               <div className="flex gap-1">
                 {(['today', '7d', '30d', 'all'] as const).map(w => (
                   <Button
@@ -407,7 +407,7 @@ export default function Performance() {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-slate-400">Trades</p>
-                <p className="text-lg lg:text-xl font-bold text-white font-mono tabular-nums">{windowStats.totalTrades}</p>
+                <p className="text-lg lg:text-xl font-bold text-foreground font-mono tabular-nums">{windowStats.totalTrades}</p>
                 <p className="text-[10px] text-slate-500">closed</p>
               </div>
               <div>
@@ -453,7 +453,7 @@ export default function Performance() {
 
         {/* ─── RISK METRICS STRIP ──────────────────────────────── */}
         <Card className="border-slate-800/60 bg-slate-900/40 p-3 lg:p-4">
-          <h2 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Risk metrics</h2>
+          <h2 className="text-xs font-bold text-foreground uppercase tracking-wider mb-3">Risk metrics</h2>
           <div className="grid grid-cols-3 gap-3 lg:gap-4">
             <div>
               <p className="text-[10px] uppercase tracking-wider text-slate-400">ROI</p>
@@ -483,7 +483,7 @@ export default function Performance() {
         {/* ─── P&L CHART ───────────────────────────────────────── */}
         <Card className="border-slate-800/60 bg-slate-900/40 p-3 lg:p-4">
           <div className="flex items-center justify-between gap-2 mb-3">
-            <h2 className="text-xs font-bold text-white uppercase tracking-wider">P&amp;L trajectory</h2>
+            <h2 className="text-xs font-bold text-foreground uppercase tracking-wider">P&amp;L trajectory</h2>
             <div className="flex gap-1">
               {(['day', 'week', 'month', 'year'] as const).map(tf => (
                 <Button
@@ -527,7 +527,7 @@ export default function Performance() {
         {/* ─── BEST / WORST TRADES ─────────────────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Card className="border-slate-800/60 bg-slate-900/40 p-3 lg:p-4">
-            <h2 className="text-xs font-bold text-white uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <h2 className="text-xs font-bold text-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <TrendingUp className="w-3.5 h-3.5 text-green-400" />
               Top winners
             </h2>
@@ -552,7 +552,7 @@ export default function Performance() {
           </Card>
 
           <Card className="border-slate-800/60 bg-slate-900/40 p-3 lg:p-4">
-            <h2 className="text-xs font-bold text-white uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <h2 className="text-xs font-bold text-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <TrendingDown className="w-3.5 h-3.5 text-red-400" />
               Top losers
             </h2>
@@ -580,7 +580,7 @@ export default function Performance() {
         {/* ─── CLOSED-POSITION LEDGER ──────────────────────────── */}
         <Card className="border-slate-800/60 bg-slate-900/40 p-3 lg:p-4">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs font-bold text-white uppercase tracking-wider">Recent closed positions</h2>
+            <h2 className="text-xs font-bold text-foreground uppercase tracking-wider">Recent closed positions</h2>
             <Badge variant="outline" className="text-[10px] font-mono border-slate-700 text-slate-400">
               {closedPositions?.length ?? 0} total
             </Badge>

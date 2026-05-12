@@ -75,7 +75,7 @@ export default function AgentHeatmap({
   return (
     <Card className="glass-card border-slate-800/50 p-4 h-full">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+        <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
           <Cpu className="w-4 h-4 text-purple-400" />
           Agent Heatmap
           <span className="text-xs text-slate-500 normal-case">
@@ -97,7 +97,7 @@ export default function AgentHeatmap({
         <div className="overflow-auto max-h-[360px] pr-1">
           {/* Header row */}
           <div
-            className="grid gap-0.5 sticky top-0 bg-slate-900/95 backdrop-blur z-10 pb-1"
+            className="grid gap-0.5 sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur z-10 pb-1"
             style={{ gridTemplateColumns: `minmax(110px, 1.2fr) repeat(${symbols.length}, minmax(70px, 1fr))` }}
           >
             <div className="text-[10px] uppercase tracking-wider text-slate-500 px-1">agent</div>

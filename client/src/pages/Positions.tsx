@@ -241,12 +241,12 @@ export default function Positions() {
       : 0;
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] dark:bg-background text-slate-100 dark:text-foreground p-3 sm:p-4 lg:p-6">
+    <div className="min-h-screen bg-background text-foreground p-3 sm:p-4 lg:p-6">
       <div className="max-w-7xl mx-auto space-y-3 lg:space-y-4">
         {/* Header — tight, single connection indicator */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-baseline gap-3 flex-wrap">
-            <h1 className="text-xl lg:text-2xl font-bold tracking-tight">Positions</h1>
+            <h1 className="text-xl lg:text-2xl font-bold tracking-tight text-foreground">Positions</h1>
             <div className="flex items-center gap-2 text-[11px]">
               <span
                 className={cn(
@@ -361,13 +361,13 @@ export default function Positions() {
             ))}
           </div>
         ) : sortedPositions.length === 0 ? (
-          <div className="rounded-lg bg-slate-900/40 border border-slate-800 p-10 lg:p-12">
+          <div className="rounded-lg bg-card border border-border p-10 lg:p-12">
             <div className="text-center space-y-3 max-w-md mx-auto">
-              <div className="w-12 h-12 rounded-full bg-slate-800/80 flex items-center justify-center mx-auto">
-                <Activity className="w-5 h-5 text-slate-500" />
+              <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto">
+                <Activity className="w-5 h-5 text-muted-foreground" />
               </div>
-              <h3 className="text-base font-semibold">No Open Positions</h3>
-              <p className="text-sm text-slate-400">
+              <h3 className="text-base font-semibold text-foreground">No Open Positions</h3>
+              <p className="text-sm text-muted-foreground">
                 Agents are monitoring the market. New positions will appear here when
                 consensus and risk gates pass.
               </p>
@@ -411,11 +411,11 @@ const KpiTile = memo(function KpiTile({
   isLoading = false,
 }: KpiTileProps) {
   const valueColor =
-    tone === "pos" ? "text-green-400" : tone === "neg" ? "text-red-400" : "text-white";
+    tone === "pos" ? "text-green-500 dark:text-green-400" : tone === "neg" ? "text-red-500 dark:text-red-400" : "text-foreground";
 
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2.5 lg:px-4 lg:py-3">
-      <div className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">
+    <div className="rounded-lg border border-border bg-card px-3 py-2.5 lg:px-4 lg:py-3">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
         {label}
       </div>
       {isLoading ? (
@@ -473,7 +473,7 @@ const LivePositionCard = memo(function LivePositionCard({
   return (
     <div
       className={cn(
-        "rounded-lg border bg-slate-900/60 transition-colors duration-200",
+        "rounded-lg border bg-card transition-colors duration-200",
         isProfit
           ? "border-green-500/20 hover:border-green-500/40"
           : "border-red-500/20 hover:border-red-500/40",
@@ -482,9 +482,9 @@ const LivePositionCard = memo(function LivePositionCard({
       )}
     >
       {/* Header row */}
-      <div className="flex items-center justify-between gap-3 px-3 py-2.5 lg:px-4 lg:py-3 border-b border-slate-800">
+      <div className="flex items-center justify-between gap-3 px-3 py-2.5 lg:px-4 lg:py-3 border-b border-border">
         <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <h3 className="text-base lg:text-lg font-bold font-mono tracking-tight truncate">
+          <h3 className="text-base lg:text-lg font-bold font-mono tracking-tight truncate text-foreground">
             {position.symbol}
           </h3>
           <Badge
@@ -556,7 +556,7 @@ const LivePositionCard = memo(function LivePositionCard({
       </div>
 
       {/* Price grid — table-like cells */}
-      <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-slate-800 border-b border-slate-800">
+      <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-border border-b border-border">
         <PriceCell label="Entry" value={formatCurrency(position.entryPrice)} />
         <PriceCell
           label="Current"

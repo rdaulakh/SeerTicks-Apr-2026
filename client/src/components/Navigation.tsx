@@ -24,7 +24,10 @@ import {
   LogOut,
   Target,
   ChevronDown,
+  Sun,
+  Moon,
 } from "lucide-react";
+import { useTheme } from "@/contexts/ThemeContext";
 import { SeerIcon } from "@/components/marketing/SeerLogo";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -78,7 +81,8 @@ export function Navigation() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const { user, logout } = useAuth();
-  
+  const { theme, toggleTheme } = useTheme();
+
   // Get real-time data from WebSocket for connection status only
   const { tradingStats, connected, connect, priceUpdates } = useSocketIOMulti(user?.id);
   
@@ -162,7 +166,7 @@ export function Navigation() {
   return (
     <>
       {/* Desktop Navigation */}
-      <nav className="hidden md:flex fixed top-0 left-0 right-0 z-50 bg-[#0a0a0f]/95 backdrop-blur-xl border-b border-gray-800/50">
+      <nav className="hidden md:flex fixed top-0 left-0 right-0 z-50 bg-white/95 dark:bg-[#0a0a0f]/95 backdrop-blur-xl border-b border-slate-200 dark:border-gray-800/50">
         <div className="w-full px-6 py-2.5">
           <div className="flex items-center justify-between">
             
@@ -172,8 +176,8 @@ export function Navigation() {
               <Link href="/agents" className="flex items-center gap-3 group">
                 <SeerIcon size={36} />
                 <div className="flex flex-col">
-                  <span className="text-lg font-bold text-white tracking-tight">SEER</span>
-                  <span className="text-[10px] text-gray-500 -mt-0.5 tracking-wider">AUTONOMOUS TRADING</span>
+                  <span className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">SEER</span>
+                  <span className="text-[10px] text-slate-500 dark:text-gray-500 -mt-0.5 tracking-wider">AUTONOMOUS TRADING</span>
                 </div>
               </Link>
 
@@ -190,8 +194,8 @@ export function Navigation() {
                       className={cn(
                         "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200",
                         isActive
-                          ? "bg-white/10 text-white"
-                          : "text-gray-400 hover:text-white hover:bg-white/5"
+                          ? "bg-slate-200 text-slate-900 dark:bg-white/10 dark:text-white"
+                          : "text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5"
                       )}
                     >
                       <Icon className="w-4 h-4" />
@@ -207,8 +211,8 @@ export function Navigation() {
                       className={cn(
                         "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200",
                         moreNavItems.some(item => isPathActive(item.path))
-                          ? "bg-white/10 text-white"
-                          : "text-gray-400 hover:text-white hover:bg-white/5"
+                          ? "bg-slate-200 text-slate-900 dark:bg-white/10 dark:text-white"
+                          : "text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5"
                       )}
                     >
                       <MoreHorizontal className="w-4 h-4" />
@@ -216,7 +220,7 @@ export function Navigation() {
                       <ChevronDown className="w-3 h-3 ml-0.5" />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-56 bg-gray-900 border-gray-800">
+                  <DropdownMenuContent align="start" className="w-56 bg-white border-slate-200 dark:bg-gray-900 dark:border-gray-800">
                     {moreNavItems.map((item) => {
                       const Icon = item.icon;
                       const isActive = isPathActive(item.path);
@@ -226,10 +230,10 @@ export function Navigation() {
                             href={item.path}
                             className={cn(
                               "flex items-center gap-3 cursor-pointer",
-                              isActive ? "text-white bg-white/10" : "text-gray-300"
+                              isActive ? "text-slate-900 bg-slate-200 dark:text-white dark:bg-white/10" : "text-slate-700 dark:text-gray-300"
                             )}
                           >
-                            <Icon className={cn("w-4 h-4", isActive ? "text-blue-400" : "text-gray-500")} />
+                            <Icon className={cn("w-4 h-4", isActive ? "text-blue-500 dark:text-blue-400" : "text-slate-400 dark:text-gray-500")} />
                             <span>{item.label}</span>
                           </Link>
                         </DropdownMenuItem>
@@ -244,7 +248,7 @@ export function Navigation() {
             <div className="flex items-center gap-4">
               
               {/* Portfolio Metrics - Compact Display */}
-              <div className="flex items-center gap-3 px-4 py-1.5 rounded-xl bg-gray-900/50 border border-gray-800/50">
+              <div className="flex items-center gap-3 px-4 py-1.5 rounded-xl bg-slate-100 border border-slate-200 dark:bg-gray-900/50 dark:border-gray-800/50">
                 {/* P&L */}
                 <div className="flex items-center gap-2">
                   {portfolioMetrics.totalPnL >= 0 ? (
@@ -259,31 +263,31 @@ export function Navigation() {
                     )}>
                       {portfolioMetrics.totalPnL >= 0 ? '+' : ''}{formatCurrency(portfolioMetrics.totalPnL)}
                     </span>
-                    <span className="text-[10px] text-gray-500">Unrealized P&L</span>
+                    <span className="text-[10px] text-slate-500 dark:text-gray-500">Unrealized P&L</span>
                   </div>
                 </div>
 
-                <div className="w-px h-8 bg-gray-700/50" />
+                <div className="w-px h-8 bg-slate-300 dark:bg-gray-700/50" />
 
                 {/* Open Positions - from centralized context */}
                 <div className="flex flex-col items-center">
-                  <span className="text-sm font-bold text-white font-mono">
+                  <span className="text-sm font-bold text-slate-900 dark:text-white font-mono">
                     {positionsLoading ? '...' : portfolioMetrics.openPositions}
                   </span>
-                  <span className="text-[10px] text-gray-500">Positions</span>
+                  <span className="text-[10px] text-slate-500 dark:text-gray-500">Positions</span>
                 </div>
 
-                <div className="w-px h-8 bg-gray-700/50" />
+                <div className="w-px h-8 bg-slate-300 dark:bg-gray-700/50" />
 
                 {/* Win Rate */}
                 <div className="flex flex-col items-center">
                   <span className={cn(
                     "text-sm font-bold font-mono",
-                    portfolioMetrics.winRate >= 50 ? "text-green-400" : "text-yellow-400"
+                    portfolioMetrics.winRate >= 50 ? "text-green-500 dark:text-green-400" : "text-yellow-500 dark:text-yellow-400"
                   )}>
                     {portfolioMetrics.winRate}%
                   </span>
-                  <span className="text-[10px] text-gray-500">Win Rate</span>
+                  <span className="text-[10px] text-slate-500 dark:text-gray-500">Win Rate</span>
                 </div>
               </div>
 
@@ -324,7 +328,7 @@ export function Navigation() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-lg text-gray-400 hover:text-white hover:bg-white/5"
+                className="h-9 w-9 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5"
                 onClick={() => setSearchOpen(true)}
                 title="Search (Cmd+K)"
               >
@@ -337,26 +341,40 @@ export function Navigation() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-9 w-9 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 relative"
+                    className="h-9 w-9 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5 relative"
                   >
                     <Bell className="w-4 h-4" />
                     <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-blue-500 rounded-full" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-80 bg-gray-900 border-gray-800">
-                  <DropdownMenuLabel className="text-gray-400">Notifications</DropdownMenuLabel>
-                  <DropdownMenuSeparator className="bg-gray-800" />
-                  <div className="p-4 text-sm text-gray-500 text-center">
+                  <DropdownMenuLabel className="text-slate-600 dark:text-gray-400">Notifications</DropdownMenuLabel>
+                  <DropdownMenuSeparator className="bg-slate-200 dark:bg-gray-800" />
+                  <div className="p-4 text-sm text-slate-500 dark:text-gray-500 text-center">
                     No new notifications
                   </div>
                 </DropdownMenuContent>
               </DropdownMenu>
 
+              {/* Theme toggle */}
+              {toggleTheme && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5"
+                  onClick={toggleTheme}
+                  title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                  aria-label="Toggle theme"
+                >
+                  {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                </Button>
+              )}
+
               {/* Help */}
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-lg text-gray-400 hover:text-white hover:bg-white/5"
+                className="h-9 w-9 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5"
                 onClick={() => setHelpOpen(true)}
               >
                 <HelpCircle className="w-4 h-4" />
@@ -367,34 +385,34 @@ export function Navigation() {
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="ghost"
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/5"
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5"
                   >
-                    <Avatar className="h-8 w-8 border border-gray-700">
+                    <Avatar className="h-8 w-8 border border-slate-300 dark:border-gray-700">
                       <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white text-sm">
                         {user?.name?.charAt(0).toUpperCase() || 'U'}
                       </AvatarFallback>
                     </Avatar>
-                    <ChevronDown className="w-4 h-4 text-gray-400" />
+                    <ChevronDown className="w-4 h-4 text-slate-500 dark:text-gray-400" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 bg-gray-900 border-gray-800">
+                <DropdownMenuContent align="end" className="w-56 bg-white border-slate-200 dark:bg-gray-900 dark:border-gray-800">
                   <DropdownMenuLabel className="font-normal">
                     <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-medium text-white">{user?.name || 'User'}</p>
-                      <p className="text-xs text-gray-400">{user?.email}</p>
+                      <p className="text-sm font-medium text-slate-900 dark:text-white">{user?.name || 'User'}</p>
+                      <p className="text-xs text-slate-500 dark:text-gray-400">{user?.email}</p>
                     </div>
                   </DropdownMenuLabel>
-                  <DropdownMenuSeparator className="bg-gray-800" />
+                  <DropdownMenuSeparator className="bg-slate-200 dark:bg-gray-800" />
                   <DropdownMenuItem asChild>
                     <Link href="/settings" className="cursor-pointer">
                       <Settings className="mr-2 h-4 w-4" />
                       Settings
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator className="bg-gray-800" />
-                  <DropdownMenuItem 
+                  <DropdownMenuSeparator className="bg-slate-200 dark:bg-gray-800" />
+                  <DropdownMenuItem
                     onClick={logout}
-                    className="cursor-pointer text-red-400 focus:text-red-400"
+                    className="cursor-pointer text-red-500 dark:text-red-400 focus:text-red-500 dark:focus:text-red-400"
                   >
                     <LogOut className="mr-2 h-4 w-4" />
                     Sign out
@@ -407,13 +425,13 @@ export function Navigation() {
       </nav>
 
       {/* Mobile Navigation */}
-      <nav className="md:hidden fixed top-0 left-0 right-0 z-50 bg-[#0a0a0f]/95 backdrop-blur-xl border-b border-gray-800/50">
+      <nav className="md:hidden fixed top-0 left-0 right-0 z-50 bg-white/95 dark:bg-[#0a0a0f]/95 backdrop-blur-xl border-b border-slate-200 dark:border-gray-800/50">
         <div className="px-4 py-3">
           <div className="flex items-center justify-between">
             {/* Logo */}
             <Link href="/agents" className="flex items-center gap-2">
               <SeerIcon size={32} />
-              <span className="text-lg font-bold text-white">SEER</span>
+              <span className="text-lg font-bold text-slate-900 dark:text-white">SEER</span>
             </Link>
 
             {/* Trade Mode Badge - Mobile - Show only active mode */}
@@ -431,44 +449,59 @@ export function Navigation() {
               )}
             </Link>
 
-            {/* Mobile Menu Toggle */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            >
-              {mobileMenuOpen ? (
-                <X className="w-5 h-5" />
-              ) : (
-                <Menu className="w-5 h-5" />
+            <div className="flex items-center gap-1">
+              {/* Theme toggle (mobile) */}
+              {toggleTheme && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={toggleTheme}
+                  aria-label="Toggle theme"
+                >
+                  {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+                </Button>
               )}
-            </Button>
+
+              {/* Mobile Menu Toggle */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              >
+                {mobileMenuOpen ? (
+                  <X className="w-5 h-5" />
+                ) : (
+                  <Menu className="w-5 h-5" />
+                )}
+              </Button>
+            </div>
           </div>
 
           {/* Mobile Menu */}
           {mobileMenuOpen && (
             <div className="mt-4 pb-4 space-y-2">
               {/* Portfolio Summary */}
-              <div className="flex items-center justify-between p-3 rounded-lg bg-gray-900/50 border border-gray-800/50 mb-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg bg-slate-100 border border-slate-200 dark:bg-gray-900/50 dark:border-gray-800/50 mb-4">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-400">P&L</span>
+                  <span className="text-xs text-slate-600 dark:text-gray-400">P&L</span>
                   <span className={cn(
                     "text-sm font-bold font-mono",
-                    portfolioMetrics.totalPnL >= 0 ? "text-green-400" : "text-red-400"
+                    portfolioMetrics.totalPnL >= 0 ? "text-green-500 dark:text-green-400" : "text-red-500 dark:text-red-400"
                   )}>
                     {portfolioMetrics.totalPnL >= 0 ? '+' : ''}{formatCurrency(portfolioMetrics.totalPnL)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-400">Open Positions</span>
-                  <span className="font-bold text-white">{portfolioMetrics.openPositions}</span>
+                  <span className="text-xs text-slate-600 dark:text-gray-400">Open</span>
+                  <span className="font-bold text-slate-900 dark:text-white">{portfolioMetrics.openPositions}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-400">Win Rate</span>
+                  <span className="text-xs text-slate-600 dark:text-gray-400">Win</span>
                   <span className={cn(
                     "font-bold",
-                    portfolioMetrics.winRate >= 50 ? "text-green-400" : "text-yellow-400"
+                    portfolioMetrics.winRate >= 50 ? "text-green-500 dark:text-green-400" : "text-yellow-500 dark:text-yellow-400"
                   )}>
                     {portfolioMetrics.winRate}%
                   </span>
@@ -486,10 +519,10 @@ export function Navigation() {
                     href={item.path}
                     onClick={() => setMobileMenuOpen(false)}
                     className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                      "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[40px]",
                       isActive
-                        ? "bg-white/10 text-white"
-                        : "text-gray-400 hover:text-white hover:bg-white/5"
+                        ? "bg-slate-200 text-slate-900 dark:bg-white/10 dark:text-white"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5"
                     )}
                   >
                     <Icon className="w-5 h-5" />
@@ -498,11 +531,11 @@ export function Navigation() {
                 );
               })}
 
-              <div className="border-t border-gray-800 pt-4 mt-4">
+              <div className="border-t border-slate-200 dark:border-gray-800 pt-4 mt-4">
                 <Link
                   href="/settings"
                   onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5 min-h-[40px]"
                 >
                   <Settings className="w-5 h-5" />
                   <span>Settings</span>
@@ -512,7 +545,7 @@ export function Navigation() {
                     setMobileMenuOpen(false);
                     logout();
                   }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-400 hover:bg-red-500/10"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-500 dark:text-red-400 hover:bg-red-500/10 min-h-[40px]"
                 >
                   <LogOut className="w-5 h-5" />
                   <span>Sign out</span>

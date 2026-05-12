@@ -68,13 +68,13 @@ export default function Wallet() {
     : 0;
 
   return (
-    <div className="min-h-screen bg-slate-950 pt-16 lg:pt-20">
+    <div className="min-h-screen bg-background text-foreground pt-16 lg:pt-20">
       <div className="container mx-auto px-3 sm:px-4 lg:px-6 py-4 lg:py-6 space-y-4 max-w-[1800px]">
 
         {/* ─── HEADER ───────────────────────────────────────────── */}
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl lg:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+            <h1 className="text-xl lg:text-2xl font-bold text-foreground tracking-tight flex items-center gap-2">
               <WalletIcon className="w-5 h-5 lg:w-6 lg:h-6 text-cyan-400" />
               Wallet
             </h1>
@@ -98,7 +98,7 @@ export default function Wallet() {
               <p className="text-[10px] uppercase tracking-wider text-slate-400">Real money in</p>
               <ArrowDownToLine className="w-3.5 h-3.5 text-cyan-400" />
             </div>
-            <p className="text-xl lg:text-2xl font-bold text-white font-mono tabular-nums">
+            <p className="text-xl lg:text-2xl font-bold text-foreground font-mono tabular-nums">
               {fmt(totals?.netDeposited ?? 0)}
             </p>
             <p className="text-[10px] text-slate-500 mt-0.5 font-mono">
@@ -111,7 +111,7 @@ export default function Wallet() {
               <p className="text-[10px] uppercase tracking-wider text-slate-400">Current balance</p>
               <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
             </div>
-            <p className="text-xl lg:text-2xl font-bold text-white font-mono tabular-nums">
+            <p className="text-xl lg:text-2xl font-bold text-foreground font-mono tabular-nums">
               {fmt(liveWallet?.balance ?? 0)}
             </p>
             <p className="text-[10px] text-slate-500 mt-0.5">cash on exchange</p>
@@ -122,7 +122,7 @@ export default function Wallet() {
               <p className="text-[10px] uppercase tracking-wider text-slate-400">Total equity</p>
               <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
             </div>
-            <p className="text-xl lg:text-2xl font-bold text-white font-mono tabular-nums">
+            <p className="text-xl lg:text-2xl font-bold text-foreground font-mono tabular-nums">
               {fmt(liveWallet?.equity ?? 0)}
             </p>
             <p className="text-[10px] text-slate-500 mt-0.5">cash + unrealized</p>
@@ -147,7 +147,7 @@ export default function Wallet() {
 
         {/* ─── ROW 2: Lifetime ledger totals ────────────────────── */}
         <Card className="border-slate-800/60 bg-slate-900/40 p-3 lg:p-4">
-          <h2 className="text-xs font-bold text-white uppercase tracking-wider mb-3 flex items-center gap-1.5">
+          <h2 className="text-xs font-bold text-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
             <Receipt className="w-3.5 h-3.5 text-cyan-400" />
             Lifetime ledger
           </h2>
@@ -202,7 +202,7 @@ export default function Wallet() {
         {/* ─── ROW 3: Monthly timeline chart ────────────────────── */}
         {monthly.length > 0 && (
           <Card className="border-slate-800/60 bg-slate-900/40 p-3 lg:p-4">
-            <h2 className="text-xs font-bold text-white uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <h2 className="text-xs font-bold text-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
               <BarChart3 className="w-3.5 h-3.5 text-purple-400" />
               Monthly activity
             </h2>
@@ -228,7 +228,7 @@ export default function Wallet() {
         {/* ─── ROW 4: Transaction history ───────────────────────── */}
         <Card className="border-slate-800/60 bg-slate-900/40 p-3 lg:p-4">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+            <h2 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
               <Activity className="w-3.5 h-3.5 text-cyan-400" />
               Transaction history
             </h2>

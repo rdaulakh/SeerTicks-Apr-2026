@@ -222,11 +222,11 @@ export default function AgentScorecard() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-950 pt-16 lg:pt-20">
+    <div className="min-h-screen bg-background text-foreground pt-16 lg:pt-20">
     <div className="container mx-auto px-3 sm:px-4 lg:px-6 py-4 lg:py-6 max-w-7xl space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-xl lg:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+          <h1 className="text-xl lg:text-2xl font-bold text-foreground tracking-tight flex items-center gap-2">
             <Trophy className="w-5 h-5 lg:w-6 lg:h-6 text-amber-400" />
             Agent Scorecard
           </h1>
@@ -265,14 +265,14 @@ export default function AgentScorecard() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 lg:gap-3">
         <Card className="p-3 bg-slate-900/40 border-slate-800/60">
           <div className="text-[10px] uppercase tracking-wider text-slate-400">Signals in window</div>
-          <div className="text-xl lg:text-2xl font-bold text-white font-mono tabular-nums mt-0.5">{summary?.signals?.total ?? "—"}</div>
+          <div className="text-xl lg:text-2xl font-bold text-foreground font-mono tabular-nums mt-0.5">{summary?.signals?.total ?? "—"}</div>
           <div className="text-[10px] text-slate-500 mt-0.5 font-mono tabular-nums">
             {summary?.signals?.distinctAgents ?? 0} agents firing
           </div>
         </Card>
         <Card className="p-3 bg-slate-900/40 border-slate-800/60">
           <div className="text-[10px] uppercase tracking-wider text-slate-400">Agents w/ accuracy</div>
-          <div className="text-xl lg:text-2xl font-bold text-white font-mono tabular-nums mt-0.5">
+          <div className="text-xl lg:text-2xl font-bold text-foreground font-mono tabular-nums mt-0.5">
             {summary?.accuracy?.agentsWithRecords ?? 0}
           </div>
           <div className="text-[10px] text-slate-500 mt-0.5 font-mono tabular-nums">
@@ -281,7 +281,7 @@ export default function AgentScorecard() {
         </Card>
         <Card className="p-3 bg-slate-900/40 border-slate-800/60">
           <div className="text-[10px] uppercase tracking-wider text-slate-400">Weighted accuracy</div>
-          <div className="text-xl lg:text-2xl font-bold text-white font-mono tabular-nums mt-0.5">
+          <div className="text-xl lg:text-2xl font-bold text-foreground font-mono tabular-nums mt-0.5">
             {fmtPct(summary?.accuracy?.weightedAccuracy ?? null)}
           </div>
           <div className="text-[10px] text-slate-500 mt-0.5">across all agents</div>
@@ -405,7 +405,7 @@ export default function AgentScorecard() {
           {/* end Advanced Ops — Brain control bar */}
 
           {/* Phase 85 — Sensorium health (Phase 88: clickable drilldown · Phase 89: + alpha card) */}
-          <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
             <button onClick={() => setDrillSensorium('agentVotes')} className="text-left">
               <Card className="p-3 bg-black/40 border-white/10 hover:border-cyan-500/40 transition cursor-pointer">
                 <div className="text-[10px] uppercase text-gray-400">Agent votes</div>

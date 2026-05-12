@@ -66,7 +66,7 @@ export default function EquityCurvePanel() {
   return (
     <Card className="glass-card border-slate-800/50 p-4 h-full">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+        <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
           <TrendingUp className={cn("w-4 h-4", positive ? "text-green-400" : "text-red-400")} />
           Equity Curve
           <span className="text-xs text-slate-500 normal-case">
