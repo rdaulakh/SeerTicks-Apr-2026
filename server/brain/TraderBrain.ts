@@ -107,6 +107,9 @@ class TraderBrain {
   private readonly TICK_MS = 1000;       // 1Hz brain tick — adjustable
   private tickCount = 0;
   private startedAtMs = 0;
+  // Phase 87 — wall-clock timestamp of the last tick() entry; used for the
+  // operator console's "last tick X ms ago" heartbeat indicator.
+  private lastTickAtMs: number | null = null;
   /**
    * 60-second safety warm-up after start(). During this window the brain
    * runs ticks + records to brainDecisions but does NOT execute, even if
@@ -223,6 +226,7 @@ class TraderBrain {
   private tick(): void {
     const start = process.hrtime.bigint();
     this.tickCount++;
+    this.lastTickAtMs = Date.now();
     const sensorium = getSensorium();
     const health = sensorium.health();
 
@@ -408,10 +412,27 @@ class TraderBrain {
         reason: `macro veto: ${sentiment.macroVetoReason ?? 'event-window-open'}`, symbol };
     }
 
-    // Gate 1: opportunity score
-    if (opp.score < this.config.minOpportunityScore) {
+    // Phase 87 — Alpha library bias. ADD a positive bump when this symbol
+    // has active winning patterns; SUBTRACT a small penalty when it has
+    // decayed patterns. Effective score gates against this bumped value.
+    const alpha = sensorium.getAlpha(symbol)?.sensation;
+    let alphaBonus = 0;
+    if (alpha && alpha.activePatternCount > 0) {
+      // Up to +0.12 bonus for strong proven setups
+      // (1.0 win rate × 100 sample size = 0.12; scales sublinearly)
+      const sampleConfidence = Math.min(1, alpha.totalTradeSampleSize / 100);
+      alphaBonus = alpha.weightedWinRate * sampleConfidence * 0.12;
+    }
+    if (alpha && alpha.decayedPatternCount > 0) {
+      // Up to -0.06 penalty for symbols with multiple decayed setups
+      alphaBonus -= Math.min(0.06, alpha.decayedPatternCount * 0.02);
+    }
+    const effectiveScore = opp.score + alphaBonus;
+
+    // Gate 1: opportunity score (effective = base + alpha bias)
+    if (effectiveScore < this.config.minOpportunityScore) {
       return { kind: 'abstain', pipelineStep: 'should_enter:score_low',
-        reason: `score ${opp.score.toFixed(2)} < ${this.config.minOpportunityScore}`, symbol };
+        reason: `score ${opp.score.toFixed(2)}${alphaBonus !== 0 ? `${alphaBonus >= 0 ? '+' : ''}${alphaBonus.toFixed(2)}α` : ''} = ${effectiveScore.toFixed(2)} < ${this.config.minOpportunityScore}`, symbol };
     }
 
     // Gate 2: confluence
@@ -551,8 +572,19 @@ class TraderBrain {
     if (!posEntry) return null;
     const pos = posEntry.sensation;
     const stance = sensorium.getStance(pos.symbol)?.sensation ?? null;
-    const market = sensorium.getMarket(pos.symbol)?.sensation ?? null;
+    const marketEntry = sensorium.getMarket(pos.symbol);
+    const market = marketEntry?.sensation ?? null;
     const flow = sensorium.getFlow(pos.symbol)?.sensation ?? null;
+
+    // ─── Phase 87 — DATA-GAP guard ───────────────────────────────────────
+    // If market data is stale (>30s) we still need to honor a hard-stop
+    // trigger using the last-known price (that's the SAFER call — late stops
+    // can wipe accounts), but we should NOT fire discretionary exits
+    // (consensus_flip, momentum_crash, stale_no_progress) on stale data
+    // because the brain doesn't actually know what the market is doing.
+    // We mark it and the gate is enforced inside the discretionary branches.
+    const marketStaleMs = marketEntry?.stalenessMs ?? 999_999;
+    const isMarketStale = marketStaleMs > 30_000;
 
     // ─── Step 1: HARD-STOP-FIRST ────────────────────────────────────────
     if (pos.currentStopLoss !== null) {
@@ -593,6 +625,15 @@ class TraderBrain {
     }
 
     // ─── Step 3: CONSENSUS-FLIP ─────────────────────────────────────────
+    // Phase 87 — Discretionary exits (steps 3–6) require fresh market data.
+    // If feed is stale, hold and let the next tick (or hard-stop) decide.
+    if (isMarketStale) {
+      return {
+        kind: 'hold',
+        pipelineStep: 'hold:market_stale',
+        reason: `market data ${(marketStaleMs/1000).toFixed(1)}s stale — holding (hard-stop still armed)`,
+      };
+    }
     if (stance && stance.entryDirection !== null && pos.unrealizedPnlPercent > 0.10) {
       // Drift > threshold against the entry direction = thesis dead
       const flipDetected =
@@ -671,8 +712,18 @@ class TraderBrain {
     return sensorium.getActivePositionIds();
   }
 
-  status(): { running: boolean; dryRun: boolean; tickCount: number; tickMs: number } {
-    return { running: this.isRunning, dryRun: this.config.dryRun, tickCount: this.tickCount, tickMs: this.TICK_MS };
+  status(): { running: boolean; dryRun: boolean; tickCount: number; tickMs: number; lastTickAtMs: number | null; ageMs: number | null } {
+    return {
+      running: this.isRunning,
+      dryRun: this.config.dryRun,
+      tickCount: this.tickCount,
+      tickMs: this.TICK_MS,
+      // Phase 87 — heartbeat. Lets the operator console show "last tick X ms
+      // ago" and detect tick-loop stalls (firing every >2s when configured
+      // for 1Hz = something hung).
+      lastTickAtMs: this.lastTickAtMs ?? null,
+      ageMs: this.lastTickAtMs ? Date.now() - this.lastTickAtMs : null,
+    };
   }
 }
 

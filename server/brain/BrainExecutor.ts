@@ -135,12 +135,33 @@ class BrainExecutor extends EventEmitter {
       const entryPrice = parseFloat(row.entryPrice);
       const quantity = parseFloat(row.quantity);
       const sideMul = row.side === 'long' ? 1 : -1;
-      const realizedPnl = sideMul * (currentPrice - entryPrice) * quantity;
+
+      // Phase 87 — Symmetric exit slippage. A market close hits the OPPOSITE
+      // side of the book vs the entry (long exits by selling at bid, short
+      // exits by buying at ask). Apply half-spread + 1bp impact, just like
+      // openPosition. Without this paper P&L is artificially generous on
+      // exits too.
+      let exitSlipBps = 2.0; // 1bp half-spread + 1bp impact, safe default
+      try {
+        const fut = (global as any).__binanceFuturesBook ?? {};
+        const binSym = row.symbol.replace('-USD', 'USDT');
+        const book = fut[binSym];
+        if (book?.askPrice && book?.bidPrice && book?.midPrice > 0) {
+          const liveSpreadBps = ((book.askPrice - book.bidPrice) / book.midPrice) * 10_000;
+          exitSlipBps = Math.max(1.0, liveSpreadBps / 2) + 1.0;
+        }
+      } catch { /* keep default */ }
+      // For long exit: sell — fill BELOW mid (bid). For short exit: buy —
+      // fill ABOVE mid (ask). Sign is the same: P&L gets WORSE in both cases.
+      const exitSlipFactor = exitSlipBps / 10_000;
+      const adverseExitSlip = row.side === 'long' ? -currentPrice * exitSlipFactor : currentPrice * exitSlipFactor;
+      const fillPrice = currentPrice + adverseExitSlip;
+      const realizedPnl = sideMul * (fillPrice - entryPrice) * quantity;
 
       const result = await db.update(paperPositions)
         .set({
           status: 'closed',
-          exitPrice: currentPrice.toString(),
+          exitPrice: fillPrice.toString(),
           exitTime: getActiveClock().date(),
           exitReason: `brain:${reason}`.slice(0, 64),
           realizedPnl: realizedPnl.toFixed(8),
@@ -154,7 +175,7 @@ class BrainExecutor extends EventEmitter {
       const affected = (result as any)?.[0]?.affectedRows ?? (result as any)?.affectedRows ?? 0;
 
       if (affected > 0) {
-        logger.info(`[BrainExecutor] 🧠✅ EXIT_FULL id=${numericId} ${row.symbol} ${row.side} @ $${currentPrice} pnl=$${realizedPnl.toFixed(2)} reason="${reason}"`);
+        logger.info(`[BrainExecutor] 🧠✅ EXIT_FULL id=${numericId} ${row.symbol} ${row.side} @ $${fillPrice.toFixed(4)} (slip ${exitSlipBps.toFixed(1)}bps) pnl=$${realizedPnl.toFixed(2)} reason="${reason}"`);
         // Also notify IEM to drop this position from its in-memory map so it
         // doesn't keep ticking on a closed position.
         try {
@@ -183,7 +204,7 @@ class BrainExecutor extends EventEmitter {
             .recordTradeOutcome(
               row.symbol,
               realizedPnl,
-              currentPrice,
+              fillPrice,
               `brain:${reason}`,
               { tradeId: numericId, tradingMode: row.tradingMode === 'live' ? 'live' : 'paper' },
             )
@@ -198,7 +219,7 @@ class BrainExecutor extends EventEmitter {
           positionId: numericId,
           symbol: row.symbol,
           side: row.side,
-          exitPrice: currentPrice,
+          exitPrice: fillPrice,
           realizedPnl,
           reason,
         });

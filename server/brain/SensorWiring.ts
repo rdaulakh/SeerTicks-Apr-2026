@@ -21,7 +21,7 @@
  * StanceSensor we drive on every brain tick (1Hz) since they're in-memory.
  */
 
-import { getSensorium, type TechnicalSensation, type FlowSensation, type PositionSensation, type StanceSensation, type MarketSensation, type OpportunitySensation, type PortfolioSensation, type WhaleSensation, type DerivSensation, type SentimentSensation, type AgentVotesSensation, type AgentVote } from './Sensorium';
+import { getSensorium, type TechnicalSensation, type FlowSensation, type PositionSensation, type StanceSensation, type MarketSensation, type OpportunitySensation, type PortfolioSensation, type WhaleSensation, type DerivSensation, type SentimentSensation, type AgentVotesSensation, type AgentVote, type AlphaSensation } from './Sensorium';
 import { engineLogger as logger } from '../utils/logger';
 
 // Phase 85 — every agent the platform registers writes to `agentSignals`.
@@ -104,6 +104,18 @@ export function startSensorWiring(): void {
       logger.warn('[SensorWiring] portfolio pull failed', { error: err?.message });
     });
   }, 5000));
+
+  // ─── Alpha library: every 60s, read winningPatterns summary per symbol ─
+  // Patterns change slowly (one trade close per minute at most updates the
+  // table). 60s refresh is plenty; brain reads from the cached sensation
+  // synchronously on every tick.
+  intervalIds.push(setInterval(() => {
+    pullAlphaSensor().catch(err => {
+      logger.warn('[SensorWiring] alpha pull failed', { error: err?.message });
+    });
+  }, 60_000));
+  // Also fire once immediately at startup so the brain doesn't wait 60s.
+  pullAlphaSensor().catch(() => { /* boot — sensors may not be ready */ });
 
   logger.info('[SensorWiring] started — Phase 85: all-agent fan-in (' + ALL_AGENTS.length + ' agents) + 5 derived sensors');
 }
@@ -458,13 +470,23 @@ async function pullPositionAndStanceSensors(): Promise<void> {
 async function pullMarketSensor(): Promise<void> {
   const sensorium = getSensorium();
   const futuresBook = (global as any).__binanceFuturesBook ?? {};
-  const symbolMap: Record<string, string> = {
+  // Phase 87 — derive seer symbol from binance symbol generically so any new
+  // book entry is consumed without code changes. The handful of legacy
+  // exceptions (BTC, ETH, SOL) get explicit mappings; everything else goes
+  // through the generic 'XXXUSDT → XXX-USD' transform.
+  const explicitMap: Record<string, string> = {
     BTCUSDT: 'BTC-USD',
     ETHUSDT: 'ETH-USD',
     SOLUSDT: 'SOL-USD',
   };
+  const toSeerSymbol = (binSym: string): string => {
+    if (explicitMap[binSym]) return explicitMap[binSym];
+    // Generic: 'AVAXUSDT' → 'AVAX-USD'
+    if (binSym.endsWith('USDT')) return binSym.replace(/USDT$/, '-USD');
+    return binSym;
+  };
   for (const binSym of Object.keys(futuresBook)) {
-    const seerSym = symbolMap[binSym] ?? binSym;
+    const seerSym = toSeerSymbol(binSym);
     const book = futuresBook[binSym];
     if (!book) continue;
     const spreadBps = book.askPrice && book.bidPrice
@@ -695,5 +717,101 @@ async function pullPortfolioSensor(): Promise<void> {
     sensorium.updatePortfolio(sensation);
   } catch (err) {
     logger.warn('[SensorWiring] pullPortfolioSensor failed', { error: (err as Error)?.message });
+  }
+}
+
+// ─── Phase 87 — Alpha library sensor ──────────────────────────────────
+// Reads winningPatterns table grouped by symbol. The brain reads this in
+// decideEntry to BIAS the opportunity score positively when a symbol has
+// proven historical patterns. When the table is empty (cold start), the
+// sensation reports zero patterns and the brain proceeds as before — alpha
+// is a bonus signal, never a hard gate.
+async function pullAlphaSensor(): Promise<void> {
+  const sensorium = getSensorium();
+  try {
+    const { getDb } = await import('../db');
+    const { winningPatterns } = await import('../../drizzle/schema');
+    const { eq, and, sql } = await import('drizzle-orm');
+    const db = await getDb();
+    if (!db) return;
+
+    // Symbols the brain might care about — same set the opportunity sensor
+    // iterates. Some patterns are stored in 'BTCUSDT' format while brain
+    // uses 'BTC-USD'; query both shapes and normalize.
+    const seerSymbols = await getCandidateSymbols();
+    const allShapes = new Set<string>();
+    for (const s of seerSymbols) {
+      allShapes.add(s);
+      allShapes.add(s.replace('-USD', 'USDT'));
+      allShapes.add(s.replace('-USD', ''));
+    }
+    const inArr = Array.from(allShapes);
+
+    if (inArr.length === 0) return;
+
+    // Active (non-decayed) patterns first.
+    const activeRows = await db.select({
+      symbol: winningPatterns.symbol,
+      winRate: winningPatterns.winRate,
+      totalTrades: winningPatterns.totalTrades,
+    })
+      .from(winningPatterns)
+      .where(and(
+        eq(winningPatterns.isActive, true),
+        eq(winningPatterns.alphaDecayFlag, false),
+      ));
+
+    // Decayed patterns count as a CAUTION signal — bias score DOWN.
+    const decayedRows = await db.select({
+      symbol: winningPatterns.symbol,
+      cnt: sql<number>`count(*)`,
+    })
+      .from(winningPatterns)
+      .where(eq(winningPatterns.alphaDecayFlag, true))
+      .groupBy(winningPatterns.symbol);
+
+    // Aggregate per normalized seerSymbol.
+    const acc = new Map<string, { active: number; best: number; weighted: number; sampleSize: number; decayed: number }>();
+
+    const normalize = (s: string): string => {
+      if (s.endsWith('-USD')) return s;
+      if (s.endsWith('USDT')) return s.replace('USDT', '-USD');
+      return s + '-USD';
+    };
+
+    for (const r of activeRows) {
+      const sym = normalize(r.symbol);
+      const a = acc.get(sym) ?? { active: 0, best: 0, weighted: 0, sampleSize: 0, decayed: 0 };
+      const wr = parseFloat(r.winRate ?? '0');
+      const tt = r.totalTrades ?? 0;
+      a.active += 1;
+      if (wr > a.best) a.best = wr;
+      a.weighted += wr * tt;
+      a.sampleSize += tt;
+      acc.set(sym, a);
+    }
+    for (const r of decayedRows) {
+      const sym = normalize(r.symbol);
+      const a = acc.get(sym) ?? { active: 0, best: 0, weighted: 0, sampleSize: 0, decayed: 0 };
+      a.decayed += Number(r.cnt);
+      acc.set(sym, a);
+    }
+
+    // Always push a sensation per candidate (even empty) so the brain can
+    // distinguish "alpha cold-start" from "alpha sensor never ran".
+    for (const sym of seerSymbols) {
+      const a = acc.get(sym) ?? { active: 0, best: 0, weighted: 0, sampleSize: 0, decayed: 0 };
+      const sensation: AlphaSensation = {
+        symbol: sym,
+        activePatternCount: a.active,
+        bestWinRate: a.best,
+        weightedWinRate: a.sampleSize > 0 ? a.weighted / a.sampleSize : 0,
+        totalTradeSampleSize: a.sampleSize,
+        decayedPatternCount: a.decayed,
+      };
+      sensorium.updateAlpha(sensation);
+    }
+  } catch (err) {
+    logger.warn('[SensorWiring] pullAlphaSensor failed', { error: (err as Error)?.message });
   }
 }

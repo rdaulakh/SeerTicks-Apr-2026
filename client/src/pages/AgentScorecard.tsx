@@ -373,6 +373,21 @@ export default function AgentScorecard() {
               <div className="text-xs text-gray-500 mt-1">
                 {brainActivity?.status?.tickCount ?? 0} ticks @ {brainActivity?.status?.tickMs ?? 0}ms
               </div>
+              {/* Phase 87 — heartbeat. ageMs > 5×tickMs = brain hung. */}
+              {brainActivity?.status?.running && (brainActivity.status as any).ageMs !== null && (
+                <div className="text-[10px] mt-0.5">
+                  {(() => {
+                    const age = (brainActivity.status as any).ageMs as number;
+                    const tickMs = brainActivity.status.tickMs;
+                    const stalled = age > tickMs * 5;
+                    return (
+                      <span className={stalled ? 'text-amber-400 font-semibold' : 'text-emerald-400'}>
+                        ❤ last tick {age < 1000 ? `${age}ms` : `${(age/1000).toFixed(1)}s`} ago{stalled ? ' ⚠ STALLED' : ''}
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
             </Card>
             <Card className="p-4 bg-black/40 border-white/10">
               <div className="text-xs uppercase text-gray-400">Live decisions</div>

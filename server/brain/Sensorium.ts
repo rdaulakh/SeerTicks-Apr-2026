@@ -136,6 +136,25 @@ export interface AgentVotesSensation {
   vetoReasons: string[];
 }
 
+// ─── Phase 87 — Alpha library sensation ──────────────────────────────────
+// Per-symbol summary of historical "winning patterns" — the alpha library.
+// Brain reads this in decideEntry to BIAS toward (not gate on) symbols that
+// have a track record of profitable setups. Empty alpha = no bias; this is
+// always a positive add, never a block.
+export interface AlphaSensation {
+  symbol: string;
+  /** Active (non-decayed) winning patterns for this symbol. */
+  activePatternCount: number;
+  /** Highest historical win rate among active patterns (0..1). */
+  bestWinRate: number;
+  /** Aggregate win-rate across all active patterns, sample-size weighted. */
+  weightedWinRate: number;
+  /** Total trades the active patterns have backtested across. */
+  totalTradeSampleSize: number;
+  /** Decayed patterns (winrate has slipped — used as a CAUTION signal). */
+  decayedPatternCount: number;
+}
+
 // ─── Phase 84 — Entry brain sensation ────────────────────────────────────
 // Per-symbol opportunity reading the brain uses to decide whether to OPEN a
 // new position. Synthesized from the agent sensations + consensus + market
@@ -209,6 +228,8 @@ class Sensorium {
   private portfolio: StoredEntry<PortfolioSensation> | null = null;
   // Phase 85 — full 33-agent vote tally per symbol
   private agentVotes = new Map<string, StoredEntry<AgentVotesSensation>>();
+  // Phase 87 — per-symbol alpha summary (winningPatterns table)
+  private alpha = new Map<string, StoredEntry<AlphaSensation>>();
 
   // ─── Push API (sensors call these) ───────────────────────────────────
   updateMarket(s: MarketSensation): void { this.market.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
@@ -222,6 +243,7 @@ class Sensorium {
   updateOpportunity(s: OpportunitySensation): void { this.opportunities.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
   updatePortfolio(s: PortfolioSensation): void { this.portfolio = { value: s, receivedAtMs: getActiveClock().now() }; }
   updateAgentVotes(s: AgentVotesSensation): void { this.agentVotes.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
+  updateAlpha(s: AlphaSensation): void { this.alpha.set(s.symbol, { value: s, receivedAtMs: getActiveClock().now() }); }
   removePosition(positionId: string | number): void { this.positions.delete(positionId); }
 
   // ─── Pull API (brain calls these) ────────────────────────────────────
@@ -271,6 +293,10 @@ class Sensorium {
     const e = this.agentVotes.get(symbol);
     return e ? { sensation: e.value, stalenessMs: getActiveClock().now() - e.receivedAtMs } : null;
   }
+  getAlpha(symbol: string): { sensation: AlphaSensation; stalenessMs: number } | null {
+    const e = this.alpha.get(symbol);
+    return e ? { sensation: e.value, stalenessMs: getActiveClock().now() - e.receivedAtMs } : null;
+  }
   /** Enumerate active position IDs without exposing the internal map. */
   getActivePositionIds(): Array<string | number> {
     return Array.from(this.positions.keys());
@@ -303,6 +329,8 @@ class Sensorium {
       agentVotes: this.getAgentVotes(symbol)?.sensation ?? null,
       opportunity: this.getOpportunity(symbol)?.sensation ?? null,
       portfolio: this.getPortfolio()?.sensation ?? null,
+      // Phase 87 — alpha library summary
+      alpha: this.getAlpha(symbol)?.sensation ?? null,
     };
   }
 
@@ -319,6 +347,8 @@ class Sensorium {
       opportunity: this.getOpportunity(symbol)?.sensation ?? null,
       agentVotes: this.getAgentVotes(symbol)?.sensation ?? null,
       portfolio: this.getPortfolio()?.sensation ?? null,
+      // Phase 87 — alpha library summary
+      alpha: this.getAlpha(symbol)?.sensation ?? null,
     };
   }
 
@@ -335,6 +365,7 @@ class Sensorium {
     agentVotes: number;
     opportunities: number;
     portfolio: boolean;
+    alpha: number;
   } {
     return {
       market: this.market.size,
@@ -348,6 +379,7 @@ class Sensorium {
       agentVotes: this.agentVotes.size,
       opportunities: this.opportunities.size,
       portfolio: this.portfolio !== null,
+      alpha: this.alpha.size,
     };
   }
 }
