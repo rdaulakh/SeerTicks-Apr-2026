@@ -381,11 +381,10 @@ async function startServer() {
   // defense), Strict-Transport-Security, X-Content-Type-Options, Referrer-Policy.
   // Content-Security-Policy is left off for now because the SPA has inline
   // <style> injections from chart.tsx — would need nonce/hash to enable safely.
+  // Phase 90 — helmet via dynamic import (ESM-friendly; esbuild bundle is ESM).
   try {
-    // Lazy load to keep startup error-tolerant if helmet isn't installed yet.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const helmetMod = require('helmet');
-    const helmet = helmetMod.default ?? helmetMod;
+    const helmetMod = await import('helmet');
+    const helmet = (helmetMod as any).default ?? helmetMod;
     app.use(helmet({
       contentSecurityPolicy: false,
       crossOriginEmbedderPolicy: false,
