@@ -293,6 +293,45 @@ export class EnhancedTradeExecutor extends EventEmitter {
     }
 
     // ============================================================
+    // Phase 93.15 — LEGACY ENTRY KILL SWITCH
+    // ============================================================
+    // The legacy `enhanced_automated` strategy was responsible for 50 of 115
+    // closed trades in the last 7 days at a 38.0% win rate (net +$5.93). The
+    // newer `brain_v2_entry` ran 36 trades over the same window at 55.6% win
+    // rate. Audit on 2026-05-13 concluded the legacy path is dragging the
+    // platform average down — every legacy entry crowds out a (statistically
+    // better) brain entry, because the brain checks "has-open-position?"
+    // before deciding to hunt.
+    //
+    // Kill switch: read `legacy.enableEnhancedAutomatedEntries` from
+    // systemConfig. Default OFF (legacy disabled). Operator can flip it back
+    // ON via systemConfig if needed.
+    try {
+      const { getDb } = await import('../db');
+      const { systemConfig } = await import('../../drizzle/schema');
+      const { eq } = await import('drizzle-orm');
+      const db = await getDb();
+      if (db) {
+        const [row] = await db.select().from(systemConfig)
+          .where(eq(systemConfig.configKey, 'legacy.enableEnhancedAutomatedEntries')).limit(1);
+        const raw = row?.configValue as unknown;
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const enabled = parsed === true; // default: DISABLED
+        if (!enabled) {
+          console.log(`[EnhancedTradeExecutor] Phase 93.15 — legacy entry path DISABLED via systemConfig. Skipping ${signal.symbol} ${signal.recommendation?.action}.`);
+          // logRejection requires latencyContextId which isn't created yet at this
+          // top-gate; emit a lightweight trade_rejected so downstream listeners see it.
+          this.emit('trade_rejected', { symbol: signal.symbol, reason: 'legacy_entry_disabled_phase_93_15' });
+          return;
+        }
+      }
+    } catch (configErr) {
+      // Defensive: if config check fails, allow legacy through (don't accidentally
+      // disable trading globally on a transient DB blip).
+      console.warn('[EnhancedTradeExecutor] legacy-entry-kill config read failed; allowing:', (configErr as Error)?.message);
+    }
+
+    // ============================================================
     // Phase 15A: CIRCUIT BREAKER CHECKS — BEFORE any trade logic
     // These checks prevent catastrophic loss events like Feb 17 (-$293K)
     // ============================================================
