@@ -77,6 +77,9 @@ export interface BrainConfig {
   defaultTakeProfitPercent: number;     // 1.0
   /** Symbols the brain may consider for entry. */
   candidateSymbols: string[];
+  /** Phase 93.16 — milliseconds between consecutive entries on the same symbol.
+   *  Default 30 min (1_800_000 ms). Tunable via systemConfig brain.entryCooldownMs. */
+  entryCooldownMs?: number;
 }
 
 const DEFAULT_CONFIG: BrainConfig = {
@@ -269,6 +272,7 @@ class TraderBrain {
         'kellyFraction', 'defaultStopLossPercent', 'defaultTakeProfitPercent',
         'consensusFlipThreshold', 'momentumCrashBpsPerS', 'staleHoldMinutes',
         'stalePeakPnlPct', 'adaptiveTargetAtrMult',
+        'entryCooldownMs', // Phase 93.16 — added so 5s default is tunable from DB.
       ]);
       for (const r of rows) {
         const shortKey = r.configKey.replace(/^brain\./, '');
@@ -658,7 +662,27 @@ class TraderBrain {
    * until the position sensor catches up, opening N positions in 2-3 seconds.
    */
   private entryCooldown = new Map<string, number>(); // symbol → expiresAt ms
-  private readonly ENTRY_COOLDOWN_MS = 5_000;
+  // Phase 93.16 (loop iter 8, 2026-05-13) — extended 5s → 30 min.
+  //
+  // Cooldown was originally 5s — designed to prevent same-tick double-fires
+  // during the 100ms brain tick. Adequate for THAT purpose but allowed the
+  // brain to re-enter on the same symbol every ~5s, producing high-frequency
+  // low-edge trades (hold-bucket <5min: 35% WR; <30min: 67 of last 133 trades).
+  //
+  // Audit on 2026-05-13 over 7 hours of config tuning showed knob-tightening
+  // alone can't lift the brain out of the 40-43% WR band. The bottleneck is
+  // selection density, not gate threshold: when allowed to re-enter every 5s,
+  // the brain picks low-conviction setups because they're statistically the
+  // most frequent. A 30-min cooldown forces the brain to wait for its
+  // best-of-window setup. Expected effect: trade count drops ~10× (from
+  // ~100/24h to ~10-20/24h), per-trade quality rises into the 5-15min
+  // hold-bucket regime (72.7% WR historically).
+  //
+  // Tunable via systemConfig 'brain.entryCooldownMs' (added in this iter).
+  private readonly DEFAULT_ENTRY_COOLDOWN_MS = 30 * 60 * 1000;
+  private get ENTRY_COOLDOWN_MS(): number {
+    return this.config.entryCooldownMs ?? this.DEFAULT_ENTRY_COOLDOWN_MS;
+  }
 
   /** Phase 84 — execute an entry decision via BrainExecutor.
    *  Phase 86 — route to the primary user's wallet via portfolio sensor +
