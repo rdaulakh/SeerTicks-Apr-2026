@@ -80,6 +80,10 @@ export interface BrainConfig {
   /** Phase 93.16 — milliseconds between consecutive entries on the same symbol.
    *  Default 30 min (1_800_000 ms). Tunable via systemConfig brain.entryCooldownMs. */
   entryCooldownMs?: number;
+  /** Phase 93.17 — minimum hold minutes before brain-initiated discretionary
+   *  exits fire. Hard-stop still fires immediately (it's the safety floor).
+   *  Default 5 min. Tunable via systemConfig brain.minHoldMinutes. */
+  minHoldMinutes?: number;
 }
 
 const DEFAULT_CONFIG: BrainConfig = {
@@ -273,6 +277,7 @@ class TraderBrain {
         'consensusFlipThreshold', 'momentumCrashBpsPerS', 'staleHoldMinutes',
         'stalePeakPnlPct', 'adaptiveTargetAtrMult',
         'entryCooldownMs', // Phase 93.16 — added so 5s default is tunable from DB.
+        'minHoldMinutes',  // Phase 93.17 — min hold time before discretionary exits.
       ]);
       for (const r of rows) {
         const shortKey = r.configKey.replace(/^brain\./, '');
@@ -818,6 +823,28 @@ class TraderBrain {
           urgency: 'now',
         };
       }
+    }
+
+    // ─── Phase 93.17 (loop iter 13) — MIN-HOLD-TIME guard ─────────────
+    //
+    // Empirical observation across 12 iterations:
+    //   Hold-bucket < 5 min:  35% WR (rapid-fire losers)
+    //   Hold-bucket 5-15min:  73% WR (sweet spot — best in the system)
+    //
+    // The brain enters → some signal flickers → brain exits in <5 min.
+    // This kills trades before they can resolve. Hard-stop still fires
+    // (it's BEFORE this gate). Profit-ratchet, consensus-flip, momentum-
+    // crash, profit-target, stale-no-progress, and direction-flip ALL
+    // wait until the position has at least 5 minutes of life.
+    //
+    // Tunable via systemConfig 'brain.minHoldMinutes' (default 5).
+    const minHold = (this.config as any).minHoldMinutes ?? 5;
+    if (pos.holdMinutes < minHold) {
+      return {
+        kind: 'hold',
+        pipelineStep: 'hold:min_hold_time',
+        reason: `Held ${pos.holdMinutes.toFixed(1)}min < ${minHold}min minimum — protect from rushed exits`,
+      };
     }
 
     // ─── Step 2: PROFIT-RATCHET ─────────────────────────────────────────
