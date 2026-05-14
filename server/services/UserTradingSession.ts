@@ -1615,19 +1615,28 @@ export class UserTradingSession extends EventEmitter {
     // Engine emits position_closed synchronously during closePosition() (inside
     // executeOrderOnExchange → placeOrder → closePosition). However if the
     // exchange adapter's fill resolution is async (e.g. a fill-poll), give it
-    // up to 2s to land before we decide we missed the event.
+    // up to 2s to land before we decide we missed the event. Short-circuit
+    // early if the engine has already removed the position from its map — in
+    // that case it's done and no more events are coming (e.g. test stubs, or
+    // RealTradingEngine's markPositionDbClosedDirectly path).
     if (!engineErrMsg && capturedFillPrice === undefined) {
       const waitDeadlineMs = 2000;
       const pollStep = 25;
       const start = Date.now();
       while (capturedFillPrice === undefined && Date.now() - start < waitDeadlineMs) {
         await new Promise((res) => setTimeout(res, pollStep));
+        // If the engine no longer reports this position open, no further
+        // position_closed will fire — bail out instead of blocking 2s.
+        try {
+          const stillOpen = (this.tradingEngine.getPositions() ?? []).some((p: any) => p?.id === positionId);
+          if (!stillOpen) break;
+        } catch { /* engines without getPositions just wait the full window */ }
       }
       if (capturedFillPrice === undefined) {
         try {
           const { engineLogger } = await import('../utils/logger');
           engineLogger.warn(
-            `[UserTradingSession] requestManualClose: position_closed not observed within ${waitDeadlineMs}ms for pos=${positionId} ${symbol} — learning loop will see request-time price (degraded)`,
+            `[UserTradingSession] requestManualClose: position_closed not observed for pos=${positionId} ${symbol} (waited ${Date.now() - start}ms) — learning loop will see request-time price (degraded)`,
           );
         } catch { /* logger optional */ }
       }

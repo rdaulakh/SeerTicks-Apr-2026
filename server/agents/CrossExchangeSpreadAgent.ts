@@ -43,6 +43,7 @@
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
 import { getActiveClock } from '../_core/clock';
+import { engineLogger } from '../utils/logger';
 
 interface BookSnapshot {
   midPrice: number;
@@ -59,6 +60,7 @@ const RING_SIZE = 60;
 
 export class CrossExchangeSpreadAgent extends AgentBase {
   private spreadRings: Map<string, number[]> = new Map();
+  private lastFeedWarnAt = 0;
 
   constructor() {
     const config: AgentConfig = {
@@ -103,10 +105,26 @@ export class CrossExchangeSpreadAgent extends AgentBase {
     const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
-    const bin = ((global as any).__binanceSpotBook || {})[binSym] as BookSnapshot | undefined;
-    const cb = ((global as any).__coinbaseTopOfBook || {})[symbol] as BookSnapshot | undefined;
+    const binSpotGlobal = (global as any).__binanceSpotBook as Record<string, BookSnapshot> | undefined;
+    const cbGlobal = (global as any).__coinbaseTopOfBook as Record<string, BookSnapshot> | undefined;
+    const bin = (binSpotGlobal || {})[binSym];
+    const cb = (cbGlobal || {})[symbol];
 
     if (!bin || !cb) {
+      // If either upstream global is empty entirely, the WS feed is dead.
+      // Log once per minute and exit gracefully (don't silently neutral-loop).
+      const binMissing = !binSpotGlobal || Object.keys(binSpotGlobal).length === 0;
+      const cbMissing = !cbGlobal || Object.keys(cbGlobal).length === 0;
+      if (binMissing || cbMissing) {
+        const nowMs = getActiveClock().now();
+        if (nowMs - this.lastFeedWarnAt > 60_000) {
+          this.lastFeedWarnAt = nowMs;
+          engineLogger.warn('CrossExchangeSpreadAgent feed missing', {
+            agent: this.config.name, symbol,
+            binanceSpotMissing: binMissing, coinbaseMissing: cbMissing,
+          });
+        }
+      }
       return this.neutralSignal(symbol, startTime, `Missing book (binance=${!!bin}, coinbase=${!!cb})`);
     }
 

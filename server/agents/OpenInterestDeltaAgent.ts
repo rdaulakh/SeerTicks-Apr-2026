@@ -33,6 +33,7 @@
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
 import { getActiveClock } from '../_core/clock';
+import { engineLogger } from '../utils/logger';
 
 interface OISample {
   timestamp: number;
@@ -55,6 +56,10 @@ export class OpenInterestDeltaAgent extends AgentBase {
   // OI agent per GlobalSymbolAnalyzer instance, this gives 1 symbol per
   // poller (≤3 calls/min total across BTC/ETH/SOL analyzers).
   private trackedSymbols: string[] = [];
+  // Consecutive poll failures per symbol — warn once per minute when fapi is
+  // unreachable (geo-block / rate-limit) so we surface the silent dead-loop.
+  private consecutiveFailures: Map<string, number> = new Map();
+  private lastFailWarnAt = 0;
 
   constructor() {
     const config: AgentConfig = {
@@ -117,20 +122,48 @@ export class OpenInterestDeltaAgent extends AgentBase {
         `${BINANCE_FUTURES_API}/fapi/v1/openInterest?symbol=${binSym}`,
         { signal: AbortSignal.timeout(5_000) },
       );
-      if (!r.ok) return; // silently — geo-block or transient
+      if (!r.ok) {
+        this.recordPollFailure(binSym, `HTTP ${r.status}`);
+        return;
+      }
       const j = await r.json() as { openInterest?: string };
       const oi = parseFloat(j.openInterest || '0');
-      if (!isFinite(oi) || oi <= 0) return;
+      if (!isFinite(oi) || oi <= 0) {
+        this.recordPollFailure(binSym, 'invalid OI value');
+        return;
+      }
 
       const price = this.currentPriceFor(binSym);
-      if (price === null) return; // no price ref → skip this sample
+      if (price === null) return; // no price ref → skip this sample (not a fetch failure)
 
       const hist = this.oiHistory.get(binSym) || [];
       hist.push({ timestamp: getActiveClock().now(), oi, price });
       if (hist.length > HISTORY_KEEP) hist.shift();
       this.oiHistory.set(binSym, hist);
-    } catch {
-      // swallow — next poll will retry
+      this.consecutiveFailures.set(binSym, 0);
+    } catch (err) {
+      this.recordPollFailure(binSym, (err as Error)?.message || 'fetch threw');
+    }
+  }
+
+  /**
+   * Track consecutive poll failures and surface one warn per minute when the
+   * fapi endpoint is unreachable. Without this the agent silently neutral-
+   * loops forever — exactly the dead-agent failure mode this fix targets.
+   */
+  private recordPollFailure(binSym: string, reason: string): void {
+    const prev = this.consecutiveFailures.get(binSym) || 0;
+    const nextFails = prev + 1;
+    this.consecutiveFailures.set(binSym, nextFails);
+    if (nextFails >= 3) {
+      const nowMs = getActiveClock().now();
+      if (nowMs - this.lastFailWarnAt > 60_000) {
+        this.lastFailWarnAt = nowMs;
+        engineLogger.warn('OpenInterestDeltaAgent fapi unreachable', {
+          agent: this.config.name, binanceSymbol: binSym,
+          consecutiveFailures: nextFails, reason,
+        });
+      }
     }
   }
 

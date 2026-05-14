@@ -99,7 +99,7 @@ export class FundingRateAnalyst extends AgentBase {
 
       // Fallback to legacy Binance-only method if multi-exchange fails
       const futuresSymbol = this.normalizeFuturesSymbol(symbol);
-      
+
       // Check cache first
       const cached = this.fundingCache.get(futuresSymbol);
       if (cached && getActiveClock().now() - cached.timestamp < this.CACHE_TTL) {
@@ -108,12 +108,23 @@ export class FundingRateAnalyst extends AgentBase {
 
       // Fetch current funding rate (legacy Binance-only)
       const fundingData = await this.fetchFundingRate(futuresSymbol);
-      
+
       if (!fundingData) {
-        // Use deterministic fallback instead of neutral signal
+        // Self-seed currentPrice / priceHistory from MarketContext so the
+        // momentum-based fallback has data to work with (GlobalSymbolAnalyzer
+        // never calls setCurrentPrice() on this agent).
+        if (typeof context?.currentPrice === 'number' && context.currentPrice > 0) {
+          this.setCurrentPrice(context.currentPrice);
+        }
+        // Use deterministic fallback instead of neutral signal.
+        // MarketContext doesn't carry priceChange24h, but priceVsSMA50 is a
+        // close trend proxy — use it when 24h delta is missing.
+        const inferred24hChange = typeof context?.priceChange24h === 'number'
+          ? context.priceChange24h
+          : (typeof context?.priceVsSMA50 === 'number' ? context.priceVsSMA50 : 0);
         const marketData: MarketDataInput = {
           currentPrice: context?.currentPrice || this.currentPrice || 0,
-          priceChange24h: context?.priceChange24h || 0,
+          priceChange24h: inferred24hChange,
           volume24h: context?.volume24h || 0,
           high24h: context?.high24h || 0,
           low24h: context?.low24h || 0,
@@ -152,10 +163,15 @@ export class FundingRateAnalyst extends AgentBase {
     } catch (error) {
       // DETERMINISTIC FALLBACK: Use price momentum analysis
       // Note: Silently falling back - Binance API errors are expected in geo-blocked regions
-      
+      if (typeof context?.currentPrice === 'number' && context.currentPrice > 0) {
+        this.setCurrentPrice(context.currentPrice);
+      }
+      const inferred24hChange = typeof context?.priceChange24h === 'number'
+        ? context.priceChange24h
+        : (typeof context?.priceVsSMA50 === 'number' ? context.priceVsSMA50 : 0);
       const marketData: MarketDataInput = {
         currentPrice: context?.currentPrice || this.currentPrice || 0,
-        priceChange24h: context?.priceChange24h || 0,
+        priceChange24h: inferred24hChange,
         volume24h: context?.volume24h || 0,
         high24h: context?.high24h || 0,
         low24h: context?.low24h || 0,
@@ -647,8 +663,19 @@ export class FundingRateAnalyst extends AgentBase {
       confidence += 0.12;
       strength += 0.1;
       reasons.push(`Negative funding (${ratePercentage}) - short bias`);
+    } else if (avgRate > 0) {
+      // Phase 92.5 — even mild positive funding = longs paying shorts =
+      // weak contrarian-bearish. Previously this branch stayed "neutral"
+      // and the agent dropped out of consensus. Tiny confidence bump only.
+      if (signal === "neutral") signal = "bearish";
+      confidence += 0.04;
+      reasons.push(`Mildly positive funding (${ratePercentage}) - weak long bias`);
+    } else if (avgRate < 0) {
+      if (signal === "neutral") signal = "bullish";
+      confidence += 0.04;
+      reasons.push(`Mildly negative funding (${ratePercentage}) - weak short bias`);
     } else {
-      reasons.push(`Neutral funding (${ratePercentage})`);
+      reasons.push(`Perfectly neutral funding (${ratePercentage})`);
     }
 
     // Bonus confidence for multiple exchanges agreeing

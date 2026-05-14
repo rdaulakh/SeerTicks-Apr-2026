@@ -37,6 +37,7 @@
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
 import { getActiveClock } from '../_core/clock';
+import { engineLogger } from '../utils/logger';
 
 interface FundingSample {
   timestamp: number;
@@ -55,6 +56,8 @@ export class FundingRateFlipAgent extends AgentBase {
   private history: Map<string, FundingSample[]> = new Map();
   private pollerHandle?: NodeJS.Timeout;
   private trackedSymbols: string[] = []; // populated lazily by analyze()
+  private consecutiveFailures: Map<string, number> = new Map();
+  private lastFailWarnAt = 0;
 
   constructor() {
     const config: AgentConfig = {
@@ -94,21 +97,57 @@ export class FundingRateFlipAgent extends AgentBase {
   }
 
   private async pollOne(binSym: string): Promise<void> {
+    // Try Binance fapi first (lowest latency when reachable). If geo-blocked
+    // or 4xx, fall through to the multi-exchange service (Bybit + OKX).
+    let rate: number | null = null;
     try {
       const r = await fetch(
         `${BINANCE_FUTURES_API}/fapi/v1/premiumIndex?symbol=${binSym}`,
         { signal: AbortSignal.timeout(5_000) },
       );
-      if (!r.ok) return;
-      const j = await r.json() as { lastFundingRate?: string };
-      const rate = parseFloat(j.lastFundingRate || '0');
-      if (!isFinite(rate)) return;
+      if (r.ok) {
+        const j = await r.json() as { lastFundingRate?: string };
+        const parsed = parseFloat(j.lastFundingRate || '0');
+        if (isFinite(parsed)) rate = parsed;
+      }
+    } catch { /* fall through to multi-exchange */ }
 
-      const hist = this.history.get(binSym) || [];
-      hist.push({ timestamp: getActiveClock().now(), rate });
-      if (hist.length > HISTORY_KEEP) hist.shift();
-      this.history.set(binSym, hist);
-    } catch { /* swallow — next poll retries */ }
+    if (rate === null) {
+      try {
+        const mod = await import('../services/MultiExchangeFundingService');
+        const agg = await mod.multiExchangeFundingService.getAggregatedFundingRate(binSym);
+        if (agg && agg.exchangeCount > 0 && isFinite(agg.avgFundingRate)) {
+          rate = agg.avgFundingRate;
+        }
+      } catch { /* fall through to failure recording */ }
+    }
+
+    if (rate === null) {
+      this.recordPollFailure(binSym);
+      return;
+    }
+
+    const hist = this.history.get(binSym) || [];
+    hist.push({ timestamp: getActiveClock().now(), rate });
+    if (hist.length > HISTORY_KEEP) hist.shift();
+    this.history.set(binSym, hist);
+    this.consecutiveFailures.set(binSym, 0);
+  }
+
+  private recordPollFailure(binSym: string): void {
+    const prev = this.consecutiveFailures.get(binSym) || 0;
+    const next = prev + 1;
+    this.consecutiveFailures.set(binSym, next);
+    if (next >= 3) {
+      const nowMs = getActiveClock().now();
+      if (nowMs - this.lastFailWarnAt > 60_000) {
+        this.lastFailWarnAt = nowMs;
+        engineLogger.warn('FundingRateFlipAgent all funding-rate sources unreachable', {
+          agent: this.config.name, binanceSymbol: binSym,
+          consecutiveFailures: next,
+        });
+      }
+    }
   }
 
   private async pollAll(): Promise<void> {

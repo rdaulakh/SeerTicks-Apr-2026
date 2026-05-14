@@ -55,7 +55,12 @@ interface DepthSnapshot {
   receivedAt: number;
 }
 
-const COMPRESSION_FACTOR = 0.60;
+// Phase 92.5 — loosened from 0.60 to 0.75. The 0.60 gate required current
+// spread to be ≤60% of median — a once-per-minute event at best on liquid
+// majors. 0.75 catches sustained mild tightening that still indicates MM
+// confidence + pending move, and lets the agent emit directional signals
+// instead of silent neutral-loop.
+const COMPRESSION_FACTOR = 0.75;
 // Phase 82.3 — lowered from 0.30 to 0.10 bps. Live: 0/0/632 (100% neutral).
 // Binance BTC perp typically trades 0.1-0.2 bps spread; the 0.30 floor
 // permanently muted the agent on the most liquid pairs (which is what it
@@ -105,8 +110,20 @@ export class SpreadCompressionAgent extends AgentBase {
     const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
-    const book = ((global as any).__binanceFuturesBook || {})[binSym] as BookSnapshot | undefined;
-    if (!book) return this.neutralSignal(symbol, startTime, `No futures book for ${binSym}`);
+    const futuresBookGlobal = (global as any).__binanceFuturesBook as Record<string, BookSnapshot> | undefined;
+    const book = (futuresBookGlobal || {})[binSym];
+    if (!book) {
+      if (!futuresBookGlobal || Object.keys(futuresBookGlobal).length === 0) {
+        const nowMs = getActiveClock().now();
+        if (nowMs - this.lastFeedWarnAt > 60_000) {
+          this.lastFeedWarnAt = nowMs;
+          engineLogger.warn('SpreadCompressionAgent has no Binance futures book feed', {
+            agent: this.config.name, symbol, binanceSymbol: binSym,
+          });
+        }
+      }
+      return this.neutralSignal(symbol, startTime, `No futures book for ${binSym}`);
+    }
 
     const age = getActiveClock().now() - book.eventTime;
     if (age > STALE_MS) return this.neutralSignal(symbol, startTime, `Book stale (${age}ms)`);
