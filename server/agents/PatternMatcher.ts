@@ -7,37 +7,134 @@ import { checkMultiTimeframeConfirmation, getOptimalEntryTimeframe, shouldEnterT
 import { getDb } from '../db';
 import { winningPatterns } from '../../drizzle/schema';
 import { eq } from 'drizzle-orm';
-import { detectAllPatterns } from './PatternDetection';
+import { detectAllPatterns, type DetectedPattern } from './PatternDetection';
+import { engineLogger } from '../utils/logger';
 
 /**
- * Phase 18 — pure helper for unvalidated-pattern confidence discount.
+ * Phase 92 (2026-05-14) — Pattern-direction classification constants.
+ * Lifted out of the analyze() body so the multi-pattern coherence check
+ * below uses the same source of truth as the legacy single-pattern branch.
  *
- * Production log evidence (every few seconds for days):
- *   `[PatternMatcher] No validated patterns found, using detected patterns
- *    with reduced confidence`
+ * Forensic dump on 2026-05-14 showed the agent firing on EVERY tick with
+ * 10+ contradictory patterns matched simultaneously (e.g. Descending
+ * Triangle + Bullish Flag + Ascending Triangle + Inverse H&S on the same
+ * symbol/window). The agent was picking "best by confidence" and emitting
+ * a directional vote — but if 5 detections are bullish and 5 are bearish,
+ * that's a NEUTRAL setup, not a high-conviction directional call. The
+ * coherence check downstream uses these lists to detect that contradiction.
+ */
+const BULLISH_PATTERNS: ReadonlyArray<string> = [
+  "Double Bottom", "Bullish Engulfing", "Hammer", "Ascending Triangle",
+  "Inverse Head and Shoulders", "Cup and Handle", "Bullish Flag",
+  "Triple Bottom", "Falling Wedge", "Bullish Pennant",
+];
+const BEARISH_PATTERNS: ReadonlyArray<string> = [
+  "Double Top", "Bearish Engulfing", "Shooting Star", "Descending Triangle",
+  "Head and Shoulders", "Bearish Flag", "Triple Top",
+  "Rising Wedge", "Bearish Pennant",
+];
+
+function classifyPatternDirection(name: string): 'bullish' | 'bearish' | 'neutral' {
+  if (BULLISH_PATTERNS.includes(name)) return 'bullish';
+  if (BEARISH_PATTERNS.includes(name)) return 'bearish';
+  return 'neutral';
+}
+
+/**
+ * Phase 92 (2026-05-14) — Confidence calibration rewrite.
  *
- * The fallback path fires constantly because the `winningPatterns` table
- * is empty (the validation pipeline was never wired). The OLD discount
- * was `c * 0.5` — halving even a 0.9-confidence detection to 0.45, which
- * combined with downstream damping (overextension/regime/MTF) pinned this
- * agent below every consensus threshold every time.
+ * Forensic finding: across 30 recent PatternMatcher signals, confidence was
+ * LITERALLY CONSTANT at 0.8075 (only 1 distinct value across all signals).
+ * Root cause: PatternDetection.ts caps raw confidence at 0.95, and the old
+ * formula `Math.max(0.05, Math.min(0.95, c * 0.85))` evaluated to
+ * 0.95 * 0.85 = 0.8075 for the vast majority of detections (the 0.95 cap
+ * was hit in nearly every case because individual patterns easily accrue
+ * 0.5 base + 0.25 formation + 0.30 breakout + 0.20 volume + ... > 0.95).
  *
- * Phase 16's backtest confirmed: 0% pass rate at 0.50 across 1,182
- * production rows. Fix: replace the 50% chop with a modest 15% discount.
- * The PatternDetection.ts confidence is already a calibrated estimate
- * (it accounts for pattern quality, breakout strength, etc.) — applying
- * an extra 50% penalty for "no historical validation" is double-counting
- * a risk the detection algo already factors in.
+ * 60-trade signed-P&L audit (2026-05-14) ranked PatternMatcher as the
+ * 3rd-WORST agent: 23% WR when brain agreed, −$11.92 P&L, votes
+ * directionally on 100% of cycles. It is pure noise.
  *
- * Once Phase 23 (pattern-validation loop) ships and `winningPatterns`
- * actually populates, the validated-path branch will replace this with
- * `dynamicConfidence + historicalBoost`. Until then this is the bridge.
+ * The fix here changes BOTH the floor AND the ceiling so that confidence
+ * actually varies across detections:
+ *
+ *   1. Cap drops 0.95 → 0.80 — unvalidated patterns must NEVER claim
+ *      ceiling-grade conviction. The validated path (with real winRate
+ *      and profit-factor history) keeps the higher ceiling.
+ *   2. Floor compression: subtract a 0.30 baseline before rescaling so
+ *      a "barely detected" pattern at raw 0.50 maps to ~0.20 instead of
+ *      ~0.43. Patterns at the 0.50 base in PatternDetection.ts have NO
+ *      bonuses (no breakout, no volume confirmation, no momentum) — they
+ *      should NOT be voting at moderate confidence.
+ *   3. Linear remap of [0.30, 0.95] → [0.10, 0.80] so confidence
+ *      reflects actual evidence accumulated by the detector.
+ *
+ * After this fix, sample expected confidence distribution:
+ *   raw 0.50 (no bonuses)  → 0.10 + (0.20/0.65)*0.70 = 0.32 → emits NEUTRAL via gate
+ *   raw 0.65 (volume only) → 0.10 + (0.35/0.65)*0.70 = 0.48 → emits NEUTRAL via gate
+ *   raw 0.80 (breakout+vol) → 0.10 + (0.50/0.65)*0.70 = 0.64 → directional vote allowed
+ *   raw 0.95 (full conv.)  → 0.10 + (0.65/0.65)*0.70 = 0.80 → strong vote
+ *
+ * The legacy 0.85 discount factor is GONE — it added no differentiation
+ * when the input was saturated at 0.95. The new transform creates real
+ * spread across the 0.10–0.80 band based on actual pattern quality.
  */
 export function computeUnvalidatedPatternConfidence(
   detectedConfidence: number,
 ): number {
   if (!Number.isFinite(detectedConfidence) || detectedConfidence <= 0) return 0.05;
-  return Math.max(0.05, Math.min(0.95, detectedConfidence * 0.85));
+  // Clamp input to detector's own range first.
+  const clamped = Math.max(0.05, Math.min(0.95, detectedConfidence));
+  // Compress: rescale [0.30, 0.95] → [0.10, 0.80]. Anything below 0.30 raw
+  // floors at 0.10 — effectively no vote (gated to NEUTRAL by caller).
+  if (clamped < 0.30) return 0.10;
+  const normalized = (clamped - 0.30) / (0.95 - 0.30); // 0..1
+  return Math.max(0.10, Math.min(0.80, 0.10 + normalized * 0.70));
+}
+
+/**
+ * Phase 92 — multi-pattern coherence check.
+ *
+ * Returns the dominant direction and a coherence ratio in [0, 1]. If the
+ * set of detected patterns is contradictory (bullish vs bearish votes
+ * each exceed 30% of the directional total), coherence drops below 0.70
+ * and the caller emits NEUTRAL. This stops the agent from emitting a
+ * directional vote when 5 bullish + 5 bearish patterns "match" the same
+ * window — which is the actual production behavior observed today.
+ */
+export function computeMultiPatternCoherence(
+  patterns: ReadonlyArray<DetectedPattern>,
+): {
+  dominantDirection: 'bullish' | 'bearish' | 'neutral';
+  coherence: number; // 0..1 — fraction of directional votes that agree with dominant
+  bullishWeight: number;
+  bearishWeight: number;
+  contradiction: boolean;
+} {
+  let bullishWeight = 0;
+  let bearishWeight = 0;
+  for (const p of patterns) {
+    const dir = classifyPatternDirection(p.name);
+    if (dir === 'bullish') bullishWeight += p.confidence;
+    else if (dir === 'bearish') bearishWeight += p.confidence;
+  }
+  const total = bullishWeight + bearishWeight;
+  if (total <= 0) {
+    return { dominantDirection: 'neutral', coherence: 0, bullishWeight, bearishWeight, contradiction: false };
+  }
+  const dominantDirection: 'bullish' | 'bearish' =
+    bullishWeight >= bearishWeight ? 'bullish' : 'bearish';
+  const dominantShare = Math.max(bullishWeight, bearishWeight) / total;
+  const oppositeShare = Math.min(bullishWeight, bearishWeight) / total;
+  // Contradiction: opposite side has >30% share of the directional weight.
+  const contradiction = oppositeShare > 0.30;
+  return {
+    dominantDirection,
+    coherence: dominantShare,
+    bullishWeight,
+    bearishWeight,
+    contradiction,
+  };
 }
 
 /**
@@ -235,50 +332,89 @@ export class PatternMatcher extends AgentBase {
         .filter(m => m !== null);
 
       if (validatedMatches.length === 0) {
-        // FALLBACK: If no validated patterns, use detected patterns with reduced confidence
-        console.warn(`[PatternMatcher] No validated patterns found, using detected patterns with reduced confidence`);
-        
-        // Sort detected patterns by confidence
-        const bestDetected = detectedPatterns.sort((a, b) => b.confidence - a.confidence)[0];
-        
-        if (!bestDetected) {
+        // Phase 92 (2026-05-14) — UNVALIDATED FALLBACK PATH.
+        //
+        // This branch fires on essentially 100% of cycles because the
+        // `winningPatterns` table is empty / the validation pipeline never
+        // shipped. Previously this path emitted a directional vote on EVERY
+        // tick at the saturated 0.8075 confidence ceiling — the audit
+        // shows the agent voting on 100% of decisions with 23% WR. Pure
+        // noise. The 4 gates below convert it to: vote only when
+        // (1) confidence cleared the floor, (2) patterns are coherent,
+        // (3) we picked a side. Anything else → NEUTRAL with low confidence.
+        engineLogger.debug('[PatternMatcher] unvalidated fallback path', {
+          symbol,
+          detectedCount: detectedPatterns.length,
+        });
+
+        if (detectedPatterns.length === 0) {
           return this.createNeutralSignal(symbol, `No patterns detected`);
         }
-        
-        // Determine signal based on pattern type
-        // FIXED: Complete list of all 19 detected patterns properly classified
-        const bullishPatterns = [
-          "Double Bottom", "Bullish Engulfing", "Hammer", "Ascending Triangle",
-          "Inverse Head and Shoulders", "Cup and Handle", "Bullish Flag",
-          "Triple Bottom", "Falling Wedge", "Bullish Pennant"
-        ];
-        const bearishPatterns = [
-          "Double Top", "Bearish Engulfing", "Shooting Star", "Descending Triangle",
-          "Head and Shoulders", "Bearish Flag", "Triple Top",
-          "Rising Wedge", "Bearish Pennant"
-        ];
-        
-        let signal: "bullish" | "bearish" | "neutral";
-        if (bullishPatterns.includes(bestDetected.name)) {
-          signal = "bullish";
-        } else if (bearishPatterns.includes(bestDetected.name)) {
-          signal = "bearish";
-        } else {
-          signal = "neutral";
+
+        // Gate 1: multi-pattern coherence. If bullish/bearish detections
+        // contradict each other (>30% on the opposite side), emit NEUTRAL.
+        const coherence = computeMultiPatternCoherence(detectedPatterns);
+        if (coherence.contradiction || coherence.dominantDirection === 'neutral') {
+          engineLogger.debug('[PatternMatcher] contradictory or neutral pattern set — emitting neutral', {
+            symbol,
+            bullishWeight: coherence.bullishWeight.toFixed(3),
+            bearishWeight: coherence.bearishWeight.toFixed(3),
+            coherence: coherence.coherence.toFixed(3),
+          });
+          return this.createNeutralSignal(
+            symbol,
+            `Contradictory patterns detected (bull weight ${coherence.bullishWeight.toFixed(2)} vs bear ${coherence.bearishWeight.toFixed(2)}, coherence ${(coherence.coherence * 100).toFixed(0)}%) — no directional conviction`,
+          );
         }
-        
-        // Phase 18 — apply a 15% unvalidated-pattern discount instead of the
-        // old 50% halving. The detection-side confidence is already a
-        // calibrated quality estimate; halving it on top of every downstream
-        // damping factor mathematically pinned the agent below 0.50 forever
-        // (verified by Phase 16 backtest, 0% pass rate across 1,182 prod
-        // rows). The new discount keeps a real-but-small penalty for lack of
-        // historical validation while letting strong detections contribute.
-        const confidence = computeUnvalidatedPatternConfidence(bestDetected.confidence);
-        const strength = confidence * 0.8; // Lower strength for unvalidated patterns
-        
-        const reasoning = `Detected ${bestDetected.name} pattern on ${bestDetected.timeframe} timeframe (UNVALIDATED). ${bestDetected.description}. Confidence reduced to ${(confidence * 100).toFixed(1)}% due to lack of historical validation.`;
-        
+
+        // Filter detected patterns to the dominant direction, then pick the
+        // single best of that side. This is the actual signal candidate.
+        const dominant = coherence.dominantDirection;
+        const sameSide = detectedPatterns.filter(
+          (p) => classifyPatternDirection(p.name) === dominant,
+        );
+        if (sameSide.length === 0) {
+          return this.createNeutralSignal(symbol, `No directional patterns detected`);
+        }
+        const bestDetected = sameSide.sort((a, b) => b.confidence - a.confidence)[0];
+
+        // Compute confidence via the new differentiated transform.
+        const rawConfidence = computeUnvalidatedPatternConfidence(bestDetected.confidence);
+        // Coherence scaling: even a high raw confidence should be discounted
+        // if the directional consensus is barely above 70%.
+        const coherenceBonus = (coherence.coherence - 0.70) / 0.30; // 0..1 for coherence 0.70..1.00
+        const coherenceMultiplier = 0.85 + Math.max(0, Math.min(1, coherenceBonus)) * 0.15; // 0.85..1.00
+        let confidence = rawConfidence * coherenceMultiplier;
+        confidence = Math.max(0.05, Math.min(0.80, confidence));
+
+        // Gate 2: unvalidated-pattern emission gate.
+        // If winningPatterns is empty OR confidence < 0.35, this is a weak
+        // unvalidated signal — emit NEUTRAL with floor confidence (effectively
+        // no vote). This is the central fix for the "votes on 100% of cycles"
+        // pathology. Threshold 0.35 maps back to raw detector confidence
+        // ~0.53 (i.e. baseline pattern with virtually no bonuses).
+        const hasValidationCorpus = this.patterns.length > 0;
+        if (!hasValidationCorpus || confidence < 0.35) {
+          engineLogger.debug('[PatternMatcher] gated unvalidated emission → neutral', {
+            symbol,
+            pattern: bestDetected.name,
+            rawConfidence: bestDetected.confidence.toFixed(3),
+            transformedConfidence: confidence.toFixed(3),
+            hasValidationCorpus,
+          });
+          return this.createNeutralSignal(
+            symbol,
+            `Weak unvalidated pattern ${bestDetected.name} (confidence ${(confidence * 100).toFixed(0)}% < 35% gate, validation corpus ${hasValidationCorpus ? 'present' : 'empty'})`,
+          );
+        }
+
+        const signal: 'bullish' | 'bearish' = dominant;
+        const strength = confidence * 0.7; // Strength stays lower for unvalidated path
+        const reasoning =
+          `Detected ${bestDetected.name} pattern on ${bestDetected.timeframe} timeframe (UNVALIDATED). ${bestDetected.description}. ` +
+          `Confidence ${(confidence * 100).toFixed(1)}% [raw ${(bestDetected.confidence * 100).toFixed(1)}% → transform ${(rawConfidence * 100).toFixed(1)}% → coherence ${(coherence.coherence * 100).toFixed(0)}% scale]. ` +
+          `Pattern set: ${sameSide.length}/${detectedPatterns.length} same-direction detections.`;
+
         return {
           agentName: this.config.name,
           symbol,
@@ -286,17 +422,22 @@ export class PatternMatcher extends AgentBase {
           signal,
           confidence,
           strength,
-          executionScore: 30, // Low execution score for unvalidated patterns
+          executionScore: 30,
           reasoning,
           evidence: {
             matchedPattern: bestDetected.name,
             timeframe: bestDetected.timeframe,
             detectionConfidence: bestDetected.confidence,
+            transformedConfidence: rawConfidence,
+            coherenceScore: coherence.coherence,
+            bullishWeight: coherence.bullishWeight,
+            bearishWeight: coherence.bearishWeight,
             validated: false,
             totalDetected: detectedPatterns.length,
-            allDetected: detectedPatterns.map(p => `${p.name} (${p.timeframe})`).join(", "),
+            sameDirectionCount: sameSide.length,
+            allDetected: detectedPatterns.map((p) => `${p.name} (${p.timeframe})`).join(", "),
           },
-          qualityScore: 0.4, // Lower quality for unvalidated
+          qualityScore: confidence * 0.5, // Lower quality for unvalidated
           processingTime: getActiveClock().now() - startTime,
           dataFreshness: 0,
           recommendation: undefined,
@@ -313,27 +454,27 @@ export class PatternMatcher extends AgentBase {
       // Determine signal based on pattern type and validated success rate
       const detected = bestMatch.detected;
       const validated = bestMatch.validated;
-      
-      // FIXED: Complete list of all 19 detected patterns properly classified
-      const bullishPatterns = [
-        "Double Bottom", "Bullish Engulfing", "Hammer", "Ascending Triangle",
-        "Inverse Head and Shoulders", "Cup and Handle", "Bullish Flag",
-        "Triple Bottom", "Falling Wedge", "Bullish Pennant"
-      ];
-      const bearishPatterns = [
-        "Double Top", "Bearish Engulfing", "Shooting Star", "Descending Triangle",
-        "Head and Shoulders", "Bearish Flag", "Triple Top",
-        "Rising Wedge", "Bearish Pennant"
-      ];
-      
-      let signal: "bullish" | "bearish" | "neutral";
-      if (bullishPatterns.includes(detected.name)) {
-        signal = "bullish";
-      } else if (bearishPatterns.includes(detected.name)) {
-        signal = "bearish";
-      } else {
-        signal = "neutral";
+
+      // Phase 92 (2026-05-14) — validated-path gating.
+      // Even with a "validated" match, refuse to emit a directional vote if:
+      //   (a) the matched pattern is in alpha decay (flagged degraded), or
+      //   (b) the historical sample size is too small (<5 trades) — winRate
+      //       is statistically meaningless below this threshold.
+      // Drop to NEUTRAL with floor confidence in either case.
+      if (validated.alphaDecayFlag || (validated.totalTrades ?? 0) < 5) {
+        engineLogger.debug('[PatternMatcher] validated match failed quality gate → neutral', {
+          symbol,
+          pattern: validated.patternName,
+          alphaDecayFlag: validated.alphaDecayFlag,
+          totalTrades: validated.totalTrades,
+        });
+        return this.createNeutralSignal(
+          symbol,
+          `Validated pattern ${validated.patternName} gated: ${validated.alphaDecayFlag ? 'alpha-decayed' : `low sample size (${validated.totalTrades} trades)`}`,
+        );
       }
+
+      const signal: 'bullish' | 'bearish' | 'neutral' = classifyPatternDirection(detected.name);
 
       // Check multi-timeframe confirmation
       const primarySignal = signal === 'bullish' ? 'BUY' : signal === 'bearish' ? 'SELL' : 'NEUTRAL';
@@ -346,11 +487,15 @@ export class PatternMatcher extends AgentBase {
 
       // Confidence = dynamic pattern confidence (updates every tick) + historical validation boost + MTF boost
       // Use weighted average: 70% current pattern confidence + 30% historical win rate
-      // This preserves tick-by-tick updates while incorporating historical performance
-      const dynamicConfidence = detected.confidence; // Already updates with price/volume/momentum
+      // This preserves tick-by-tick updates while incorporating historical performance.
+      // Phase 92 — apply the same compression transform as the unvalidated path
+      // to the dynamic confidence so the validated path also avoids saturation
+      // (raw detector confidence is already clipped at 0.95 in PatternDetection.ts,
+      // which used to make every signal hit the ceiling).
+      const dynamicConfidence = computeUnvalidatedPatternConfidence(detected.confidence);
       const historicalBoost = (validated.winRate - 0.5) * 0.3; // Scale historical data to ±15% boost
-      const baseConfidence = Math.max(0.05, Math.min(0.95, dynamicConfidence + historicalBoost));
-      const confidence = Math.min(baseConfidence + mtfResult.confidenceBoost, 1.0);
+      const baseConfidence = Math.max(0.10, Math.min(0.90, dynamicConfidence + historicalBoost));
+      const confidence = Math.min(baseConfidence + mtfResult.confidenceBoost, 0.90);
       const strength = Math.min(confidence * validated.profitFactor, 1.0);
 
       // Calculate execution score (0-100) - tactical timing quality for pattern-based trades
@@ -382,12 +527,12 @@ export class PatternMatcher extends AgentBase {
         }
         // Breakout patterns are more reliable during actual breakouts
         if (regime === 'breakout' && ['Ascending Triangle', 'Descending Triangle', 'Cup and Handle', 'Bullish Flag', 'Bearish Flag'].includes(detected.name)) {
-          adjustedConfidence = Math.min(0.95, adjustedConfidence * 1.15);
+          adjustedConfidence = Math.min(0.90, adjustedConfidence * 1.15);
           reasoning += ' [Regime: breakout — breakout pattern confirmed]';
         }
         // Range-bound: reversal patterns are more reliable
         if (regime === 'range_bound' && ['Double Bottom', 'Double Top', 'Head and Shoulders', 'Inverse Head and Shoulders'].includes(detected.name)) {
-          adjustedConfidence = Math.min(0.95, adjustedConfidence * 1.10);
+          adjustedConfidence = Math.min(0.90, adjustedConfidence * 1.10);
           reasoning += ' [Regime: range_bound — reversal pattern boosted]';
         }
       }

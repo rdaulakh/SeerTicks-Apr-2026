@@ -9,6 +9,7 @@ import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
 import { getActiveClock } from '../_core/clock';
 import { getLLMRateLimiter } from '../utils/RateLimiter';
 import { fallbackManager, MarketDataInput } from './DeterministicFallback';
+import { engineLogger } from '../utils/logger';
 
 /**
  * News Sentinel Agent - A++ Institutional Grade
@@ -128,7 +129,11 @@ export class NewsSentinel extends AgentBase {
       const news = await this.fetchNews(symbol);
 
       if (news.length === 0) {
-        return this.createNeutralSignal(symbol, "No recent news found");
+        // Phase 93: explicit abstain when all sources returned empty — likely
+        // a silent failure cascade (CoinGecko 401/429 + RSS timeouts).
+        const neutral = this.createNeutralSignal(symbol, "[data-unavailable] No recent news found from any source");
+        neutral.evidence = { dataAvailable: false };
+        return neutral;
       }
 
       // A++ Grade: Fast keyword-based sentiment analysis (instant)
@@ -191,40 +196,34 @@ export class NewsSentinel extends AgentBase {
         recommendation: this.getRecommendation(signal, confidence, strength),
       };
     } catch (error) {
-      console.error(`[${this.config.name}] Analysis failed:`, error);
-      
-      // DETERMINISTIC FALLBACK: Use volatility-based analysis when news API fails
-      console.warn(`[${this.config.name}] Activating deterministic fallback...`);
-      
-      const marketData: MarketDataInput = {
-        currentPrice: context?.currentPrice || 0,
-        priceChange24h: context?.priceChange24h || 0,
-        volume24h: context?.volume24h || 0,
-        high24h: context?.high24h || 0,
-        low24h: context?.low24h || 0,
-        priceHistory: context?.priceHistory || [],
-        volumeHistory: context?.volumeHistory || [],
-      };
-      
-      const fallbackResult = fallbackManager.getNewsFallback(symbol, marketData);
-      
+      // Phase 93 — FIX: CoinGecko 401/429 outages previously cascaded into
+      // the deterministic fallback, which then emitted a price-momentum-derived
+      // direction at meaningful confidence. The audit caught this as 30/30
+      // signals being "neutral at 0.71" or otherwise mechanically driven —
+      // bias that wasn't actual news intelligence.
+      //
+      // Correct behavior on a data-fetch failure: ABSTAIN. Emit a clean
+      // low-confidence neutral with evidence.dataAvailable=false so the brain
+      // can drop the vote without treating it as informational presence.
+      const errMsg = error instanceof Error ? error.message : 'Unknown error';
+      engineLogger.warn('NewsSentinel data unavailable — abstaining', { agent: this.config.name, symbol, err: errMsg });
+
       return {
         agentName: this.config.name,
         symbol,
         timestamp: getActiveClock().now(),
-        signal: fallbackResult.signal,
-        confidence: fallbackResult.confidence,
-        strength: fallbackResult.strength,
-        reasoning: fallbackResult.reasoning,
+        signal: 'neutral',
+        confidence: 0.05,
+        strength: 0,
+        reasoning: `[data-unavailable] News fetch failed (${errMsg}). Agent abstaining from directional vote.`,
         evidence: {
-          fallbackReason: fallbackResult.fallbackReason,
-          isDeterministic: true,
-          originalError: error instanceof Error ? error.message : 'Unknown error',
+          dataAvailable: false,
+          originalError: errMsg,
         },
-        qualityScore: 0.5, // Reduced quality for fallback
+        qualityScore: 0.0,
         processingTime: getActiveClock().now() - startTime,
         dataFreshness: 0,
-        executionScore: 40, // Lower execution score for fallback
+        executionScore: 30,
       };
     }
   }
@@ -992,14 +991,52 @@ Provide your analysis:`;
     const tier2News = news.filter(n => n.sourceTier === 2).length;
     const avgImpactScore = news.reduce((sum, n) => sum + (n.impactScore || 0), 0) / Math.max(news.length, 1);
     const avgRecency = news.reduce((sum, n) => sum + (n.recencyWeight || 0), 0) / Math.max(news.length, 1);
-    
+
     // Confidence formula: volume + credibility + recency + impact
     const volumeScore = Math.min(news.length / 10, 0.3);
     const credibilityScore = (tier1News * 0.3 + tier2News * 0.2) / Math.max(news.length, 1);
     const recencyScore = avgRecency * 0.2;
-    const impactScore = (avgImpactScore / 100) * 0.3;
-    
-    const confidence = Math.min(volumeScore + credibilityScore + recencyScore + impactScore, 0.9);
+    const impactScoreComponent = (avgImpactScore / 100) * 0.3;
+
+    let confidence = Math.min(volumeScore + credibilityScore + recencyScore + impactScoreComponent, 0.9);
+
+    // Phase 93 — FIX: previously a neutral signal could emit confidence ~0.71
+    // because the confidence formula above measured "coverage" (volume,
+    // recency, impact) rather than directional conviction. The brain treats
+    // confidence as directional weight, so a "high-confidence neutral" polluted
+    // the consensus tally by diluting other agents' votes.
+    //
+    // Three states now drive confidence:
+    //  (a) WEAK / INFORMATIONAL — no actionable news → confidence ≤ 0.05
+    //  (b) STRONG — multiple tier-1 OR avg impact > 60 with clear skew → 0.40–0.70
+    //  (c) NORMAL — directional skew but moderate evidence → existing formula
+    //               clamped to ≤ 0.35 for neutral signals
+    const total = Math.max(news.length, 1);
+    const directionalBalance = Math.abs(positive - negative) / total;
+    const isWeakNewsState =
+      avgImpactScore < 30 &&
+      tier1News < 2 &&
+      directionalBalance < 0.2;
+
+    const isStrongNews =
+      avgImpactScore > 60 ||
+      (tier1News >= 2 && directionalBalance > 0.3);
+
+    if (isWeakNewsState) {
+      // Informational presence — do NOT pollute the brain with a confident neutral
+      confidence = 0.05;
+    } else if (signal === 'neutral') {
+      // Mixed/ambiguous news: cap neutral confidence so we don't dilute
+      // directional voters with a "high-confidence I-don't-know" signal
+      confidence = Math.min(confidence, 0.10);
+    } else if (isStrongNews) {
+      // Strong directional news — emit in the 0.4–0.7 confidence band
+      confidence = Math.min(Math.max(confidence, 0.40), 0.70);
+    } else {
+      // Normal directional case — keep formula but cap at 0.50 to leave
+      // headroom for the strong-news band
+      confidence = Math.min(confidence, 0.50);
+    }
 
     // Calculate strength
     const strength = Math.min(Math.abs(normalizedSentiment) * 2, 1.0);
@@ -1008,8 +1045,14 @@ Provide your analysis:`;
     const categoryBreakdown = this.getCategoryBreakdown(news);
     const topCategory = Object.entries(categoryBreakdown)
       .sort((a, b) => b[1] - a[1])[0];
-    
-    const reasoning = `Analyzed ${news.length} news items (${tier1News} tier-1, ${tier2News} tier-2): ${positive} positive, ${negative} negative, ${neutral} neutral. Avg impact score: ${avgImpactScore.toFixed(0)}/100. Top category: ${topCategory ? topCategory[0] : 'none'}. ${analysis.substring(0, 150)}...`;
+
+    const stateTag = isWeakNewsState
+      ? '[weak/informational]'
+      : isStrongNews
+        ? '[strong-news]'
+        : '[normal]';
+
+    const reasoning = `${stateTag} Analyzed ${news.length} news items (${tier1News} tier-1, ${tier2News} tier-2): ${positive} positive, ${negative} negative, ${neutral} neutral. Avg impact score: ${avgImpactScore.toFixed(0)}/100. Top category: ${topCategory ? topCategory[0] : 'none'}. ${analysis.substring(0, 150)}...`;
 
     return { signal, confidence, strength, reasoning };
   }

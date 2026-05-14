@@ -1216,93 +1216,153 @@ export class TechnicalAnalyst extends AgentBase {
   private calculateSuperTrend(
     candles: MarketData[],
     period: number = 10,
-    multiplier: number = 2.5 // Reduced from 3.0 to reduce bullish bias
+    multiplier: number = 2.5
   ): { value: number; direction: 'bullish' | 'bearish'; upperBand: number; lowerBand: number } {
     if (candles.length < period + 1) {
-      const currentPrice = candles[candles.length - 1]?.close || 0;
+      // Phase 93.20 — neutral seed: pick direction from current candle body
+      // instead of hard-coding 'bullish'. The old hard-coded default leaked
+      // a long bias into every cold-start call (e.g., on insufficient data).
+      const currentCandle = candles[candles.length - 1];
+      const currentPrice = currentCandle?.close || 0;
+      const seedDirection: 'bullish' | 'bearish' =
+        currentCandle && currentCandle.close >= currentCandle.open ? 'bullish' : 'bearish';
       return {
         value: currentPrice,
-        direction: 'bullish',
+        direction: seedDirection,
         upperBand: currentPrice * 1.05,
         lowerBand: currentPrice * 0.95,
       };
     }
 
-    // Calculate ATR
-    const atr = this.calculateATR(candles, period);
-    
-    // Calculate basic bands
-    const currentCandle = candles[candles.length - 1];
-    const hl2 = (currentCandle.high + currentCandle.low) / 2;
-    
-    let upperBand = hl2 + (multiplier * atr);
-    let lowerBand = hl2 - (multiplier * atr);
-    
-    // Initialize SuperTrend value and direction
-    let superTrendValue = lowerBand;
-    let direction: 'bullish' | 'bearish' = 'bullish';
-    
-    // For first calculation, use simple logic
-    if (candles.length >= period + 2) {
-      const prevCandle = candles[candles.length - 2];
-      const prevHL2 = (prevCandle.high + prevCandle.low) / 2;
-      const prevATR = this.calculateATR(candles.slice(0, -1), period);
-      
-      let prevUpperBand = prevHL2 + (multiplier * prevATR);
-      let prevLowerBand = prevHL2 - (multiplier * prevATR);
-      
-      // Adjust bands based on previous values
-      if (lowerBand > prevLowerBand || prevCandle.close < prevLowerBand) {
-        lowerBand = lowerBand;
-      } else {
-        lowerBand = prevLowerBand;
-      }
-      
-      if (upperBand < prevUpperBand || prevCandle.close > prevUpperBand) {
-        upperBand = upperBand;
-      } else {
-        upperBand = prevUpperBand;
-      }
-      
-      // Determine direction based on price position relative to bands
-      // SuperTrend logic:
-      // - If close > lowerBand, trend is bullish (use lowerBand as support)
-      // - If close < upperBand, trend is bearish (use upperBand as resistance)
-      // - Direction changes when price crosses the opposite band
-      
-      // First, determine previous trend
-      let prevDirection: 'bullish' | 'bearish' = 'bullish';
-      if (prevCandle.close <= prevLowerBand) {
-        prevDirection = 'bearish';
-      } else if (prevCandle.close >= prevUpperBand) {
-        prevDirection = 'bullish';
-      }
-      
-      // Determine current direction
-      // Bullish: close > lowerBand (price above support)
-      // Bearish: close < upperBand (price below resistance)
-      if (currentCandle.close > lowerBand) {
-        direction = 'bullish';
-        superTrendValue = lowerBand;
-      } else if (currentCandle.close < upperBand) {
-        direction = 'bearish';
-        superTrendValue = upperBand;
-      } else {
-        // Price is between bands - maintain previous direction
-        direction = prevDirection;
-        superTrendValue = direction === 'bullish' ? lowerBand : upperBand;
-      }
-    } else {
-      // Not enough data for proper calculation, use simple price comparison
-      if (currentCandle.close > hl2) {
-        direction = 'bullish';
-        superTrendValue = lowerBand;
-      } else {
-        direction = 'bearish';
-        superTrendValue = upperBand;
-      }
+    // Phase 93.20 — REWRITE: proper SuperTrend with iterative band tracking.
+    //
+    // OLD BUG (root cause of 0 bearish TechnicalAnalyst signals across 1,393
+    // observations): only the LAST two candles were used to determine
+    // direction, and the gate was `close > lowerBand` (lowerBand sits ~2.5
+    // ATRs BELOW price, so this is true ~100% of the time). Direction was
+    // therefore hard-stuck on 'bullish' — the bearish branch could only fire
+    // in the rare window where price was simultaneously below BOTH bands,
+    // which never happens by construction. Result: SuperTrend.direction was
+    // structurally 'bullish' regardless of market state, which biased every
+    // downstream consumer (signal count, execution score, exit recs).
+    //
+    // FIX: implement the canonical iterative SuperTrend:
+    //   1. Compute basic upper/lower bands for every candle.
+    //   2. "Lock" the bands — upper only moves down (or stays), lower only
+    //      moves up (or stays), unless the prior close breaks through.
+    //   3. Direction flips ONLY when close crosses the active band:
+    //        bullish→bearish if close < prevSuperTrend (was lowerBand)
+    //        bearish→bullish if close > prevSuperTrend (was upperBand)
+    //   This makes flipping symmetric — bullish and bearish are equally
+    //   reachable, depending on price vs the locked band.
+    const lookback = Math.min(candles.length, period * 5 + 1);
+    const slice = candles.slice(-lookback);
+
+    // Build per-candle ATR series (running ATR is fine for SuperTrend purposes)
+    const trueRanges: number[] = [];
+    for (let i = 1; i < slice.length; i++) {
+      const h = slice[i].high;
+      const l = slice[i].low;
+      const pc = slice[i - 1].close;
+      trueRanges.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
     }
-    
+    if (trueRanges.length < period) {
+      // Fall back to a single-bar read using current ATR
+      const atr = this.calculateATR(slice, period);
+      const cc = slice[slice.length - 1];
+      const hl2 = (cc.high + cc.low) / 2;
+      const upperBand = hl2 + multiplier * atr;
+      const lowerBand = hl2 - multiplier * atr;
+      const seedDirection: 'bullish' | 'bearish' = cc.close >= cc.open ? 'bullish' : 'bearish';
+      return {
+        value: seedDirection === 'bullish' ? lowerBand : upperBand,
+        direction: seedDirection,
+        upperBand,
+        lowerBand,
+      };
+    }
+
+    // Seed ATR over the first `period` true ranges, then Wilder-smooth forward
+    let runningATR = trueRanges.slice(0, period).reduce((s, v) => s + v, 0) / period;
+    // Index alignment: trueRanges[i] corresponds to slice[i+1].
+    // Start band tracking from the first candle that has a finished ATR
+    // (slice index = period).
+    let prevUpperBand = 0;
+    let prevLowerBand = 0;
+    let prevFinalUpper = 0;
+    let prevFinalLower = 0;
+    let prevSuperTrend = 0;
+    // Seed direction from the first usable candle's body
+    const seedCandle = slice[period];
+    let direction: 'bullish' | 'bearish' = seedCandle.close >= seedCandle.open ? 'bullish' : 'bearish';
+
+    let upperBand = 0;
+    let lowerBand = 0;
+    let superTrendValue = 0;
+
+    for (let i = period; i < slice.length; i++) {
+      if (i > period) {
+        runningATR = (runningATR * (period - 1) + trueRanges[i - 1]) / period;
+      }
+      const candle = slice[i];
+      const hl2 = (candle.high + candle.low) / 2;
+      upperBand = hl2 + multiplier * runningATR;
+      lowerBand = hl2 - multiplier * runningATR;
+
+      // Lock bands: upper only moves down (or stays) unless prevClose pierced
+      // it; lower only moves up (or stays) unless prevClose broke it.
+      const prevClose = slice[i - 1].close;
+      const finalUpper =
+        i === period
+          ? upperBand
+          : upperBand < prevFinalUpper || prevClose > prevFinalUpper
+            ? upperBand
+            : prevFinalUpper;
+      const finalLower =
+        i === period
+          ? lowerBand
+          : lowerBand > prevFinalLower || prevClose < prevFinalLower
+            ? lowerBand
+            : prevFinalLower;
+
+      // Direction flip is gated by the ACTIVE band (the one acting as
+      // support/resistance for the current trend). This is the symmetric
+      // rule the old code was missing.
+      if (i === period) {
+        superTrendValue = direction === 'bullish' ? finalLower : finalUpper;
+      } else {
+        if (direction === 'bullish') {
+          // In an uptrend, the lower band is the trailing stop. Close
+          // breaking BELOW it flips to bearish.
+          if (candle.close < prevSuperTrend) {
+            direction = 'bearish';
+            superTrendValue = finalUpper;
+          } else {
+            superTrendValue = finalLower;
+          }
+        } else {
+          // In a downtrend, the upper band is the trailing stop. Close
+          // breaking ABOVE it flips to bullish.
+          if (candle.close > prevSuperTrend) {
+            direction = 'bullish';
+            superTrendValue = finalLower;
+          } else {
+            superTrendValue = finalUpper;
+          }
+        }
+      }
+
+      prevUpperBand = upperBand;
+      prevLowerBand = lowerBand;
+      prevFinalUpper = finalUpper;
+      prevFinalLower = finalLower;
+      prevSuperTrend = superTrendValue;
+    }
+
+    // Suppress unused-var warnings on accumulators we keep for clarity
+    void prevUpperBand;
+    void prevLowerBand;
+
     return {
       value: superTrendValue,
       direction,

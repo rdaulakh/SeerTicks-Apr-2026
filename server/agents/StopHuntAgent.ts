@@ -322,12 +322,15 @@ export class StopHuntAgent extends AgentBase {
   }
 
   private neutralSignal(symbol: string, startTime: number, reason: string): AgentSignal {
+    // Phase 93.20 — silent-neutral (0.02). Stop-hunts are rare events. The
+    // 99%-of-the-time "no hunt detected" output is not informative and
+    // must not pollute the brain's confluence ratio with fake neutrals.
     return {
       agentName: this.config.name,
       symbol,
       timestamp: getActiveClock().now(),
       signal: 'neutral',
-      confidence: 0.5,
+      confidence: 0.02,
       strength: 0,
       reasoning: reason,
       evidence: { ringSize: this.samples.get(symbol)?.length || 0 },

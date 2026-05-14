@@ -225,12 +225,15 @@ export class VelocityAgent extends AgentBase {
   }
 
   private neutralSignal(symbol: string, startTime: number, reason: string): AgentSignal {
+    // Phase 93.20 — silent-neutral (0.02). No detected acceleration just
+    // means we have nothing to say; we must not show up as a "confident
+    // neutral" vote in the brain's totalSensors / confluence tally.
     return {
       agentName: this.config.name,
       symbol,
       timestamp: getActiveClock().now(),
       signal: 'neutral',
-      confidence: 0.5,
+      confidence: 0.02,
       strength: 0,
       reasoning: reason,
       evidence: { ringSize: this.samples.get(symbol)?.length || 0 },

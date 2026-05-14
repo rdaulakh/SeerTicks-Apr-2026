@@ -219,12 +219,15 @@ export class LiquidityVacuumAgent extends AgentBase {
   }
 
   private neutralSignal(symbol: string, startTime: number, reason: string): AgentSignal {
+    // Phase 93.20 — silent-neutral (0.02). "No one-sided vacuum" is not
+    // information; emit near-zero weight so this neutral never gets counted
+    // as fake confluence.
     return {
       agentName: this.config.name,
       symbol,
       timestamp: getActiveClock().now(),
       signal: 'neutral',
-      confidence: 0.5,
+      confidence: 0.02,
       strength: 0,
       reasoning: reason,
       evidence: {

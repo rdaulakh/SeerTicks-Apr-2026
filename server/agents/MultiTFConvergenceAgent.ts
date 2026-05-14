@@ -232,12 +232,14 @@ export class MultiTFConvergenceAgent extends AgentBase {
   }
 
   private neutralSignal(symbol: string, startTime: number, reason: string): AgentSignal {
+    // Phase 93.20 — silent-neutral (0.02). 4-window agreement is a rare,
+    // high-conviction setup; absence of agreement is not information.
     return {
       agentName: this.config.name,
       symbol,
       timestamp: getActiveClock().now(),
       signal: 'neutral',
-      confidence: 0.5,
+      confidence: 0.02,
       strength: 0,
       reasoning: reason,
       evidence: { ringSize: this.samples.get(symbol)?.length || 0 },

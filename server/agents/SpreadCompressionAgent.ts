@@ -229,12 +229,15 @@ export class SpreadCompressionAgent extends AgentBase {
   }
 
   private neutralSignal(symbol: string, startTime: number, reason: string): AgentSignal {
+    // Phase 93.20 — silent-neutral (0.02). No compression detected ≠ pending
+    // up- or down-break; emit a near-zero-weight neutral so we don't pollute
+    // the brain's totalSensors / confluence ratio.
     return {
       agentName: this.config.name,
       symbol,
       timestamp: getActiveClock().now(),
       signal: 'neutral',
-      confidence: 0.5,
+      confidence: 0.02,
       strength: 0,
       reasoning: reason,
       evidence: { ringSize: this.spreadRings.get(symbol)?.length || 0 },

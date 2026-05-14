@@ -215,12 +215,15 @@ export class CrossExchangeSpreadAgent extends AgentBase {
   }
 
   private neutralSignal(symbol: string, startTime: number, reason: string): AgentSignal {
+    // Phase 93.20 — silent-neutral demotion (0.02). Same rationale as
+    // PerpSpotPremiumAgent — when there's no real cross-exchange dislocation
+    // (or the feeds are dead) we contribute nothing to consensus.
     return {
       agentName: this.config.name,
       symbol,
       timestamp: getActiveClock().now(),
       signal: 'neutral',
-      confidence: 0.5,
+      confidence: 0.02,
       strength: 0,
       reasoning: reason,
       evidence: { ringSize: this.spreadRings.get(symbol)?.length || 0 },

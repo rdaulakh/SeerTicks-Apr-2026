@@ -4,6 +4,7 @@ import { getLLMRateLimiter } from '../utils/RateLimiter';
 import { fallbackManager, MarketDataInput } from './DeterministicFallback';
 import { getDuneProvider, OnChainSignal, DuneOnChainMetrics } from './DuneAnalyticsProvider';
 import { getTradingConfig } from '../config/TradingConfig';
+import { engineLogger } from '../utils/logger';
 
 /**
  * Macro Analyst Agent
@@ -110,6 +111,25 @@ export class MacroAnalyst extends AgentBase {
         return this.createNeutralSignal(symbol, "Macro data unavailable");
       }
 
+      // Phase 93 — FIX: abstain when core feeds (DXY / SPX / VIX) are missing.
+      // Previously we proceeded with fallback values (DXY=104.5, VIX=18,
+      // SPX=4500) which made the regime detection mechanical — same direction
+      // for every symbol because the inputs were constants.
+      const dxyOk = typeof this.macroCache.dxy === 'number' && Number.isFinite(this.macroCache.dxy) && this.macroCache.dxy > 0;
+      const vixOk = typeof this.macroCache.vix === 'number' && Number.isFinite(this.macroCache.vix) && this.macroCache.vix > 0;
+      const spxOk = typeof this.macroCache.sp500 === 'number' && Number.isFinite(this.macroCache.sp500) && this.macroCache.sp500 > 0;
+      const corePresent = dxyOk && vixOk && spxOk;
+      // We also need at least one non-zero core data series (history) — purely
+      // cached/stale fallbacks won't help.
+      const hasHistory = this.sp500PriceHistory.length >= 2 || this.btcPriceHistory.length >= 2;
+      if (!corePresent || !hasHistory) {
+        engineLogger.warn('MacroAnalyst core feeds missing — abstaining', { agent: this.config.name, symbol, dxyOk, vixOk, spxOk, hasHistory });
+        const neutral = this.createNeutralSignal(symbol, '[data-unavailable] Core macro feeds (DXY/SPX/VIX) missing — abstaining');
+        neutral.confidence = 0.05;
+        neutral.evidence = { dataAvailable: false, dxyOk, vixOk, spxOk };
+        return neutral;
+      }
+
       // Detect market regime
       const regime = this.detectMarketRegime(this.macroCache);
 
@@ -121,6 +141,7 @@ export class MacroAnalyst extends AgentBase {
 
       // Calculate signal
       const { signal, confidence, strength, reasoning } = this.calculateSignalFromMacro(
+        symbol,
         this.macroCache,
         regime,
         analysis
@@ -656,8 +677,22 @@ Provide your macro analysis:`;
 
   /**
    * Calculate signal from macro
+   *
+   * Phase 93 — REWORK:
+   *  - Transitioning regime → forced NEUTRAL at low confidence. When our own
+   *    detector flags <60% confidence ("transitioning"), we don't pretend to
+   *    know direction. Previously this path emitted BULLISH on every cycle
+   *    whenever SPX was green — a mechanical heuristic that produced 30/30
+   *    bullish signals across BTC/ETH/SOL on the same SPX print.
+   *  - Direction requires a CONFLUENCE: |BTC/SPX corr| > 0.5 AND
+   *    |SPX 24h change| > 0.5% AND DXY in supportive direction. Bare
+   *    "SPX is green today" no longer triggers bullish.
+   *  - Per-symbol differentiation: ETH considers BTC dominance trend,
+   *    SOL considers risk-on/off (VIX). Same macro state can produce
+   *    different signals for BTC vs ETH vs SOL.
    */
   private calculateSignalFromMacro(
+    symbol: string,
     macro: MacroIndicators,
     regime: MarketRegime,
     analysis: string
@@ -681,57 +716,90 @@ Provide your macro analysis:`;
     let confidence = 0.5;
     let strength = 0.5;
 
-    // Regime-based signal
-    // FIXED: Added transitioning regime handling to reduce 75.7% neutral bias
-    if (regime.regime === "risk-on") {
+    // === Confluence check (required for any directional macro signal) ===
+    const btcSpx = macro.btcSpx30d ?? macro.btcCorrelation ?? 0;
+    const strongCorrelation = Math.abs(btcSpx) > 0.5;
+    const meaningfulSpxMove = Math.abs(macro.sp500Change24h) > 0.5;
+    // DXY supportive direction depends on intended signal:
+    //   bullish crypto → falling/weak dollar (DXY < 104 OR negative BTC-DXY corr)
+    //   bearish crypto → rising/strong dollar (DXY > 105 OR positive BTC-DXY corr)
+    const dxyBearishForCrypto = macro.dxy > 105 || (macro.btcDxy30d !== undefined && macro.btcDxy30d !== null && macro.btcDxy30d > 0.3);
+    const dxyBullishForCrypto = macro.dxy < 104 || (macro.btcDxy30d !== undefined && macro.btcDxy30d !== null && macro.btcDxy30d < -0.3);
+    const confluenceMet = strongCorrelation && meaningfulSpxMove;
+
+    // === Regime-based signal — only directional with confluence ===
+    if (regime.regime === "risk-on" && confluenceMet && macro.sp500Change24h > 0 && dxyBullishForCrypto) {
       signal = "bullish";
-      confidence = regime.confidence;
-      strength = regime.confidence * 0.8;
-    } else if (regime.regime === "risk-off") {
+      confidence = Math.min(regime.confidence, 0.65);
+      strength = confidence * 0.8;
+    } else if (regime.regime === "risk-off" && confluenceMet && macro.sp500Change24h < 0 && dxyBearishForCrypto) {
       signal = "bearish";
-      confidence = regime.confidence;
-      strength = regime.confidence * 0.8;
+      confidence = Math.min(regime.confidence, 0.65);
+      strength = confidence * 0.8;
     } else if (regime.regime === "transitioning") {
-      // FIXED: Use VIX and DXY trends to generate weak directional signals
-      // instead of always returning neutral
-      const vixBullish = macro.vix < 20; // Low VIX = bullish
-      const dxyBullish = macro.dxy < 103; // Weak dollar = bullish for crypto
-      const sp500Bullish = macro.sp500Change24h > 0; // Rising stocks = risk-on
-      
-      const bullishIndicators = [vixBullish, dxyBullish, sp500Bullish].filter(Boolean).length;
-      
-      if (bullishIndicators >= 2) {
-        signal = "bullish";
-        confidence = 0.55; // Weak confidence for transitioning
-        strength = 0.4;
-      } else if (bullishIndicators === 0) {
-        signal = "bearish";
-        confidence = 0.55;
-        strength = 0.4;
-      }
-      // If bullishIndicators === 1, signal stays neutral (mixed signals)
+      // Phase 93 FIX: "transitioning" is the agent's own self-classified
+      // low-confidence state. Force neutral so we don't fabricate direction
+      // from a transitional regime.
+      signal = "neutral";
+      confidence = 0.10;
+      strength = 0.1;
+    } else {
+      // Regime is risk-on/off but confluence not met → neutral at low confidence
+      signal = "neutral";
+      confidence = 0.10;
+      strength = 0.1;
     }
 
-    // Stablecoin inflow analysis
-    if (macro.stablecoinChange > 0.5) {
-      // Strong inflows
-      if (signal === "bullish") {
-        confidence = Math.min(confidence + 0.15, 0.9);
-        strength = Math.min(strength + 0.2, 1.0);
-      } else if (signal === "neutral") {
-        signal = "bullish";
-        confidence = 0.65;
-      }
-    } else if (macro.stablecoinChange < -0.5) {
-      // Strong outflows
-      if (signal === "bearish") {
-        confidence = Math.min(confidence + 0.15, 0.9);
-        strength = Math.min(strength + 0.2, 1.0);
-      } else if (signal === "neutral") {
-        signal = "bearish";
-        confidence = 0.65;
+    // Stablecoin inflow analysis — only ADJUSTS an existing directional signal.
+    // Previously this could promote neutral → bullish/bearish on its own, which
+    // was a back-door for spurious direction when confluence was missing.
+    if (signal !== "neutral") {
+      if (macro.stablecoinChange > 0.5 && signal === "bullish") {
+        confidence = Math.min(confidence + 0.10, 0.85);
+        strength = Math.min(strength + 0.15, 1.0);
+      } else if (macro.stablecoinChange < -0.5 && signal === "bearish") {
+        confidence = Math.min(confidence + 0.10, 0.85);
+        strength = Math.min(strength + 0.15, 1.0);
       }
     }
+
+    // === Per-symbol differentiation ===
+    // The same macro state must NOT produce identical signals across symbols.
+    const baseSymbol = (symbol.split(/[\/\-_]/)[0] || symbol).toUpperCase();
+    if (baseSymbol === 'ETH' || baseSymbol === 'ETHUSDT' || baseSymbol === 'ETHUSD') {
+      // ETH: rising BTC dominance is bearish for ETH (capital rotation INTO BTC).
+      if (macro.btcDominance > 55) {
+        if (signal === 'bullish') {
+          confidence = Math.max(confidence - 0.10, 0.10);
+          strength = Math.max(strength - 0.10, 0.05);
+        } else if (signal === 'bearish') {
+          confidence = Math.min(confidence + 0.05, 0.85);
+        }
+      } else if (macro.btcDominance < 50) {
+        // Falling dominance → alt-season tailwind for ETH
+        if (signal === 'bullish') {
+          confidence = Math.min(confidence + 0.05, 0.85);
+        } else if (signal === 'bearish') {
+          confidence = Math.max(confidence - 0.10, 0.10);
+        }
+      }
+    } else if (baseSymbol === 'SOL' || baseSymbol === 'SOLUSDT' || baseSymbol === 'SOLUSD') {
+      // SOL: high-beta to risk-on/off. High VIX → SOL underperforms BTC.
+      if (macro.vix > 25) {
+        if (signal === 'bullish') {
+          confidence = Math.max(confidence - 0.15, 0.10);
+          strength = Math.max(strength - 0.15, 0.05);
+        } else if (signal === 'bearish') {
+          confidence = Math.min(confidence + 0.10, 0.85);
+        }
+      } else if (macro.vix < 15) {
+        // Strong risk-on → SOL outperforms
+        if (signal === 'bullish') {
+          confidence = Math.min(confidence + 0.05, 0.85);
+        }
+      }
+    }
+    // BTC: base macro signal unchanged (it IS the macro proxy for crypto).
 
     // A+ Grade: Correlation-adjusted confidence
     if (macro.correlationRegime && macro.btcSpx30d !== undefined) {

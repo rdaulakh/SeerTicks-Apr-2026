@@ -203,12 +203,15 @@ export class WhaleWallAgent extends AgentBase {
   }
 
   private neutralSignal(symbol: string, startTime: number, reason: string): AgentSignal {
+    // Phase 93.20 — silent-neutral (0.02). "No wall" is the 99% case on
+    // liquid majors; modern whales hide in icebergs (WhaleTracker covers
+    // that). Emit near-zero so this doesn't get counted as a fake neutral.
     return {
       agentName: this.config.name,
       symbol,
       timestamp: getActiveClock().now(),
       signal: 'neutral',
-      confidence: 0.5,
+      confidence: 0.02,
       strength: 0,
       reasoning: reason,
       evidence: {},

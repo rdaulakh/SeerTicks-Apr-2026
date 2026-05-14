@@ -326,24 +326,21 @@ async function pullAllAgentSignals(): Promise<void> {
       }
     }
 
-    // ─── Build vote (every agent contributes EXCEPT toxic ones) ───────
-    // Phase 93.20 — toxic agents (per attribution audit) skip the vote
-    // tally entirely. They still write to agentSignals via AgentBase and
-    // their typed sensations (if they have one) still update — but they
-    // do not pollute the brain's confluence count.
-    if (!TOXIC_AGENTS_EXCLUDED_FROM_VOTE.has(agentName)) {
-      const vote: AgentVote = {
-        agentName,
-        direction: normalizeDirection(sd),
-        confidence: typeof sd?.confidence === 'number' ? sd.confidence : 0.1,
-        ageMs,
-        vetoActive: ev?.vetoActive === true || sd?.signal === 'veto',
-        vetoReason: ev?.vetoReason ?? undefined,
-      };
-      const arr = votesBySymbol.get(symbol) ?? [];
-      arr.push(vote);
-      votesBySymbol.set(symbol, arr);
-    }
+    // ─── Build vote (every agent contributes) ─────────────────────────
+    // Phase 93.20 reverted: vote-tally exclusion was a band-aid. The agents
+    // themselves must be corrected. Reference TOXIC_AGENTS_EXCLUDED_FROM_VOTE
+    // remains defined above for telemetry / future contrarian-mode use.
+    const vote: AgentVote = {
+      agentName,
+      direction: normalizeDirection(sd),
+      confidence: typeof sd?.confidence === 'number' ? sd.confidence : 0.1,
+      ageMs,
+      vetoActive: ev?.vetoActive === true || sd?.signal === 'veto',
+      vetoReason: ev?.vetoReason ?? undefined,
+    };
+    const arr = votesBySymbol.get(symbol) ?? [];
+    arr.push(vote);
+    votesBySymbol.set(symbol, arr);
   }
 
   // ─── Push aggregated whale sensations ────────────────────────────────

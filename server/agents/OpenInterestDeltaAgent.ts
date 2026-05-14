@@ -275,12 +275,15 @@ export class OpenInterestDeltaAgent extends AgentBase {
   }
 
   private neutralSignal(symbol: string, startTime: number, reason: string): AgentSignal {
+    // Phase 93.20 — silent-neutral (0.02). OI deltas below threshold mean
+    // we have no positioning-intent signal; emit near-zero so this doesn't
+    // count as an informed vote in the brain.
     return {
       agentName: this.config.name,
       symbol,
       timestamp: getActiveClock().now(),
       signal: 'neutral',
-      confidence: 0.5,
+      confidence: 0.02,
       strength: 0,
       reasoning: reason,
       evidence: { historyLength: this.oiHistory.get(this.toBinanceSymbol(symbol))?.length || 0 },

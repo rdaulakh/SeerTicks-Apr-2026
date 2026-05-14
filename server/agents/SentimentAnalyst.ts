@@ -26,6 +26,7 @@ import { getActiveClock } from '../_core/clock';
 import { getLLMRateLimiter } from '../utils/RateLimiter';
 import { fallbackManager, MarketDataInput } from './DeterministicFallback';
 import { getZScoreSentimentModel, ZScoreResult } from '../utils/ZScoreSentimentModel';
+import { engineLogger } from '../utils/logger';
 
 interface SocialSentimentData {
   sentiment: number; // -1 (very bearish) to +1 (very bullish)
@@ -51,6 +52,12 @@ export class SentimentAnalyst extends AgentBase {
 
   // Z-Score model for normalized sentiment analysis
   private zScoreModel = getZScoreSentimentModel();
+
+  // Phase 93.20 — surface a one-per-5min warn when both upstream feeds
+  // (F&G + LLM social) are unreliable. The stuck-bullish forensic finding
+  // (952/952 bullish) traces to LLM-only sentiment returning positive cache
+  // values without F&G corroboration. We demote those signals to conf 0.05.
+  private lastFeedWarnAt = 0;
 
   constructor(config?: Partial<AgentConfig>) {
     super({
@@ -172,8 +179,35 @@ export class SentimentAnalyst extends AgentBase {
         reasoning += ` LLM Analysis: ${analysis}`;
       }
 
-      // Phase 30: Apply MarketContext regime adjustments
+      // Phase 93.20 — anti-stuck-bullish guard. When the ZScore signal comes
+      // from a path WITHOUT statistically significant Fear & Greed corroboration
+      // (i.e. F&G null OR fg not statistically significant) the directional
+      // signal is effectively driven by the LLM social sentiment alone — which
+      // has been observed to return cached/biased positive values consistently,
+      // producing 100% bullish output. Demote those signals to a near-silent
+      // confidence so they don't pollute the brain's confluence ratio. The
+      // path that DOES have F&G stat-sig (extreme-fear / extreme-greed) is
+      // exactly when this agent has real informational value — keep its
+      // confidence intact.
+      const fgUnavailable = !fearGreed || fearGreed.value === undefined;
+      const fgNotSignificant = !zScoreResult.isStatisticallySignificant;
+      const socialOnlyPath = fgUnavailable || fgNotSignificant;
       let adjustedConfidence = zScoreResult.confidence;
+      if (socialOnlyPath && zScoreResult.signal !== 'neutral') {
+        const nowMs = getActiveClock().now();
+        if (nowMs - this.lastFeedWarnAt > 300_000) {
+          this.lastFeedWarnAt = nowMs;
+          engineLogger.warn('SentimentAnalyst signal demoted (no F&G corroboration)', {
+            agent: this.config.name,
+            symbol,
+            fgUnavailable,
+            fgNotSignificant,
+            originalSignal: zScoreResult.signal,
+            originalConfidence: zScoreResult.confidence,
+          });
+        }
+        adjustedConfidence = 0.05;
+      }
       if (context?.regime) {
         const regime = context.regime as string;
         // Sentiment is a lagging indicator in trending markets — dampen

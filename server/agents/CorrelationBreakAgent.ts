@@ -203,12 +203,16 @@ export class CorrelationBreakAgent extends AgentBase {
   }
 
   private neutralSignal(symbol: string, startTime: number, reason: string): AgentSignal {
+    // Phase 93.20 — silent-neutral (0.02). BTC-USD is always neutral (it's
+    // the cross-asset reference itself); ETH/SOL get a catch-up signal only
+    // when BTC has moved meaningfully and they have lagged — the 99% case
+    // is "no break" and must not pollute the brain's totalSensors.
     return {
       agentName: this.config.name,
       symbol,
       timestamp: getActiveClock().now(),
       signal: 'neutral',
-      confidence: 0.5,
+      confidence: 0.02,
       strength: 0,
       reasoning: reason,
       evidence: {

@@ -2,6 +2,7 @@ import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
 import { getActiveClock } from '../_core/clock';
 import { ExchangeInterface, MarketData } from "../exchanges";
 import { getCandleCache } from '../WebSocketCandleCache';
+import { engineLogger } from '../utils/logger';
 
 /**
  * VolumeProfileAnalyzer - Phase 2.2 Implementation
@@ -48,6 +49,18 @@ interface ValueArea {
   totalVolume: number;
 }
 
+interface TrendContext {
+  // Phase 93 — trend-awareness for mean-reversion band signals
+  // direction: 'up' when last N candles are making higher highs/closes AND VWAP itself is rising;
+  // 'down' when symmetric; 'flat' otherwise.
+  direction: 'up' | 'down' | 'flat';
+  strength: number;          // 0..1 — how confident we are in the trend (slope normalized by stdDev)
+  vwapSlopePct: number;      // (vwap_now - vwap_then) / vwap_then over the lookback
+  closeSlopePct: number;     // (close_now - close_then) / close_then over the lookback
+  higherHighs: number;       // count of strictly-higher highs in lookback
+  lowerLows: number;         // count of strictly-lower lows in lookback
+}
+
 interface VolumeAnalysis {
   vwapBands: VWAPBands;
   valueArea: ValueArea;
@@ -58,6 +71,9 @@ interface VolumeAnalysis {
   bandPosition: "extreme_high" | "high" | "neutral" | "low" | "extreme_low";
   volumeDelta: number; // Cumulative buy - sell volume
   currentPrice: number; // Phase 82.3 — last close price; was previously inferred (incorrectly) from VWAP downstream
+  trend: TrendContext; // Phase 93 — trend context for context-aware band logic
+  nearestHvnDistPct: number; // Phase 93 — % distance to nearest HVN (support/resistance); Infinity if none
+  nearestLvnDistPct: number; // Phase 93 — % distance to nearest LVN (breakout zone); Infinity if none
 }
 
 export class VolumeProfileAnalyzer extends AgentBase {
@@ -192,6 +208,14 @@ export class VolumeProfileAnalyzer extends AgentBase {
       bandPosition = "low";
     }
 
+    // Phase 93 — compute trend context so band-position logic can be
+    // trend-aware (mean-reversion at +2σ is only valid when trend is flat/down).
+    const trend = this.computeTrendContext(candles, vwapBands.stdDev);
+
+    // Phase 93 — nearest HVN/LVN proximity in % terms (drives confidence variation)
+    const nearestHvnDistPct = this.nearestNodeDistancePct(currentPrice, hvn);
+    const nearestLvnDistPct = this.nearestNodeDistancePct(currentPrice, lvn);
+
     return {
       vwapBands,
       valueArea,
@@ -202,7 +226,131 @@ export class VolumeProfileAnalyzer extends AgentBase {
       bandPosition,
       volumeDelta,
       currentPrice, // Phase 82.3 — pass through real last-close so downstream uses price, not VWAP
+      trend,
+      nearestHvnDistPct,
+      nearestLvnDistPct,
     };
+  }
+
+  /**
+   * Phase 93 — compute a lightweight trend context from the recent candles.
+   *
+   * The previous version of this agent treated +2σ as universally bearish,
+   * which is catastrophic in trending markets: it shorted every rally to a new
+   * high. The trend context lets `analyzeBandPosition` suppress mean-reversion
+   * calls when the underlying trend is clearly going the other way.
+   *
+   * Trend = 'up' when ALL of:
+   *   - VWAP slope over lookback is meaningfully positive (>0.2% per 6 candles)
+   *   - Last close is above the close N candles ago by more than 0.3%
+   *   - More higher-highs than lower-lows in the lookback window
+   * Symmetric for 'down'. Otherwise 'flat'.
+   */
+  private computeTrendContext(candles: MarketData[], stdDev: number): TrendContext {
+    // Use the last 6 candles for trend detection. On 1h candles that's 6 hours
+    // — short enough to be responsive, long enough to filter single-candle noise.
+    const lookback = Math.min(6, Math.max(3, candles.length - 1));
+    if (candles.length < lookback + 1) {
+      return {
+        direction: 'flat',
+        strength: 0,
+        vwapSlopePct: 0,
+        closeSlopePct: 0,
+        higherHighs: 0,
+        lowerLows: 0,
+      };
+    }
+
+    const recent = candles.slice(-lookback - 1);
+    const startCandle = recent[0];
+    const endCandle = recent[recent.length - 1];
+
+    // Close-to-close slope as a percentage
+    const closeSlopePct = startCandle.close > 0
+      ? (endCandle.close - startCandle.close) / startCandle.close
+      : 0;
+
+    // VWAP slope: simple-VWAP over the older half vs newer half.
+    // We don't want to recompute the full volume-weighted VWAP twice; the
+    // typical-price * volume mean is a sufficient proxy for slope.
+    const halfIdx = Math.floor(recent.length / 2);
+    const olderHalf = recent.slice(0, halfIdx);
+    const newerHalf = recent.slice(halfIdx);
+    const vwapHalf = (slice: MarketData[]): number => {
+      let pv = 0;
+      let vol = 0;
+      for (const c of slice) {
+        const tp = (c.high + c.low + c.close) / 3;
+        pv += tp * c.volume;
+        vol += c.volume;
+      }
+      return vol > 0 ? pv / vol : 0;
+    };
+    const vwapOlder = vwapHalf(olderHalf);
+    const vwapNewer = vwapHalf(newerHalf);
+    const vwapSlopePct = vwapOlder > 0 ? (vwapNewer - vwapOlder) / vwapOlder : 0;
+
+    // Higher-highs / lower-lows count
+    let higherHighs = 0;
+    let lowerLows = 0;
+    for (let i = 1; i < recent.length; i++) {
+      if (recent[i].high > recent[i - 1].high) higherHighs++;
+      if (recent[i].low < recent[i - 1].low) lowerLows++;
+    }
+
+    // Strength: blend close-slope normalized by 1σ and structural HH/LL ratio.
+    // stdDev is in absolute price units; normalize close move by stdDev/price.
+    const normalizedMove = stdDev > 0 && endCandle.close > 0
+      ? Math.abs(endCandle.close - startCandle.close) / stdDev
+      : 0;
+    const structuralRatio = recent.length > 1
+      ? Math.abs(higherHighs - lowerLows) / (recent.length - 1)
+      : 0;
+    const strength = Math.min(1, 0.5 * Math.min(normalizedMove, 1.5) + 0.5 * structuralRatio);
+
+    // Direction decision. Thresholds chosen so that genuine range-bound
+    // markets still emit mean-reversion signals (closeSlope < 0.3% over 6h),
+    // but a steady uptrend (e.g. 1% / 6h) suppresses the bearish call.
+    const VWAP_SLOPE_THRESHOLD = 0.002;   // 0.2%
+    const CLOSE_SLOPE_THRESHOLD = 0.003;  // 0.3%
+
+    let direction: TrendContext['direction'] = 'flat';
+    if (
+      vwapSlopePct > VWAP_SLOPE_THRESHOLD &&
+      closeSlopePct > CLOSE_SLOPE_THRESHOLD &&
+      higherHighs > lowerLows
+    ) {
+      direction = 'up';
+    } else if (
+      vwapSlopePct < -VWAP_SLOPE_THRESHOLD &&
+      closeSlopePct < -CLOSE_SLOPE_THRESHOLD &&
+      lowerLows > higherHighs
+    ) {
+      direction = 'down';
+    }
+
+    return {
+      direction,
+      strength,
+      vwapSlopePct,
+      closeSlopePct,
+      higherHighs,
+      lowerLows,
+    };
+  }
+
+  /**
+   * Phase 93 — return the smallest % distance from `price` to any node in `nodes`.
+   * Returns Infinity if no nodes. Used to scale confidence by HVN/LVN proximity.
+   */
+  private nearestNodeDistancePct(price: number, nodes: number[]): number {
+    if (!nodes.length || price <= 0) return Infinity;
+    let best = Infinity;
+    for (const n of nodes) {
+      const d = Math.abs(price - n) / price;
+      if (d < best) best = d;
+    }
+    return best;
   }
 
   /**
@@ -454,16 +602,35 @@ export class VolumeProfileAnalyzer extends AgentBase {
     // Previously 5 agents outputting "neutral" were dropped entirely from consensus.
     if (combinedScore > 0.1) {
       signal = "bullish";
-      confidence = Math.min(0.5 + Math.abs(combinedScore) * 0.5, 0.85);
+      confidence = this.computeBandConfidence(analysis, combinedScore, 'bullish');
       strength = Math.min(Math.abs(combinedScore), 1.0);
     } else if (combinedScore < -0.1) {
       signal = "bearish";
-      confidence = Math.min(0.5 + Math.abs(combinedScore) * 0.5, 0.85);
+      confidence = this.computeBandConfidence(analysis, combinedScore, 'bearish');
       strength = Math.min(Math.abs(combinedScore), 1.0);
     }
 
     let reasoning = this.buildReasoning(analysis, bandSignal, vaSignal, deltaSignal);
     const executionScore = this.calculateExecutionScore(analysis, signal);
+
+    // Phase 93 — log when the trend-aware override actually changes the call,
+    // so we can audit how often the new logic prevents bad mean-reversion shorts.
+    if (
+      analysis.trend.direction !== 'flat' &&
+      (analysis.bandPosition === 'extreme_high' || analysis.bandPosition === 'extreme_low')
+    ) {
+      engineLogger.debug('VolumeProfileAnalyzer trend-aware band signal', {
+        symbol,
+        bandPosition: analysis.bandPosition,
+        trendDirection: analysis.trend.direction,
+        trendStrength: Number(analysis.trend.strength.toFixed(3)),
+        vwapSlopePct: Number((analysis.trend.vwapSlopePct * 100).toFixed(3)),
+        closeSlopePct: Number((analysis.trend.closeSlopePct * 100).toFixed(3)),
+        bandSignal: Number(bandSignal.toFixed(3)),
+        finalSignal: signal,
+        confidence: Number(confidence.toFixed(3)),
+      });
+    }
 
     // Phase 30: Apply MarketContext regime adjustments
     if (context?.regime) {
@@ -508,6 +675,15 @@ export class VolumeProfileAnalyzer extends AgentBase {
         bandSignal,
         vaSignal,
         deltaSignal,
+        // Phase 93 — trend context for audit / downstream consumers
+        trendDirection: analysis.trend.direction,
+        trendStrength: analysis.trend.strength,
+        vwapSlopePct: analysis.trend.vwapSlopePct,
+        closeSlopePct: analysis.trend.closeSlopePct,
+        higherHighs: analysis.trend.higherHighs,
+        lowerLows: analysis.trend.lowerLows,
+        nearestHvnDistPct: analysis.nearestHvnDistPct === Infinity ? null : analysis.nearestHvnDistPct,
+        nearestLvnDistPct: analysis.nearestLvnDistPct === Infinity ? null : analysis.nearestLvnDistPct,
       },
       qualityScore: this.calculateQualityScore(analysis),
       processingTime: getActiveClock().now() - startTime,
@@ -521,21 +697,178 @@ export class VolumeProfileAnalyzer extends AgentBase {
   }
 
   /**
-   * Analyze VWAP band position for signal
+   * Phase 93 — confidence varies with:
+   *   (a) how far past the band the price sits (in σ units)
+   *   (b) volume-delta agreement with the signal direction
+   *   (c) HVN/LVN proximity — close to HVN = strong S/R, close to LVN = breakout zone
+   *   (d) trend agreement with the signal direction
+   *
+   * Previously confidence took only ~3 distinct values across 30 signals;
+   * after this change the conviction map is genuinely informative and varies
+   * trade-by-trade.
+   */
+  private computeBandConfidence(
+    analysis: VolumeAnalysis,
+    combinedScore: number,
+    direction: 'bullish' | 'bearish'
+  ): number {
+    // Base from combined score magnitude — same shape as before but capped lower
+    // by default; bonuses below bring it back up when evidence is genuinely strong.
+    let conf = 0.45 + Math.min(0.30, Math.abs(combinedScore) * 0.40);
+
+    // (a) Distance past band in σ units. If price is 2.5σ above VWAP, that's
+    // more extreme than 2.0σ and deserves slightly more conviction (in either
+    // breakout or mean-reversion interpretation).
+    const stdDev = analysis.vwapBands.stdDev;
+    if (stdDev > 0) {
+      const sigmaDist = Math.abs(analysis.currentPrice - analysis.vwapBands.vwap) / stdDev;
+      // Bonus saturates around 3σ — beyond that we're in tail territory.
+      conf += Math.min(0.08, Math.max(0, (sigmaDist - 1.5) * 0.04));
+    }
+
+    // (b) Volume confirmation
+    const totalVolume = analysis.valueArea.totalVolume || 1;
+    const normalizedDelta = Math.max(-1, Math.min(1, (analysis.volumeDelta / totalVolume) * 10));
+    const deltaAligned =
+      (direction === 'bullish' && normalizedDelta > 0) ||
+      (direction === 'bearish' && normalizedDelta < 0);
+    if (deltaAligned) {
+      conf += Math.min(0.08, Math.abs(normalizedDelta) * 0.10);
+    } else {
+      conf -= Math.min(0.06, Math.abs(normalizedDelta) * 0.08);
+    }
+
+    // (c) HVN/LVN proximity — bonuses are small (max ±0.05) so structure
+    // refines confidence without dominating it.
+    if (analysis.nearestHvnDistPct < 0.005) {
+      // Within 0.5% of a high-volume node — strong S/R, supports reversal calls
+      // (mean-reversion bias at HVN). If our direction is mean-reversion
+      // (band-derived bearish at high, bullish at low), HVN proximity boosts.
+      const meanRevAligned =
+        (direction === 'bearish' &&
+          (analysis.bandPosition === 'extreme_high' || analysis.bandPosition === 'high')) ||
+        (direction === 'bullish' &&
+          (analysis.bandPosition === 'extreme_low' || analysis.bandPosition === 'low'));
+      if (meanRevAligned) conf += 0.05;
+    }
+    if (analysis.nearestLvnDistPct < 0.005) {
+      // Within 0.5% of low-volume node — breakout zone. Mean-reversion in a
+      // breakout zone is risky; reduce confidence on those calls.
+      const meanRevDirected =
+        (direction === 'bearish' && analysis.bandPosition === 'extreme_high') ||
+        (direction === 'bullish' && analysis.bandPosition === 'extreme_low');
+      if (meanRevDirected) conf -= 0.05;
+    }
+
+    // (d) Trend agreement. We already filtered most bad mean-reversion calls
+    // in analyzeBandPosition, but a residual trend-vs-signal disagreement
+    // should still cost conviction.
+    if (analysis.trend.direction === 'up' && direction === 'bearish') {
+      conf -= 0.06 * analysis.trend.strength;
+    } else if (analysis.trend.direction === 'down' && direction === 'bullish') {
+      conf -= 0.06 * analysis.trend.strength;
+    } else if (analysis.trend.direction === 'up' && direction === 'bullish') {
+      conf += 0.04 * analysis.trend.strength;
+    } else if (analysis.trend.direction === 'down' && direction === 'bearish') {
+      conf += 0.04 * analysis.trend.strength;
+    }
+
+    // Clamp to [0.30, 0.90] — the agent should never be more certain than
+    // 90% on a single-frame band reading.
+    return Math.max(0.30, Math.min(0.90, conf));
+  }
+
+  /**
+   * Analyze VWAP band position for signal — Phase 93 trend-aware version.
+   *
+   * The pre-Phase-93 implementation was a pure mean-reversion lookup:
+   *   extreme_high → -0.8 (bearish), extreme_low → +0.8 (bullish)
+   * That logic shorted every rally to a new high in trending markets and was
+   * the single worst-performing agent on the 60-trade attribution audit
+   * (19% WR, -$14.51 signed P&L, 100% bearish over a 2h trending-up sample).
+   *
+   * The fix:
+   *   1. At +2σ ("extreme_high"), only emit bearish when trend is FLAT or DOWN.
+   *      In a strong uptrend, +2σ is a breakout, not exhaustion — invert to
+   *      a small bullish bias (breakout continuation), proportional to trend
+   *      strength but capped to avoid overcommitting.
+   *   2. Symmetric at -2σ.
+   *   3. Volume-delta confirmation: if price is at +2σ AND volume delta is
+   *      strongly positive (NET BUYING), suppress the bearish call entirely
+   *      — net buying at the top of the band is breakout behaviour.
+   *   4. In flat regimes, mean-reversion still fires (preserving the legitimate
+   *      range-bound use case).
    */
   private analyzeBandPosition(analysis: VolumeAnalysis): number {
-    // Mean reversion logic: extreme positions suggest reversal
+    const trend = analysis.trend;
+    const totalVolume = analysis.valueArea.totalVolume || 1;
+    // Normalize volumeDelta to [-1, +1] roughly; same scale as analyzeVolumeDelta
+    // but kept local so the two helpers don't have to be combined.
+    const normalizedDelta = Math.max(
+      -1,
+      Math.min(1, (analysis.volumeDelta / totalVolume) * 10)
+    );
+    // "Strongly positive" / "strongly negative" thresholds — picked so that the
+    // ~15K positive delta seen in the bug-report sample (totalVolume ~mid-5-figures
+    // typical) clears the bar.
+    const STRONG_BUY_DELTA = 0.25;
+    const STRONG_SELL_DELTA = -0.25;
+
     switch (analysis.bandPosition) {
-      case "extreme_high":
-        return -0.8; // Overbought, bearish
-      case "high":
-        return -0.4; // Slightly overbought
-      case "extreme_low":
-        return 0.8; // Oversold, bullish
-      case "low":
-        return 0.4; // Slightly oversold
+      case "extreme_high": {
+        // Trend up + net buying = breakout, NOT mean reversion. Don't go bearish.
+        if (trend.direction === 'up') {
+          if (normalizedDelta >= STRONG_BUY_DELTA) {
+            // Breakout with volume confirmation — bias slightly bullish,
+            // scaled by trend strength (max ~+0.4 to avoid over-committing
+            // on a single-band signal).
+            return Math.min(0.4, 0.2 + 0.2 * trend.strength);
+          }
+          // Trend up but no clear volume confirmation: stay neutral.
+          // The market is telling us mean-reversion is unsafe here, so
+          // we don't want to fire bearish, but we also don't have
+          // enough conviction to flip bullish.
+          return 0;
+        }
+        // Flat or downtrend: legitimate mean-reversion setup.
+        // If net selling confirms, full strength bearish; otherwise dampen.
+        if (normalizedDelta <= STRONG_SELL_DELTA) return -0.8;
+        if (normalizedDelta >= STRONG_BUY_DELTA) return -0.3; // buying into the band — weak bear
+        return -0.6;
+      }
+      case "high": {
+        // +1σ: weaker signal, same trend filter.
+        if (trend.direction === 'up') {
+          // In an uptrend, +1σ is healthy — don't lean bearish.
+          if (normalizedDelta >= STRONG_BUY_DELTA) return 0.2;
+          return 0;
+        }
+        if (normalizedDelta <= STRONG_SELL_DELTA) return -0.4;
+        return -0.25;
+      }
+      case "extreme_low": {
+        // Symmetric: trend down + net selling = breakdown continuation, NOT bounce.
+        if (trend.direction === 'down') {
+          if (normalizedDelta <= STRONG_SELL_DELTA) {
+            return -Math.min(0.4, 0.2 + 0.2 * trend.strength);
+          }
+          return 0;
+        }
+        // Flat or uptrend: legitimate bounce setup.
+        if (normalizedDelta >= STRONG_BUY_DELTA) return 0.8;
+        if (normalizedDelta <= STRONG_SELL_DELTA) return 0.3; // selling into the band — weak bull
+        return 0.6;
+      }
+      case "low": {
+        if (trend.direction === 'down') {
+          if (normalizedDelta <= STRONG_SELL_DELTA) return -0.2;
+          return 0;
+        }
+        if (normalizedDelta >= STRONG_BUY_DELTA) return 0.4;
+        return 0.25;
+      }
       default:
-        return 0; // Neutral
+        return 0;
     }
   }
 
@@ -586,15 +919,30 @@ export class VolumeProfileAnalyzer extends AgentBase {
     // VWAP position
     parts.push(`VWAP: $${analysis.vwapBands.vwap.toFixed(2)} (±${analysis.vwapBands.stdDev.toFixed(2)} std dev)`);
 
-    // Band position
+    // Band position — phrasing now depends on trend context so the reasoning
+    // string matches the actual signal direction (no more "mean reversion
+    // likely" lines on signals that fired bullish-breakout).
+    const trendDir = analysis.trend.direction;
     if (analysis.bandPosition === "extreme_high") {
-      parts.push("Price at +2σ band (overbought, mean reversion likely)");
+      if (trendDir === 'up') {
+        parts.push(
+          `Price at +2σ band in UPTREND (VWAP +${(analysis.trend.vwapSlopePct * 100).toFixed(2)}%) — treating as breakout, not exhaustion`
+        );
+      } else {
+        parts.push("Price at +2σ band (overbought, mean reversion likely)");
+      }
     } else if (analysis.bandPosition === "extreme_low") {
-      parts.push("Price at -2σ band (oversold, bounce likely)");
+      if (trendDir === 'down') {
+        parts.push(
+          `Price at -2σ band in DOWNTREND (VWAP ${(analysis.trend.vwapSlopePct * 100).toFixed(2)}%) — treating as breakdown, not bounce`
+        );
+      } else {
+        parts.push("Price at -2σ band (oversold, bounce likely)");
+      }
     } else if (analysis.bandPosition === "high") {
-      parts.push("Price above +1σ band (elevated)");
+      parts.push(`Price above +1σ band (elevated)${trendDir === 'up' ? ' — uptrend confirmed' : ''}`);
     } else if (analysis.bandPosition === "low") {
-      parts.push("Price below -1σ band (depressed)");
+      parts.push(`Price below -1σ band (depressed)${trendDir === 'down' ? ' — downtrend confirmed' : ''}`);
     }
 
     // Value area
@@ -639,13 +987,25 @@ export class VolumeProfileAnalyzer extends AgentBase {
       score += 10; // Above/below VWAP
     }
 
-    // Band position alignment (0-15 points)
-    if ((signal === "bullish" && analysis.bandPosition === "extreme_low") ||
-        (signal === "bearish" && analysis.bandPosition === "extreme_high")) {
-      score += 15; // Signal aligns with extreme band (high probability)
-    } else if ((signal === "bullish" && analysis.bandPosition === "low") ||
-               (signal === "bearish" && analysis.bandPosition === "high")) {
-      score += 10; // Signal aligns with band direction
+    // Band position alignment (0-15 points) — Phase 93: only credit the
+    // mean-reversion alignment when the trend isn't fighting it. A bearish
+    // call at extreme_high in a strong uptrend is the very pattern we just
+    // fixed; we don't want to award entry-timing points to that setup.
+    const trendDir = analysis.trend.direction;
+    if (signal === "bullish" && analysis.bandPosition === "extreme_low" && trendDir !== 'down') {
+      score += 15;
+    } else if (signal === "bearish" && analysis.bandPosition === "extreme_high" && trendDir !== 'up') {
+      score += 15;
+    } else if ((signal === "bullish" && analysis.bandPosition === "low" && trendDir !== 'down') ||
+               (signal === "bearish" && analysis.bandPosition === "high" && trendDir !== 'up')) {
+      score += 10;
+    } else if (
+      // Breakout alignment — bullish at extreme_high in uptrend, bearish at
+      // extreme_low in downtrend — also deserves entry-timing credit.
+      (signal === "bullish" && analysis.bandPosition === "extreme_high" && trendDir === 'up') ||
+      (signal === "bearish" && analysis.bandPosition === "extreme_low" && trendDir === 'down')
+    ) {
+      score += 12;
     }
 
     // Volume delta confirmation (0-10 points)

@@ -36,6 +36,7 @@
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
 import { getActiveClock } from '../_core/clock';
+import { engineLogger } from '../utils/logger';
 
 interface BookSnapshot {
   bidPrice: number;
@@ -60,6 +61,10 @@ export class PerpSpotPremiumAgent extends AgentBase {
   // Per-symbol ring of recent premium samples (bps). Symbol key matches the
   // canonical "BTC-USD" form the analyzer hands us via analyze().
   private premiumRings: Map<string, number[]> = new Map();
+  // Phase 93.20 — surface a one-per-5min warn when both upstream globals are
+  // empty (the Tokyo-vs-elsewhere infra mode). Without this the agent silently
+  // neutral-loops with no telemetry pointing at the dead feed.
+  private lastFeedWarnAt = 0;
 
   constructor() {
     const config: AgentConfig = {
@@ -115,6 +120,22 @@ export class PerpSpotPremiumAgent extends AgentBase {
     const spot = spotBook?.[binSym];
 
     if (!perp || !spot) {
+      // Phase 93.20 — when either upstream global is completely empty, the
+      // WS feed is dead (e.g. ENABLE_BINANCE_WS=0 / geo-block / connection
+      // failure). Surface a 5-min warn so the silent-neutral mode has a
+      // breadcrumb in the engine logs.
+      const perpMissing = !futuresBook || Object.keys(futuresBook).length === 0;
+      const spotMissing = !spotBook || Object.keys(spotBook).length === 0;
+      if (perpMissing || spotMissing) {
+        const nowMs = getActiveClock().now();
+        if (nowMs - this.lastFeedWarnAt > 300_000) {
+          this.lastFeedWarnAt = nowMs;
+          engineLogger.warn('PerpSpotPremiumAgent feed missing', {
+            agent: this.config.name, symbol, binanceSymbol: binSym,
+            binancePerpMissing: perpMissing, binanceSpotMissing: spotMissing,
+          });
+        }
+      }
       return this.neutralSignal(symbol, startTime, `Missing books (perp=${!!perp}, spot=${!!spot}) for ${binSym}`);
     }
 
@@ -209,12 +230,17 @@ export class PerpSpotPremiumAgent extends AgentBase {
   }
 
   private neutralSignal(symbol: string, startTime: number, reason: string): AgentSignal {
+    // Phase 93.20 — silent-neutral demotion. When this agent has no real
+    // information to contribute (missing books, stale data, premium near
+    // baseline) it must emit confidence 0.02 so the brain's confluence-ratio
+    // / vote-weight kicker treats it as no-vote. The old 0.5 was "high-
+    // confidence neutrality" — fake information that polluted totalSensors.
     return {
       agentName: this.config.name,
       symbol,
       timestamp: getActiveClock().now(),
       signal: 'neutral',
-      confidence: 0.5,
+      confidence: 0.02,
       strength: 0,
       reasoning: reason,
       evidence: { ringSize: this.premiumRings.get(symbol)?.length || 0 },

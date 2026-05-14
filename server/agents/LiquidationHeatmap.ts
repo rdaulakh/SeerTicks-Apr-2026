@@ -2,6 +2,7 @@ import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
 import { getActiveClock } from '../_core/clock';
 import { fallbackManager, MarketDataInput } from "./DeterministicFallback";
 import { multiExchangeLiquidationService, AggregatedLiquidationData } from "../services/MultiExchangeLiquidationService";
+import { engineLogger } from "../utils/logger";
 
 /**
  * LiquidationHeatmap Agent - Phase 2 Implementation
@@ -78,7 +79,7 @@ export class LiquidationHeatmap extends AgentBase {
   }
 
   protected async initialize(): Promise<void> {
-    console.log(`[${this.config.name}] Initializing liquidation heatmap analysis...`);
+    engineLogger.info(`[${this.config.name}] Initializing liquidation heatmap analysis...`);
     await this.prefetchData();
   }
 
@@ -322,7 +323,7 @@ export class LiquidationHeatmap extends AgentBase {
     const signal = isBearish ? 'bearish' : 'bullish';
     const reasoning = `Liquidation cascade fast-path: $${(totalNotional / 1000).toFixed(0)}K notional in last 60s, ${(dominanceRatio * 100).toFixed(0)}% ${isBearish ? 'long-liqs (sell pressure)' : 'short-liqs (buy pressure)'} on ${futSym} perp → ${signal} continuation`;
 
-    console.log(`[LiquidationHeatmap] 💥 cascade fast-path fired for ${symbol}: ${reasoning}`);
+    engineLogger.info(`[LiquidationHeatmap] cascade fast-path fired for ${symbol}: ${reasoning}`);
 
     return {
       agentName: this.config.name,
@@ -386,7 +387,7 @@ export class LiquidationHeatmap extends AgentBase {
         // Silently handle 400/403/451 (geo-block) errors - expected in many regions
         if ([400, 403, 451].includes(response.status)) {
           if (!LiquidationHeatmap.binanceGeoBlockLogged) {
-            console.log(`[${this.config.name}] Binance Futures API unavailable (geo-blocked) - using deterministic fallback`);
+            engineLogger.warn(`[${this.config.name}] Binance Futures API unavailable (geo-blocked) - using deterministic fallback`);
             LiquidationHeatmap.binanceGeoBlockLogged = true;
           }
           return null;
@@ -548,27 +549,50 @@ export class LiquidationHeatmap extends AgentBase {
     let strength = 0.5;
     const reasons: string[] = [];
 
-    // Long/Short ratio analysis (contrarian)
-    if (analysis.longShortRatio > 2) {
-      signal = "bearish";
-      confidence += 0.2;
-      strength += 0.15;
-      reasons.push(`Extreme long bias (${analysis.longShortRatio.toFixed(2)}:1) - high long liquidation risk`);
-    } else if (analysis.longShortRatio > 1.5) {
-      signal = "bearish";
-      confidence += 0.12;
-      strength += 0.1;
-      reasons.push(`High long bias (${analysis.longShortRatio.toFixed(2)}:1) - potential long squeeze`);
-    } else if (analysis.longShortRatio < 0.5) {
-      signal = "bullish";
-      confidence += 0.2;
-      strength += 0.15;
-      reasons.push(`Extreme short bias (${analysis.longShortRatio.toFixed(2)}:1) - high short liquidation risk`);
-    } else if (analysis.longShortRatio < 0.67) {
-      signal = "bullish";
-      confidence += 0.12;
-      strength += 0.1;
-      reasons.push(`High short bias (${analysis.longShortRatio.toFixed(2)}:1) - potential short squeeze`);
+    // Phase 93 — Trend-aware L/S ratio analysis (was naive contrarian)
+    const legacyTrend = this.computeTrendBias(undefined);
+    if (analysis.longShortRatio > 2.5) {
+      if (legacyTrend !== 'up') {
+        signal = "bearish";
+        confidence += 0.2;
+        strength += 0.15;
+        reasons.push(`Extreme long bias (${analysis.longShortRatio.toFixed(2)}:1) + ${legacyTrend} trend - cascade setup`);
+      } else {
+        reasons.push(`Extreme long bias (${analysis.longShortRatio.toFixed(2)}:1) but uptrend intact - late stage`);
+      }
+    } else if (analysis.longShortRatio > 1.7) {
+      if (legacyTrend === 'up') {
+        signal = "bullish";
+        confidence += 0.10;
+        strength += 0.08;
+        reasons.push(`Long bias (${analysis.longShortRatio.toFixed(2)}:1) confirms uptrend`);
+      } else if (legacyTrend === 'down') {
+        signal = "bearish";
+        confidence += 0.12;
+        strength += 0.10;
+        reasons.push(`Trapped longs (${analysis.longShortRatio.toFixed(2)}:1) in downtrend - bearish continuation`);
+      }
+    } else if (analysis.longShortRatio < 0.4) {
+      if (legacyTrend !== 'down') {
+        signal = "bullish";
+        confidence += 0.2;
+        strength += 0.15;
+        reasons.push(`Extreme short bias (${analysis.longShortRatio.toFixed(2)}:1) + ${legacyTrend} trend - squeeze setup`);
+      } else {
+        reasons.push(`Extreme short bias (${analysis.longShortRatio.toFixed(2)}:1) but downtrend intact - late stage`);
+      }
+    } else if (analysis.longShortRatio < 0.59) {
+      if (legacyTrend === 'down') {
+        signal = "bearish";
+        confidence += 0.10;
+        strength += 0.08;
+        reasons.push(`Short bias (${analysis.longShortRatio.toFixed(2)}:1) confirms downtrend`);
+      } else if (legacyTrend === 'up') {
+        signal = "bullish";
+        confidence += 0.12;
+        strength += 0.10;
+        reasons.push(`Trapped shorts (${analysis.longShortRatio.toFixed(2)}:1) in uptrend - bullish continuation`);
+      }
     }
     // Phase 82.3 — removed "mild bias" branches that fired on |ratio - 1.0| > 0.1.
     // Retail L/S ratio on Binance is structurally >1.0 (long-bias is the norm),
@@ -744,8 +768,69 @@ export class LiquidationHeatmap extends AgentBase {
   }
 
   /**
+   * Phase 93 — Trend bias from local price history.
+   * Returns: 'up' | 'down' | 'flat'.
+   *
+   * Why this exists: prior logic treated long-heavy L/S ratio as unconditional
+   * contrarian-bearish ("squeeze coming"). In a strong uptrend, long-heavy is
+   * CONFIRMATION (longs are winning), not a contrarian signal. We only fade
+   * positioning when the trend has stalled or reversed.
+   *
+   * Method: fast EMA (5 ticks) vs slow EMA (15 ticks) slope, with a 0.15%
+   * deadband to avoid flickering. Falls back to 24h price-change sign if
+   * priceHistory is too short.
+   */
+  private computeTrendBias(context: any): 'up' | 'down' | 'flat' {
+    const hist = this.priceHistory;
+    const last = hist.length > 0 ? hist[hist.length - 1] : (context?.currentPrice ?? 0);
+
+    if (hist.length >= 15 && last > 0) {
+      // Simple EMAs
+      const ema = (period: number): number => {
+        const k = 2 / (period + 1);
+        let v = hist[Math.max(0, hist.length - period * 3)];
+        const start = Math.max(0, hist.length - period * 3);
+        for (let i = start; i < hist.length; i++) {
+          v = hist[i] * k + v * (1 - k);
+        }
+        return v;
+      };
+      const fast = ema(5);
+      const slow = ema(15);
+      const spreadPct = (fast - slow) / slow;
+      if (spreadPct > 0.0015) return 'up';
+      if (spreadPct < -0.0015) return 'down';
+      return 'flat';
+    }
+
+    // Fallback: 24h price change sign (>1% threshold to avoid noise)
+    const pc = typeof context?.priceChange24h === 'number' ? context.priceChange24h : 0;
+    if (pc > 1) return 'up';
+    if (pc < -1) return 'down';
+    return 'flat';
+  }
+
+  /**
    * Generate signal from multi-exchange aggregated liquidation data
-   * FIXED: Uses data from Bybit, OKX, and Binance for more robust signals
+   *
+   * Phase 93 — TREND-AWARE positioning logic (was naive contrarian).
+   *
+   * Defect prior to this change:
+   *   - Treated avgLongShortRatio > 1.2 ("long_heavy" from MultiExchangeLiquidationService)
+   *     as unconditional contrarian-bearish.
+   *   - 1.5x bumped to "auto-bearish", 2.0x to "extreme bearish".
+   *   - Result: in an uptrend with 1.81x ratio (totally normal for trending markets)
+   *     the agent voted 90% bearish — completely wrong (longs were WINNING, not
+   *     about to be liquidated). 20% WR, -$13.88 P&L in 60-trade audit.
+   *
+   * Fix:
+   *   1. Compute short-term trend bias (computeTrendBias).
+   *   2. Tighten thresholds: positioning is only "extreme" (true cascade risk)
+   *      at >2.5x / <0.4x ratio. Below that it's just normal trending bias.
+   *   3. In an UPTREND: long-heavy = trend confirmation → bullish (up to a cap).
+   *      In a DOWNTREND: short-heavy = trend confirmation → bearish.
+   *   4. Contrarian fade ONLY when trend is FLAT (no new highs/lows) AND ratio
+   *      is extreme (>2.5x or <0.4x). That's the real squeeze setup.
    */
   private generateSignalFromAggregatedData(
     symbol: string,
@@ -758,43 +843,91 @@ export class LiquidationHeatmap extends AgentBase {
     let strength = 0.5;
     const reasons: string[] = [];
 
-    // Use sentiment from multi-exchange data (contrarian logic)
-    if (data.sentiment === 'long_heavy') {
-      signal = "bearish";
-      confidence += 0.15 * data.sentimentStrength;
-      strength += 0.1 * data.sentimentStrength;
-      reasons.push(`Multi-exchange: Long-heavy positioning (${data.avgLongPercentage.toFixed(1)}% longs) - contrarian bearish`);
-    } else if (data.sentiment === 'short_heavy') {
-      signal = "bullish";
-      confidence += 0.15 * data.sentimentStrength;
-      strength += 0.1 * data.sentimentStrength;
-      reasons.push(`Multi-exchange: Short-heavy positioning (${data.avgShortPercentage.toFixed(1)}% shorts) - contrarian bullish`);
-    } else {
-      reasons.push(`Balanced positioning (L/S ratio: ${data.avgLongShortRatio.toFixed(2)})`);
-    }
-
-    // Extreme long/short ratio analysis (contrarian)
     const ratio = data.avgLongShortRatio;
-    if (ratio > 2.0) {
-      signal = "bearish";
-      confidence += 0.2;
-      strength += 0.15;
-      reasons.push(`Extreme long bias (${ratio.toFixed(2)}x) - high liquidation risk for longs`);
-    } else if (ratio > 1.5) {
-      if (signal === "neutral") signal = "bearish";
-      confidence += 0.1;
-      strength += 0.08;
-      reasons.push(`Elevated long bias (${ratio.toFixed(2)}x)`);
-    } else if (ratio < 0.5) {
-      signal = "bullish";
-      confidence += 0.2;
-      strength += 0.15;
-      reasons.push(`Extreme short bias (${ratio.toFixed(2)}x) - high liquidation risk for shorts`);
-    } else if (ratio < 0.67) {
-      if (signal === "neutral") signal = "bullish";
-      confidence += 0.1;
-      strength += 0.08;
-      reasons.push(`Elevated short bias (${ratio.toFixed(2)}x)`);
+    const trend = this.computeTrendBias(context);
+
+    // Phase 93 thresholds — true liquidation-cascade extremes only
+    const EXTREME_LONG = 2.5;   // >2.5x or >70% longs is real cluster risk
+    const EXTREME_SHORT = 0.4;  // <0.4x or >70% shorts
+    const STRONG_LONG = 1.7;    // strong long bias (not extreme)
+    const STRONG_SHORT = 0.59;  // mirror of STRONG_LONG (1/1.7)
+
+    reasons.push(`L/S ratio ${ratio.toFixed(2)}x, ${data.avgLongPercentage.toFixed(1)}% longs, trend=${trend}`);
+
+    // --- Extreme positioning: contrarian fade ONLY if trend has stalled/reversed ---
+    if (ratio > EXTREME_LONG) {
+      if (trend === 'flat' || trend === 'down') {
+        signal = "bearish";
+        confidence += 0.20 * data.sentimentStrength;
+        strength += 0.15 * data.sentimentStrength;
+        reasons.push(`Extreme long bias (${ratio.toFixed(2)}x) + ${trend} trend → contrarian bearish (cascade setup)`);
+      } else {
+        // Uptrend + extreme longs: late-stage trend, reduce conviction but stay neutral
+        confidence -= 0.05;
+        reasons.push(`Extreme long bias (${ratio.toFixed(2)}x) but uptrend intact — late-stage, neutral`);
+      }
+    } else if (ratio < EXTREME_SHORT) {
+      if (trend === 'flat' || trend === 'up') {
+        signal = "bullish";
+        confidence += 0.20 * data.sentimentStrength;
+        strength += 0.15 * data.sentimentStrength;
+        reasons.push(`Extreme short bias (${ratio.toFixed(2)}x) + ${trend} trend → contrarian bullish (squeeze setup)`);
+      } else {
+        confidence -= 0.05;
+        reasons.push(`Extreme short bias (${ratio.toFixed(2)}x) but downtrend intact — late-stage, neutral`);
+      }
+    }
+    // --- Strong (not extreme) positioning: TREND CONFIRMATION ---
+    else if (ratio > STRONG_LONG) {
+      if (trend === 'up') {
+        signal = "bullish";
+        confidence += 0.12;
+        strength += 0.10;
+        reasons.push(`Long bias (${ratio.toFixed(2)}x) confirms uptrend — longs winning, shorts trapped`);
+      } else if (trend === 'down') {
+        // Long-heavy positioning in a downtrend = trapped longs, cascade risk
+        signal = "bearish";
+        confidence += 0.12;
+        strength += 0.10;
+        reasons.push(`Long bias (${ratio.toFixed(2)}x) against downtrend — trapped longs, bearish continuation`);
+      } else {
+        // Flat trend, strong long bias — mild contrarian
+        signal = "bearish";
+        confidence += 0.06;
+        strength += 0.05;
+        reasons.push(`Long bias (${ratio.toFixed(2)}x) in flat market — mild contrarian bearish`);
+      }
+    } else if (ratio < STRONG_SHORT) {
+      if (trend === 'down') {
+        signal = "bearish";
+        confidence += 0.12;
+        strength += 0.10;
+        reasons.push(`Short bias (${ratio.toFixed(2)}x) confirms downtrend — shorts winning, longs capitulating`);
+      } else if (trend === 'up') {
+        signal = "bullish";
+        confidence += 0.12;
+        strength += 0.10;
+        reasons.push(`Short bias (${ratio.toFixed(2)}x) against uptrend — trapped shorts, bullish continuation`);
+      } else {
+        signal = "bullish";
+        confidence += 0.06;
+        strength += 0.05;
+        reasons.push(`Short bias (${ratio.toFixed(2)}x) in flat market — mild contrarian bullish`);
+      }
+    }
+    // --- Mild/balanced positioning (0.59–1.7): align with trend, no contrarian ---
+    else {
+      if (trend === 'up') {
+        signal = "bullish";
+        confidence += 0.04;
+        reasons.push(`Balanced positioning + uptrend → mild bullish (no cascade risk)`);
+      } else if (trend === 'down') {
+        signal = "bearish";
+        confidence += 0.04;
+        reasons.push(`Balanced positioning + downtrend → mild bearish (no cascade risk)`);
+      } else {
+        reasons.push(`Balanced positioning + flat trend → neutral`);
+      }
     }
 
     // Bonus confidence for multiple exchanges agreeing
@@ -860,6 +993,7 @@ export class LiquidationHeatmap extends AgentBase {
         exchanges: data.exchanges.openInterest.map(e => e.exchange).join(", "),
         sentiment: data.sentiment,
         sentimentStrength: data.sentimentStrength.toFixed(2),
+        trendBias: trend,  // Phase 93 — trend-aware classification
         multiExchangeEnabled: true,
       },
       qualityScore: 0.65 + (data.exchangeCount * 0.1),

@@ -248,12 +248,14 @@ export class FundingRateFlipAgent extends AgentBase {
   }
 
   private neutralSignal(symbol: string, startTime: number, reason: string): AgentSignal {
+    // Phase 93.20 — silent-neutral (0.02). Funding rate sign-flips are
+    // multi-hour events; the 99% no-flip case is not information.
     return {
       agentName: this.config.name,
       symbol,
       timestamp: getActiveClock().now(),
       signal: 'neutral',
-      confidence: 0.5,
+      confidence: 0.02,
       strength: 0,
       reasoning: reason,
       evidence: { historyLength: this.history.get(this.toBinanceSymbol(symbol))?.length || 0 },
