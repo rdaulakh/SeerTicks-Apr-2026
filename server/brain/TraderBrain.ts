@@ -422,16 +422,24 @@ class TraderBrain {
         const pos = sensorium.getPosition(positionId);
         if (!pos) continue;
 
-        // Phase 93.4 — throttle hold-decision trace writes. Non-hold and
-        // hold-with-changed-(kind,step) ALWAYS write; identical repeating
-        // holds write at most once per HOLD_TRACE_GAP_MS (2 sec). Keyed on
-        // (kind, pipelineStep) so volatile P&L numbers in reason text don't
-        // defeat the throttle.
+        // Phase 93.4 — throttle decision-trace writes. Keyed on (kind,
+        // pipelineStep) so volatile P&L numbers in reason text don't defeat
+        // the throttle.
+        //
+        // Phase 93.23 (2026-05-15) — UNIFORM throttle. The old rule
+        //   `decision.kind !== 'hold' || kindStepChanged || gapElapsed`
+        // short-circuited to ALWAYS trace non-hold decisions. Result: a
+        // position past its stop received a `hard_stop` decision on every
+        // 10Hz tick because `inFlightExits` prevents the executor from
+        // double-firing but doesn't prevent the trace. Audit on 2026-05-15
+        // counted 2,702 hard_stop traces in 30 min across ~3 positions
+        // (~900 per position). Now non-hold decisions follow the same
+        // (kind,step changed OR gap elapsed) rule as holds.
         const kindStep = `${decision.kind}|${decision.pipelineStep}`;
         const last = this.lastTrace.get(positionId);
         const kindStepChanged = !last || last.kindStep !== kindStep;
         const gapElapsed = !last || (Date.now() - last.atMs) >= this.HOLD_TRACE_GAP_MS;
-        const shouldTrace = decision.kind !== 'hold' || kindStepChanged || gapElapsed;
+        const shouldTrace = kindStepChanged || gapElapsed;
         if (shouldTrace) {
           getDecisionTrace().record({
             positionId,
@@ -658,55 +666,51 @@ class TraderBrain {
       }
     }
 
-    // Phase 93.22 — Gate 8: EXTENSION-EXHAUSTION block (don't FOMO-buy the top
-    // / FOMO-sell the bottom).
+    // Phase 93.22 — Gate 8: EXTENSION-EXHAUSTION block.
+    // Phase 93.23 (2026-05-15) — tightened after audit caught trade #212
+    // entering ETH long at bbPctB=1.11 (above upper band) with only 1 of 3
+    // old extension flags hot. Changed to: ANY ONE strong-extension flag
+    // OR TWO mild-extension flags. New flag set is also more sensitive to
+    // VWAP deviation (the most actionable extension measure in a sustained
+    // trend, where Bollinger bands lag and RSI saturates below 70).
     //
-    // Post-Phase-93.21 audit (40min, 6 trades): all 6 trades were LONG (Gates
-    // 6/7 correctly filter shorts in this uptrend). All 6 lost. Reason: the
-    // brain confirmed direction with TechnicalAnalyst but didn't check whether
-    // price was already over-extended. ETH entry at RSI=68, bbPctB=1.11
-    // (already above the upper Bollinger band) → lost $12.33 in one trade.
+    // Long blocked when ANY of:
+    //   • bbPctB > 1.05               — above upper Bollinger (was strong)
+    //   • rsi > 72                    — approaching overbought (was 75)
+    //   • vwapDevPct > 0.8            — >0.8% above VWAP (was 1.0)
+    //   • two of {bbPctB>1.0, rsi>68, vwapDevPct>0.5} — mild combination
     //
-    // Mean-reversion is real at extremes. When the technical sensor says the
-    // trend is bullish AND price is already extended above its statistical
-    // band (overbought), entering long has poor expectancy regardless of
-    // direction agreement.
-    //
-    // Long extension thresholds (don't long when ANY two of):
-    //   rsi > 75          (overbought)
-    //   bbPctB > 1.05     (above upper Bollinger band by >5%)
-    //   vwapDevPct > 1.0  (>1% above VWAP)
-    //
-    // Short extension thresholds (don't short when ANY two of):
-    //   rsi < 25
-    //   bbPctB < -0.05
-    //   vwapDevPct < -1.0
+    // Symmetric for short.
     if (tech) {
       if (opp.direction === 'long') {
-        const longOverbought = [
-          tech.rsi > 75,
-          tech.bbPctB > 1.05,
-          tech.vwapDevPct > 1.0,
-        ].filter(Boolean).length;
-        if (longOverbought >= 2) {
+        const strongOB =
+          tech.bbPctB > 1.05 ||
+          tech.rsi > 72 ||
+          tech.vwapDevPct > 0.8;
+        const mildOB =
+          [tech.bbPctB > 1.0, tech.rsi > 68, tech.vwapDevPct > 0.5]
+            .filter(Boolean).length >= 2;
+        if (strongOB || mildOB) {
           return {
             kind: 'abstain',
             pipelineStep: 'should_enter:long_extension_exhaustion',
-            reason: `long at extension exhaustion (rsi=${tech.rsi.toFixed(0)}, bbPctB=${tech.bbPctB.toFixed(2)}, vwapDev=${tech.vwapDevPct.toFixed(2)}%) — ${longOverbought}/3 overbought signals`,
+            reason: `long at extension exhaustion (rsi=${tech.rsi.toFixed(0)}, bbPctB=${tech.bbPctB.toFixed(2)}, vwapDev=${tech.vwapDevPct.toFixed(2)}%) — strong=${strongOB} mild=${mildOB}`,
             symbol,
           };
         }
       } else if (opp.direction === 'short') {
-        const shortOversold = [
-          tech.rsi < 25,
-          tech.bbPctB < -0.05,
-          tech.vwapDevPct < -1.0,
-        ].filter(Boolean).length;
-        if (shortOversold >= 2) {
+        const strongOS =
+          tech.bbPctB < -0.05 ||
+          tech.rsi < 28 ||
+          tech.vwapDevPct < -0.8;
+        const mildOS =
+          [tech.bbPctB < 0.0, tech.rsi < 32, tech.vwapDevPct < -0.5]
+            .filter(Boolean).length >= 2;
+        if (strongOS || mildOS) {
           return {
             kind: 'abstain',
             pipelineStep: 'should_enter:short_extension_exhaustion',
-            reason: `short at extension exhaustion (rsi=${tech.rsi.toFixed(0)}, bbPctB=${tech.bbPctB.toFixed(2)}, vwapDev=${tech.vwapDevPct.toFixed(2)}%) — ${shortOversold}/3 oversold signals`,
+            reason: `short at extension exhaustion (rsi=${tech.rsi.toFixed(0)}, bbPctB=${tech.bbPctB.toFixed(2)}, vwapDev=${tech.vwapDevPct.toFixed(2)}%) — strong=${strongOS} mild=${mildOS}`,
             symbol,
           };
         }

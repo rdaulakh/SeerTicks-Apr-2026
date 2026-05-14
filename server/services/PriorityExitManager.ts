@@ -113,6 +113,14 @@ export interface PriorityExitConfig {
   agentConsensusExitScore: number;  // Agent exit score threshold (default 60)
   orderFlowReversalThreshold: number; // Flow swing threshold (default 150)
   orderFlowMinHoldSeconds: number; // Min hold time before order flow exit (default 60)
+  // Phase 93.23 — TraderBrain is authoritative for discretionary exits.
+  // When true, this manager skips the agent-driven priorities (1, 5, 6, 11, 12)
+  // which use toxic-agent weights (PatternMatcher/VolumeProfile/LiquidationHeatmap)
+  // and let the brain's own pipeline (which has corrected agents) handle them.
+  // Safety-critical priorities (HARD_STOP_LOSS, MOMENTUM_CRASH, ATR_DYNAMIC_STOP,
+  // MAX_LOSER_TIME, MAX_WINNER_TIME, PROFIT_TARGETS, TRAILING_STOP) remain
+  // active as belt-and-suspenders even with brain in charge.
+  brainAuthoritative?: boolean;
 }
 
 // Phase 15C: Tightened exit parameters based on audit data.
@@ -149,6 +157,11 @@ export const DEFAULT_PRIORITY_EXIT_CONFIG: PriorityExitConfig = {
   agentConsensusExitScore: 55,
   orderFlowReversalThreshold: 150, // Phase 41: Raised from 50 — was triggering on normal noise
   orderFlowMinHoldSeconds: 60, // Phase 41: Don't exit on order flow within first 60s
+  // Phase 93.23 — default TRUE. The post-Phase-93.21 audit (2026-05-15) found
+  // that 3 of the 5 biggest losing trades exited via [AGENT_EXIT_CONSENSUS] /
+  // [AGENT_UNANIMOUS_EXIT] / [ORDER_FLOW_REVERSAL] — all of which run on
+  // toxic-agent weights and bypass the brain's corrected pipeline.
+  brainAuthoritative: true,
 };
 
 /**
@@ -234,8 +247,13 @@ export function evaluatePriorityExitRulesRaw(
   // PRIORITY 1: AGENT UNANIMOUS EXIT (Phase 5B)
   // If multiple agents independently agree this position should be closed immediately,
   // trust their collective intelligence — they see RSI, MACD, patterns, order flow, etc.
+  //
+  // Phase 93.23 — disabled when brain is authoritative. This priority uses the
+  // legacy AutomatedSignalProcessor agent-weights which still treat toxic
+  // agents (PatternMatcher/VolumeProfile/LiquidationHeatmap) at high weight.
+  // The brain's own consensus_flip / direction-flip handles this correctly.
   // ═══════════════════════════════════════════════════════════════════════════
-  if (position.agentExitConsensus) {
+  if (!config.brainAuthoritative && position.agentExitConsensus) {
     const consensus = position.agentExitConsensus;
     if (consensus.urgentExitCount >= config.agentUnanimousMinCount) {
       exitLogger.info('AGENT_UNANIMOUS_EXIT', { urgentExitCount: consensus.urgentExitCount, exitScore: consensus.exitScore });
@@ -387,8 +405,12 @@ export function evaluatePriorityExitRulesRaw(
   // PRIORITY 5: AGENT EXIT CONSENSUS (Phase 5B)
   // If the collective agent intelligence (weighted exit score) is high enough
   // AND position is losing, trust the agents' technical/pattern analysis.
+  //
+  // Phase 93.23 — disabled when brain is authoritative. Same reason as
+  // PRIORITY 1: legacy weights treat toxic agents at full weight, causing
+  // false exits. The brain's consensus_flip uses corrected agent signals.
   // ═══════════════════════════════════════════════════════════════════════════
-  if (isLosing && position.agentExitConsensus) {
+  if (!config.brainAuthoritative && isLosing && position.agentExitConsensus) {
     const consensus = position.agentExitConsensus;
     if (consensus.exitScore >= config.agentConsensusExitScore && consensus.totalAgentsReporting >= 2) {
       exitLogger.info('AGENT_EXIT_CONSENSUS', { exitScore: consensus.exitScore, totalAgentsReporting: consensus.totalAgentsReporting });
@@ -410,7 +432,10 @@ export function evaluatePriorityExitRulesRaw(
   // Previous threshold was too sensitive — normal order flow noise (50-100 pts)
   // was triggering exits on EVERY position within seconds, causing 0% win rate.
   // ═══════════════════════════════════════════════════════════════════════════
-  if (position.orderFlowScore !== undefined && position.recentOrderFlowHistory && position.recentOrderFlowHistory.length >= 3) {
+  // Phase 93.23 — disabled when brain is authoritative. OrderFlowAnalyst was
+  // attributed -$14.25 signed P&L in the 9-trade post-93.21 audit; basing
+  // exits on it triggers false reversals.
+  if (!config.brainAuthoritative && position.orderFlowScore !== undefined && position.recentOrderFlowHistory && position.recentOrderFlowHistory.length >= 3) {
     // Phase 41: Don't trigger order flow exit within first N seconds — let the trade breathe
     if (holdTimeMinutes >= (config.orderFlowMinHoldSeconds / 60)) {
       const currentFlow = position.orderFlowScore;
@@ -576,7 +601,10 @@ export function evaluatePriorityExitRulesRaw(
   // The "dead zone" between -0.8% and +0.1% is protected from direction flip exits
   const isDirectionFlipActionable = (pnlPercent > 0.1) || (pnlPercent < -0.8);
 
-  if (directionFlipped && pastDirectionProtection && isDirectionFlipActionable) {
+  // Phase 93.23 — direction-flip uses the legacy consensus direction
+  // (toxic-agent-weighted) and was the #1 loss driver historically.
+  // Brain has its own consensus_flip with corrected agents.
+  if (!config.brainAuthoritative && directionFlipped && pastDirectionProtection && isDirectionFlipActionable) {
     exitLogger.info('DIRECTION_FLIP', { pnlPct: position.unrealizedPnlPercent.toFixed(3), isWinning });
     return {
       shouldExit: true,
@@ -589,11 +617,16 @@ export function evaluatePriorityExitRulesRaw(
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PRIORITY 12: CONFIDENCE DECAY (EXTREME ONLY) — safety net
+  //
+  // Phase 93.23 — disabled when brain is authoritative. Uses
+  // currentCombinedScore which is derived from legacy consensus including
+  // toxic agents. Brain handles confidence decay via its own peakConfidence
+  // tracking (now persisted on paperPositions row).
   // ═══════════════════════════════════════════════════════════════════════════
   const extremeConsensusCollapse = position.currentCombinedScore < config.extremeConsensusThreshold;
   const heldLongEnough = holdTimeMinutes >= config.minHoldTimeForDecayMinutes;
 
-  if (extremeConsensusCollapse && isLosing && heldLongEnough) {
+  if (!config.brainAuthoritative && extremeConsensusCollapse && isLosing && heldLongEnough) {
     exitLogger.info('CONFIDENCE_DECAY_EXTREME');
     return {
       shouldExit: true,
