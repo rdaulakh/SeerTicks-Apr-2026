@@ -1100,7 +1100,19 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
     // Close position in memory
     this.positions.delete(positionKey);
     executionLogger.info('Position closed', { positionId: position.id, pnl: pnl.toFixed(2), pnlPercent: pnlPercent.toFixed(2) });
-    this.emit('position_closed', { position, pnl, pnlPercent });
+    // Phase 93.4 — emit the ACTUAL exchange fill price + filledQuantity so
+    // callers (UserTradingSession.requestManualClose → BrainExecutor → learning
+    // loop) record the true outcome, not the request-time mid. Before this fix
+    // the brain wrote request-time mid into realizedPnl + PatternPopulator +
+    // agentWeights, poisoning the alpha library with the wrong exit price.
+    this.emit('position_closed', {
+      position,
+      pnl,
+      pnlPercent,
+      filledPrice: order.filledPrice,
+      filledQuantity: order.filledQuantity,
+      orderId: order.id,
+    });
 
     await this.updateWalletMetrics();
   }

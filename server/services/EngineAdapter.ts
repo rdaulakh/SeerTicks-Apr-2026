@@ -646,9 +646,15 @@ export class EngineAdapter extends EventEmitter {
         price: result.price,
         symbol: result.symbol,
       });
+      // Phase 93.5 — propagate the ACTUAL exchange fill price + realized pnl
+      // up to BrainExecutor so the learning loop (PatternPopulator,
+      // AgentWeightManager, AgentPnlAttributor, mlTrainingData) sees the
+      // true outcome instead of the request-time mid.
       return {
         success: true,
         price: result.price,
+        realizedPnl: result.realizedPnl,
+        filledQuantity: result.filledQuantity,
         symbol: result.symbol,
         guardReason: result.guardReason,
         netPnlPercent: result.netPnlPercent,

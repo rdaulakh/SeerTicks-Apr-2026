@@ -36,6 +36,7 @@
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
 import { getActiveClock } from '../_core/clock';
+import { engineLogger } from '../utils/logger';
 
 interface BookSnapshot {
   bidPrice: number;
@@ -67,6 +68,7 @@ const MAX_CONFIDENCE = 0.78; // Compression alone is direction-light, capped low
 
 export class SpreadCompressionAgent extends AgentBase {
   private spreadRings: Map<string, number[]> = new Map();
+  private lastFeedWarnAt = 0;
 
   constructor() {
     const config: AgentConfig = {

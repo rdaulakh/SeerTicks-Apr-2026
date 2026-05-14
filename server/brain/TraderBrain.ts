@@ -54,8 +54,8 @@ export type BrainAction =
   | { kind: 'take_partial'; pipelineStep: string; reason: string; exitQuantityPercent: number; urgency: 'now' | 'soon' }
   | { kind: 'exit_full'; pipelineStep: string; reason: string; urgency: 'now' | 'soon' }
   // Phase 84 — entry brain
-  | { kind: 'enter_long'; pipelineStep: string; reason: string; symbol: string; size: number; stopLoss: number; takeProfit: number; opportunityScore: number }
-  | { kind: 'enter_short'; pipelineStep: string; reason: string; symbol: string; size: number; stopLoss: number; takeProfit: number; opportunityScore: number }
+  | { kind: 'enter_long'; pipelineStep: string; reason: string; symbol: string; size: number; stopLoss: number; takeProfit: number; opportunityScore: number; brainConfidence: number }
+  | { kind: 'enter_short'; pipelineStep: string; reason: string; symbol: string; size: number; stopLoss: number; takeProfit: number; opportunityScore: number; brainConfidence: number }
   | { kind: 'abstain'; pipelineStep: string; reason: string; symbol: string };
 
 export interface BrainConfig {
@@ -621,9 +621,16 @@ class TraderBrain {
       Math.max(0.1, stanceStrength) *
       Math.max(0.3, confluenceRatio)
     );
-    // Pyramid: confidence^2 × 1.5, floored at 0.375 (so even minimum passes
-    // produce above-min-notional sizes on reasonable wallets).
-    const confidenceMultiplier = Math.max(0.375, Math.pow(brainConfidence, 2) * 1.5);
+    // Phase 93.18 — REMOVED 0.375 floor. The audit (2026-05-14) found every
+    // live entry collapsed to multiplier ≈ 0.375 because the geometric mean
+    // rarely exceeds 0.5 and pow(0.5, 2)*1.5 = 0.375. Result: sizing was
+    // structurally flat — every trade ~3.75% equity regardless of conviction.
+    //
+    // New behaviour: the multiplier scales freely from 0 → 1.5. Low-conviction
+    // entries can produce sub-min-notional sizes; the MIN_NOTIONAL_USD gate
+    // below ($50) drops them, which is the correct outcome (don't bet small
+    // size on weak conviction — abstain instead).
+    const confidenceMultiplier = Math.min(1.5, Math.pow(brainConfidence, 2) * 1.5);
     const sizeUsd = equity * this.config.entrySizeEquityFraction * confidenceMultiplier;
     const qty = sizeUsd / market.midPrice;
 
@@ -652,6 +659,11 @@ class TraderBrain {
       stopLoss,
       takeProfit,
       opportunityScore: opp.score,
+      // Phase 93.18 — carry through so BrainExecutor can persist as
+      // originalConsensus/peakConfidence on the position row (was hardcoded
+      // 0.65 default; never updated; confidence-decay exit was running on
+      // bogus data).
+      brainConfidence,
     };
   }
 
@@ -734,6 +746,9 @@ class TraderBrain {
       takeProfit: decision.takeProfit,
       reason: decision.reason,
       userId,
+      // Phase 93.18 — propagate so the position row carries real consensus,
+      // not the legacy 0.65 default.
+      entryConsensus: decision.brainConfidence,
     });
     if (!r.ok) {
       // Phase 93.10 — if the executor rejected because an open position

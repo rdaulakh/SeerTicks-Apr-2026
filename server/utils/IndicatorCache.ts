@@ -21,6 +21,7 @@ export interface CachedIndicators {
     upper: number;
     middle: number;
     lower: number;
+    pctB: number; // Phase 93.18 — %B = (price-lower)/(upper-lower). Sensorium reads this; was missing → defaulted to 0.5.
   };
   lastCandleTimestamp: number; // Timestamp of last candle used for calculation
   calculatedAt: number; // When this cache entry was created
@@ -165,6 +166,13 @@ export function calculateRSI(candles: Candle[], period: number = 14): number {
 /**
  * Calculate MACD (Moving Average Convergence Divergence)
  * Standard: 12, 26, 9
+ *
+ * Phase 93.18 — CRITICAL BUG FIX: previous implementation set
+ *   `const signal = macd; const histogram = macd - signal;`
+ * which made `histogram` literally always 0. The Sensorium read
+ * `evidence.macd.histogram` into `technical.macdHist`, so 100% of the
+ * brain's 33k+ entry decisions saw macdHist === 0. We now compute a
+ * proper signal line as an EMA of the MACD series.
  */
 export function calculateMACD(
   candles: Candle[],
@@ -176,16 +184,38 @@ export function calculateMACD(
     return { macd: 0, signal: 0, histogram: 0 };
   }
 
-  // Calculate EMAs
-  const fastEMA = calculateEMA(candles, fastPeriod);
-  const slowEMA = calculateEMA(candles, slowPeriod);
-  const macd = fastEMA - slowEMA;
+  // Build the MACD series across the trailing window so we can compute a
+  // signal line. We need `signalPeriod` MACD values to seed the EMA, plus a
+  // small extra buffer so the EMA stabilises. We use signalPeriod*3 by
+  // default (27 with the standard 9-period signal) — cheap and stable.
+  const macdSeriesLen = signalPeriod * 3;
+  const startIdx = Math.max(slowPeriod, candles.length - macdSeriesLen);
+  const macdSeries: number[] = [];
+  for (let i = startIdx; i <= candles.length; i++) {
+    const window = candles.slice(0, i);
+    if (window.length < slowPeriod) continue;
+    const fast = calculateEMA(window, fastPeriod);
+    const slow = calculateEMA(window, slowPeriod);
+    macdSeries.push(fast - slow);
+  }
 
-  // Calculate signal line (EMA of MACD)
-  // For simplicity, use SMA approximation
-  const signal = macd; // Simplified
+  const macd = macdSeries[macdSeries.length - 1] ?? 0;
+
+  // EMA of the MACD series — that's the signal line.
+  let signal = macd;
+  if (macdSeries.length >= signalPeriod) {
+    const k = 2 / (signalPeriod + 1);
+    // Seed with SMA over the first `signalPeriod` values.
+    let ema =
+      macdSeries.slice(0, signalPeriod).reduce((a, b) => a + b, 0) /
+      signalPeriod;
+    for (let i = signalPeriod; i < macdSeries.length; i++) {
+      ema = (macdSeries[i] - ema) * k + ema;
+    }
+    signal = ema;
+  }
+
   const histogram = macd - signal;
-
   return { macd, signal, histogram };
 }
 
@@ -215,10 +245,10 @@ export function calculateBollingerBands(
   candles: Candle[],
   period: number = 20,
   stdDev: number = 2
-): { upper: number; middle: number; lower: number } {
+): { upper: number; middle: number; lower: number; pctB: number } {
   if (candles.length < period) {
     const lastClose = candles[candles.length - 1].close;
-    return { upper: lastClose, middle: lastClose, lower: lastClose };
+    return { upper: lastClose, middle: lastClose, lower: lastClose, pctB: 0.5 };
   }
 
   // Calculate SMA (middle band)
@@ -234,5 +264,13 @@ export function calculateBollingerBands(
   const upper = middle + stdDev * standardDeviation;
   const lower = middle - stdDev * standardDeviation;
 
-  return { upper, middle, lower };
+  // Phase 93.18 — %B is the price's normalized position within the bands.
+  // 0 = at lower band, 0.5 = at middle, 1 = at upper. Sensorium reads this
+  // as `technical.bbPctB`. Without it the Sensorium defaulted to 0.5 across
+  // 100% of brain decisions.
+  const last = candles[candles.length - 1].close;
+  const width = upper - lower;
+  const pctB = width > 0 ? (last - lower) / width : 0.5;
+
+  return { upper, middle, lower, pctB };
 }

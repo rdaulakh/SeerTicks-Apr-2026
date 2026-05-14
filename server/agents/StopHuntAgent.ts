@@ -45,6 +45,7 @@
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
 import { getActiveClock } from '../_core/clock';
+import { engineLogger } from '../utils/logger';
 
 interface PriceSample {
   price: number;
@@ -63,10 +64,16 @@ const STALE_MS = 1_500;
 const MAX_CONFIDENCE = 0.85;
 
 // Round-number step sizes per symbol (USD). Stops cluster at these levels.
+// Phase 92.5 — lowered from BTC $1000 / ETH $50 / SOL $5 to BTC $500 / ETH $25
+// / SOL $2. The original steps were too coarse (BTC hits $1000 levels only a
+// few times per hour at ~$95K); the agent emitted zero hunts in 6h of live
+// data. The smaller steps still represent real psychological levels (half-K
+// on BTC, $25 on ETH) where retail stops cluster, and dramatically increase
+// the chance of detecting an actual sweep-and-reverse pattern.
 const ROUND_STEPS: Record<string, number> = {
-  BTCUSDT: 1000,
-  ETHUSDT: 50,
-  SOLUSDT: 5,
+  BTCUSDT: 500,
+  ETHUSDT: 25,
+  SOLUSDT: 2,
 };
 
 export class StopHuntAgent extends AgentBase {
@@ -74,6 +81,7 @@ export class StopHuntAgent extends AgentBase {
   // Track which (symbol, level, direction) triples we've already fired on
   // recently, to avoid double-counting the same hunt event.
   private firedRecently: Map<string, number> = new Map(); // key → timestamp
+  private lastFeedWarnAt = 0;
 
   constructor() {
     const config: AgentConfig = {
@@ -117,8 +125,20 @@ export class StopHuntAgent extends AgentBase {
     const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
-    const book = ((global as any).__binanceFuturesBook || {})[binSym] as BookSnapshot | undefined;
-    if (!book) return this.neutralSignal(symbol, startTime, `No futures book for ${binSym}`);
+    const futuresBookGlobal = (global as any).__binanceFuturesBook as Record<string, BookSnapshot> | undefined;
+    const book = (futuresBookGlobal || {})[binSym];
+    if (!book) {
+      if (!futuresBookGlobal || Object.keys(futuresBookGlobal).length === 0) {
+        const nowMs = getActiveClock().now();
+        if (nowMs - this.lastFeedWarnAt > 60_000) {
+          this.lastFeedWarnAt = nowMs;
+          engineLogger.warn('StopHuntAgent has no Binance futures book feed', {
+            agent: this.config.name, symbol, binanceSymbol: binSym,
+          });
+        }
+      }
+      return this.neutralSignal(symbol, startTime, `No futures book for ${binSym}`);
+    }
     const age = getActiveClock().now() - book.eventTime;
     if (age > STALE_MS) return this.neutralSignal(symbol, startTime, `Book stale (${age}ms)`);
     if (!isFinite(book.midPrice) || book.midPrice <= 0) {

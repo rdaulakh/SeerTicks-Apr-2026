@@ -58,7 +58,7 @@ interface TimeframeTrends {
 interface TechnicalIndicators {
   rsi: number;
   macd: { value: number; signal: number; histogram: number };
-  bollingerBands: { upper: number; middle: number; lower: number };
+  bollingerBands: { upper: number; middle: number; lower: number; pctB?: number };
   sma20: number;
   sma50: number;
   sma200: number; // For regime detection
@@ -283,8 +283,34 @@ export class TechnicalAnalyst extends AgentBase {
           rsi: indicators.rsi,
           macd: indicators.macd,
           bollingerBands: indicators.bollingerBands,
+          // Phase 93.18 — surface bbPctB at the top level so SensorWiring's
+          // `ev.bbPctB` lookup actually populates Sensorium (was always 0.5).
+          // Fall back to deriving from band edges if the cache doesn't carry it.
+          bbPctB: typeof (indicators.bollingerBands as any)?.pctB === 'number'
+            ? (indicators.bollingerBands as any).pctB
+            : (() => {
+                const w = indicators.bollingerBands.upper - indicators.bollingerBands.lower;
+                return w > 0 ? (currentPrice - indicators.bollingerBands.lower) / w : 0.5;
+              })(),
           superTrend: indicators.superTrend,
+          // Phase 93.18 — VWAP is stored as a price number; deviation is
+          // computed against the spot price. SensorWiring reads
+          // `ev.vwapDeviation` for `technical.vwapDevPct`.
           vwap: indicators.vwap,
+          vwapDeviation:
+            indicators.vwap && indicators.vwap > 0
+              ? ((currentPrice - indicators.vwap) / indicators.vwap) * 100
+              : 0,
+          ema: {
+            trend:
+              indicators.ema12 > indicators.ema26
+                ? 'up'
+                : indicators.ema12 < indicators.ema26
+                  ? 'down'
+                  : 'flat',
+            ema12: indicators.ema12,
+            ema26: indicators.ema26,
+          },
           currentPrice,
           sma20: indicators.sma20,
           sma50: indicators.sma50,

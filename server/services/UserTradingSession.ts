@@ -930,7 +930,15 @@ export class UserTradingSession extends EventEmitter {
         this.tradingEngine.on('position_closed', (closedData: any) => {
           const position = closedData?.position;
           const pnl = closedData?.pnl ?? 0;
-          const exitPrice = position?.exitPrice ?? position?.currentPrice ?? 0;
+          // Phase 93.5 — prefer the engine's ACTUAL exchange fill price over
+          // the in-memory position.currentPrice (which is the last tick price,
+          // not the fill). RealTradingEngine emits filledPrice on position_closed;
+          // PaperTradingEngine writes fillPrice into position.exitPrice. Either
+          // way we get the real-money outcome into the learning loop.
+          const exitPrice = closedData?.filledPrice
+            ?? position?.exitPrice
+            ?? position?.currentPrice
+            ?? 0;
           if (!position?.symbol) return;
           try {
             const evaluator = getDecisionEvaluator(this.userId);
@@ -1487,7 +1495,18 @@ export class UserTradingSession extends EventEmitter {
     reason: string = 'manual_close',
   ): Promise<{
     success: true;
+    /**
+     * Phase 93.5 — the ACTUAL exchange fill price (live) or simulated-fill
+     * price (paper), NOT the request-time mid. Falls back to the request-time
+     * price only if the engine never emits `position_closed` (which would be
+     * an upstream bug; we still surface a number so downstream learning paths
+     * don't crash, but the engineLogger warn fires).
+     */
     price: number;
+    /** Phase 93.5 — realized P&L from the engine event (true when available). */
+    realizedPnl?: number;
+    /** Phase 93.5 — actual filled quantity (live; may differ from request on partial fill). */
+    filledQuantity?: number;
     symbol: string;
     guardReason: string;
     netPnlPercent: number;
@@ -1544,6 +1563,44 @@ export class UserTradingSession extends EventEmitter {
     // API caller sees a structured error and can retry. We do NOT enter
     // automatic retry here — manual closes are driven by the caller, so we
     // surface the error and let them decide.
+    //
+    // Phase 93.5 — CRITICAL: capture the ACTUAL exchange fill price + realized
+    // pnl from the engine's `position_closed` event so the brain's learning
+    // loop (PatternPopulator, AgentWeightManager, AgentPnlAttributor, mlTrainingData)
+    // sees the true outcome, NOT the request-time mid. Pre-fix: BrainExecutor →
+    // EngineAdapter.closePosition → here → returned `currentPrice` always,
+    // poisoning the alpha library with mid-price PnL for every live exit.
+    let capturedFillPrice: number | undefined;
+    let capturedRealizedPnl: number | undefined;
+    let capturedFilledQty: number | undefined;
+    const captureListener = (closedData: any) => {
+      try {
+        // Match on positionId — both PaperTradingEngine and RealTradingEngine
+        // emit { position, pnl, ... }. The position.id is the in-memory id we
+        // just asked to close.
+        const pid = closedData?.position?.id;
+        if (pid !== positionId) return;
+        const filledPrice = closedData?.filledPrice
+          ?? closedData?.position?.exitPrice
+          ?? closedData?.position?.filledPrice;
+        if (typeof filledPrice === 'number' && Number.isFinite(filledPrice) && filledPrice > 0) {
+          capturedFillPrice = filledPrice;
+        }
+        if (typeof closedData?.pnl === 'number' && Number.isFinite(closedData.pnl)) {
+          capturedRealizedPnl = closedData.pnl;
+        }
+        if (typeof closedData?.filledQuantity === 'number' && closedData.filledQuantity > 0) {
+          capturedFilledQty = closedData.filledQuantity;
+        }
+      } catch {
+        /* never let the capture listener affect the close path */
+      }
+    };
+    // Attach BEFORE invoking close so we don't miss the synchronous emit
+    // (RealTradingEngine.closePosition emits position_closed in the same
+    // microtask chain as closePositionById's await).
+    this.tradingEngine.on('position_closed', captureListener);
+
     let engineErrMsg: string | undefined;
     try {
       await this.tradingEngine.closePositionById(
@@ -1554,6 +1611,29 @@ export class UserTradingSession extends EventEmitter {
     } catch (engineErr) {
       engineErrMsg = (engineErr as Error)?.message;
     }
+
+    // Engine emits position_closed synchronously during closePosition() (inside
+    // executeOrderOnExchange → placeOrder → closePosition). However if the
+    // exchange adapter's fill resolution is async (e.g. a fill-poll), give it
+    // up to 2s to land before we decide we missed the event.
+    if (!engineErrMsg && capturedFillPrice === undefined) {
+      const waitDeadlineMs = 2000;
+      const pollStep = 25;
+      const start = Date.now();
+      while (capturedFillPrice === undefined && Date.now() - start < waitDeadlineMs) {
+        await new Promise((res) => setTimeout(res, pollStep));
+      }
+      if (capturedFillPrice === undefined) {
+        try {
+          const { engineLogger } = await import('../utils/logger');
+          engineLogger.warn(
+            `[UserTradingSession] requestManualClose: position_closed not observed within ${waitDeadlineMs}ms for pos=${positionId} ${symbol} — learning loop will see request-time price (degraded)`,
+          );
+        } catch { /* logger optional */ }
+      }
+    }
+    // Detach the listener regardless of outcome (no memory leak on failure paths).
+    try { this.tradingEngine.off('position_closed', captureListener); } catch { /* noop */ }
 
     if (engineErrMsg) {
       console.error(
@@ -1567,21 +1647,26 @@ export class UserTradingSession extends EventEmitter {
 
     // Clear any prior retry state (defensive — the IEM path may have retries queued).
     this.exitRetryCount.delete(positionId);
+
+    const effectiveExitPrice = capturedFillPrice ?? currentPrice;
     this.emit('exit_executed', {
       positionId,
       reason: `manual:${reason}`,
-      price: currentPrice,
+      price: effectiveExitPrice,
       symbol,
     });
 
     console.log(
       `[UserTradingSession] ✅ MANUAL CLOSE pos=${positionId} ${symbol} ${position.side}: ` +
-        `${guard.reason} | gross=${guard.grossPnlPercent.toFixed(3)}% net=${guard.netPnlPercent.toFixed(3)}%`,
+        `${guard.reason} | gross=${guard.grossPnlPercent.toFixed(3)}% net=${guard.netPnlPercent.toFixed(3)}% | ` +
+        `fillPrice=${capturedFillPrice !== undefined ? `$${capturedFillPrice.toFixed(4)} (real)` : `$${currentPrice.toFixed(4)} (request-time, no fill event)`}`,
     );
 
     return {
       success: true,
-      price: currentPrice,
+      price: effectiveExitPrice,
+      realizedPnl: capturedRealizedPnl,
+      filledQuantity: capturedFilledQty,
       symbol,
       guardReason: guard.reason,
       netPnlPercent: guard.netPnlPercent,

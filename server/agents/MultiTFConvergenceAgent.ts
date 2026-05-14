@@ -27,6 +27,7 @@
 
 import { AgentBase, AgentSignal, AgentConfig } from "./AgentBase";
 import { getActiveClock } from '../_core/clock';
+import { engineLogger } from '../utils/logger';
 
 interface PriceSample { price: number; timestamp: number; }
 interface BookSnapshot { midPrice: number; eventTime: number; }
@@ -43,6 +44,7 @@ const MAX_CONFIDENCE = 0.83;
 
 export class MultiTFConvergenceAgent extends AgentBase {
   private samples: Map<string, PriceSample[]> = new Map();
+  private lastFeedWarnAt = 0;
 
   constructor() {
     const config: AgentConfig = {
@@ -90,8 +92,24 @@ export class MultiTFConvergenceAgent extends AgentBase {
     const startTime = getActiveClock().now();
     const binSym = this.toBinanceSymbol(symbol);
 
-    const book = ((global as any).__binanceFuturesBook || {})[binSym] as BookSnapshot | undefined;
-    if (!book) return this.neutralSignal(symbol, startTime, `No futures book for ${binSym}`);
+    const futuresBookGlobal = (global as any).__binanceFuturesBook as Record<string, BookSnapshot> | undefined;
+    const book = (futuresBookGlobal || {})[binSym];
+    if (!book) {
+      // If the futures book global is empty entirely, the Binance Futures WS
+      // is not delivering data (geo-block / ENABLE_BINANCE_FUTURES_WS=0 /
+      // connection failed). Log once per minute and exit gracefully instead
+      // of silently neutral-looping forever.
+      if (!futuresBookGlobal || Object.keys(futuresBookGlobal).length === 0) {
+        const now = getActiveClock().now();
+        if (now - this.lastFeedWarnAt > 60_000) {
+          this.lastFeedWarnAt = now;
+          engineLogger.warn('MultiTFConvergenceAgent has no Binance futures book feed', {
+            agent: this.config.name, symbol, binanceSymbol: binSym,
+          });
+        }
+      }
+      return this.neutralSignal(symbol, startTime, `No futures book for ${binSym}`);
+    }
     const age = getActiveClock().now() - book.eventTime;
     if (age > STALE_MS) return this.neutralSignal(symbol, startTime, `Book stale (${age}ms)`);
     if (!isFinite(book.midPrice) || book.midPrice <= 0) {

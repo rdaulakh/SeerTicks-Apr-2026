@@ -96,19 +96,30 @@ class BrainExecutor extends EventEmitter {
           const r = await adapter.closePosition(0, liveRow.symbol, String(numericId), `brain:${reason}`)
             .catch((err: Error) => ({ success: false, error: err?.message } as any));
           if ((r as any)?.success) {
-            logger.info(`[BrainExecutor] 🧠💰 LIVE EXIT routed via EngineAdapter id=${numericId} ${liveRow.symbol} ${liveRow.side} → engine closed @ $${(r as any).price ?? currentPrice} reason="${reason}"`);
-            // Phase 89 — compute realizedPnl BEFORE both the learning loop and
-            // the event emit, so both code paths get the same value. Previously
-            // realizedPnl lived inside the learning-loop try block and the
-            // brain_position_closed emit (PatternPopulator's input) was missing
-            // it → live exits silently corrupted the alpha library with NaN.
-            const exitPrice = (r as any).price ?? currentPrice;
+            // Phase 93.5 — use the ACTUAL exchange fill price + engine-reported
+            // realizedPnl. Pre-Phase-93.5 `r.price` was the request-time mid
+            // (UserTradingSession.requestManualClose returned `currentPrice`),
+            // so every closed LIVE trade taught PatternPopulator + agentWeights +
+            // mlTrainingData the WRONG outcome. Now r.price = true fill,
+            // r.realizedPnl = engine pnl from order.filledPrice.
+            const rPrice = (r as any).price;
+            const exitPrice = typeof rPrice === 'number' && Number.isFinite(rPrice) && rPrice > 0
+              ? rPrice : currentPrice;
+            const usingRealFill = exitPrice !== currentPrice;
             const entryPx = parseFloat(liveRow.entryPrice);
-            const qty = parseFloat(liveRow.quantity);
+            const qty = (typeof (r as any).filledQuantity === 'number' && (r as any).filledQuantity > 0)
+              ? (r as any).filledQuantity
+              : parseFloat(liveRow.quantity);
             const sideMul = liveRow.side === 'long' ? 1 : -1;
-            const realizedPnl = sideMul * (exitPrice - entryPx) * qty;
+            // Prefer the engine's realizedPnl if it observed the actual fill;
+            // otherwise derive from exit/entry/qty.
+            const enginePnl = (r as any).realizedPnl;
+            const realizedPnl = typeof enginePnl === 'number' && Number.isFinite(enginePnl)
+              ? enginePnl
+              : sideMul * (exitPrice - entryPx) * qty;
+            logger.info(`[BrainExecutor] 🧠💰 LIVE EXIT routed via EngineAdapter id=${numericId} ${liveRow.symbol} ${liveRow.side} → engine closed @ $${exitPrice.toFixed(4)} (${usingRealFill ? 'real fill' : 'request-time fallback'}) pnl=$${realizedPnl.toFixed(2)} reason="${reason}"`);
 
-            // Learning loop: feed real-money outcome too.
+            // Learning loop: feed REAL-MONEY outcome (real fill, real pnl).
             try {
               const { getDecisionEvaluator } = await import('../services/DecisionEvaluator');
               const evaluator = getDecisionEvaluator(liveRow.userId);
@@ -161,12 +172,24 @@ class BrainExecutor extends EventEmitter {
           const r = await adapter.closePosition(0, row.symbol, String(numericId), `brain:${reason}`)
             .catch((err: Error) => ({ success: false, error: err?.message } as any));
           if ((r as any)?.success) {
-            const exitPrice = (r as any).price ?? currentPrice;
+            // Phase 93.5 — same fix as the primary LIVE branch above: prefer the
+            // ACTUAL exchange fill price and engine-reported realizedPnl over
+            // the request-time mid. Pre-fix this branch fed the learning loop +
+            // PatternPopulator + AgentPnlAttributor with mid-price PnL.
+            const rPrice = (r as any).price;
+            const exitPrice = typeof rPrice === 'number' && Number.isFinite(rPrice) && rPrice > 0
+              ? rPrice : currentPrice;
+            const usingRealFill = exitPrice !== currentPrice;
             const entryPx = parseFloat(row.entryPrice);
-            const qty = parseFloat(row.quantity);
+            const qty = (typeof (r as any).filledQuantity === 'number' && (r as any).filledQuantity > 0)
+              ? (r as any).filledQuantity
+              : parseFloat(row.quantity);
             const sideMul = row.side === 'long' ? 1 : -1;
-            const realizedPnl = sideMul * (exitPrice - entryPx) * qty;
-            logger.info(`[BrainExecutor] 🧠💰 LIVE EXIT (paperPositions row, tradingMode=live) routed via EngineAdapter id=${numericId} ${row.symbol} ${row.side} → engine closed @ $${exitPrice} pnl=$${realizedPnl.toFixed(2)} reason="${reason}"`);
+            const enginePnl = (r as any).realizedPnl;
+            const realizedPnl = typeof enginePnl === 'number' && Number.isFinite(enginePnl)
+              ? enginePnl
+              : sideMul * (exitPrice - entryPx) * qty;
+            logger.info(`[BrainExecutor] 🧠💰 LIVE EXIT (paperPositions row, tradingMode=live) routed via EngineAdapter id=${numericId} ${row.symbol} ${row.side} → engine closed @ $${exitPrice.toFixed(4)} (${usingRealFill ? 'real fill' : 'request-time fallback'}) pnl=$${realizedPnl.toFixed(2)} reason="${reason}"`);
             // Learning loop
             try {
               const { getDecisionEvaluator } = await import('../services/DecisionEvaluator');
@@ -395,6 +418,14 @@ class BrainExecutor extends EventEmitter {
     exchange?: 'coinbase' | 'binance';
     /** Phase 85 — set 'live' to attempt live entry (requires brain.liveEntriesEnabled feature flag). */
     mode?: 'paper' | 'live';
+    /**
+     * Phase 93.18 — brain confidence at entry time (geometric mean of
+     * opp×stance×confluence; range 0..1). Persisted as originalConsensus +
+     * peakConfidence so the confidence-decay exit + Brier scoring use real
+     * values instead of the 0.65 default that was hardcoded in
+     * UserTradingSession.
+     */
+    entryConsensus?: number;
   }): Promise<ExecutionResult & { positionId?: number }> {
     try {
       const db = await getDb();
@@ -530,6 +561,12 @@ class BrainExecutor extends EventEmitter {
       const adverseSlip = args.side === 'long' ? entryPrice * slipFactor : -entryPrice * slipFactor;
       entryPrice = entryPrice + adverseSlip;
 
+      // Phase 93.18 — persist real entry consensus on the row so downstream
+      // exit logic (confidence decay, peak-tracking) doesn't fall back to the
+      // 0.65 default that was hardcoded in UserTradingSession.
+      const conf = typeof args.entryConsensus === 'number' && Number.isFinite(args.entryConsensus)
+        ? Math.max(0, Math.min(1, args.entryConsensus))
+        : null;
       const inserted = await db.insert(paperPositions).values({
         userId: args.userId ?? 1,
         tradingMode: 'paper',
@@ -547,6 +584,12 @@ class BrainExecutor extends EventEmitter {
         commission: '0',
         strategy: 'brain_v2_entry',
         status: 'open',
+        ...(conf !== null ? {
+          originalConsensus: conf.toFixed(4),
+          currentConfidence: conf.toFixed(4),
+          peakConfidence: conf.toFixed(4),
+          peakConfidenceTime: getActiveClock().date(),
+        } : {}),
       });
       const insertedId = (inserted as any)?.[0]?.insertId ?? (inserted as any)?.insertId ?? null;
       logger.info(`[BrainExecutor] 🧠🆕 OPENED ${args.symbol} ${args.side} qty=${args.quantity.toFixed(6)} @ $${entryPrice.toFixed(4)} (slip ${slipBps.toFixed(1)}bps) sl=$${args.stopLoss.toFixed(4)} tp=$${args.takeProfit.toFixed(4)} id=${insertedId} reason="${args.reason}"`);

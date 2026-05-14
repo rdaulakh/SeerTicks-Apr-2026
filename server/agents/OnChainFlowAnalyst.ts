@@ -4,6 +4,7 @@ import { MarketDataInput } from "./DeterministicFallback";
 import { getAggregatedOnChainData, getOnChainSignalFromAggregated } from "../services/MultiSourceOnChainService";
 import { getBGeometricsService } from "../services/BGeometricsService";
 import { FreeOnChainDataProvider } from "./FreeOnChainDataProvider";
+import { engineLogger } from "../utils/logger";
 
 /**
  * OnChainFlowAnalyst Agent - Phase 2 Implementation
@@ -120,6 +121,24 @@ export class OnChainFlowAnalyst extends AgentBase {
       const flowData = aggregatedData.status === 'fulfilled' ? aggregatedData.value : null;
       const flowSignalResult = flowData ? getOnChainSignalFromAggregated(flowData) : null;
 
+      // If BOTH upstream sources produced nothing usable (BGeometrics dead AND
+      // CoinGlass/flow aggregator returned no real sources), don't pretend we
+      // saw "neutral on-chain" — fall through to the price-momentum proxy
+      // (deterministic, no Math.random) so we still emit a directional opinion
+      // instead of starving the brain with another neutral.
+      const bgUsable = !!bgSignals && bgSignals.combinedSignal !== 'neutral';
+      const flowUsable = !!flowData && (flowData as any).sourceCount > 0 && !!flowSignalResult && flowSignalResult.signal !== 'neutral';
+      if (!bgUsable && !flowUsable) {
+        engineLogger.warn('OnChainFlowAnalyst upstream silent, using price-momentum proxy', {
+          agent: this.config.name,
+          symbol,
+          bgStatus: bgeometricsSignals.status,
+          flowStatus: aggregatedData.status,
+          sourceCount: (flowData as any)?.sourceCount ?? 0,
+        });
+        return this.generateDeterministicFallback(symbol, context, startTime);
+      }
+
       // Combine signals: BGeometrics (60% weight) + Exchange Flows (40% weight)
       const { signal, confidence, strength, reasoning, evidence } = this.combineOnChainSignals(
         bgSignals,
@@ -159,7 +178,11 @@ export class OnChainFlowAnalyst extends AgentBase {
         executionScore: this.calculateCombinedExecutionScore(bgSignals, flowSignalResult),
       };
     } catch (error) {
-      console.error(`[${this.config.name}] Multi-source analysis failed:`, error);
+      engineLogger.warn('OnChainFlowAnalyst multi-source analysis threw, using price-momentum proxy', {
+        agent: this.config.name,
+        symbol,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return this.generateDeterministicFallback(symbol, context, startTime);
     }
   }
@@ -811,8 +834,6 @@ export class OnChainFlowAnalyst extends AgentBase {
     context: any,
     startTime: number
   ): AgentSignal {
-    console.warn(`[${this.config.name}] Activating deterministic fallback...`);
-
     const marketData: MarketDataInput = {
       currentPrice: context?.currentPrice || this.currentPrice || 0,
       priceChange24h: context?.priceChange24h || 0,
@@ -823,21 +844,31 @@ export class OnChainFlowAnalyst extends AgentBase {
       volumeHistory: context?.volumeHistory || [],
     };
 
-    // Simple deterministic logic based on price momentum
+    // Update priceHistory from context.currentPrice (setCurrentPrice() is
+    // never called from GlobalSymbolAnalyzer for OnChainFlowAnalyst, so we
+    // self-seed here using the MarketContext price each cycle).
+    if (typeof context?.currentPrice === 'number' && context.currentPrice > 0) {
+      this.setCurrentPrice(context.currentPrice);
+    }
+
+    // Simple deterministic logic based on price momentum + MarketContext deltas.
+    // Inverse correlation: falling prices often precede accumulation.
     let signal: "bullish" | "bearish" | "neutral" = "neutral";
     let confidence = 0.4;
     let strength = 0.3;
 
-    const priceChange = this.calculatePriceChange();
-    
-    // Inverse correlation: falling prices often precede accumulation
-    if (priceChange < -0.03) {
+    // Prefer MarketContext priceVsSMA50 when available (much richer than the
+    // 24-sample priceHistory ring), else fall back to the local ring delta.
+    const ctxBias = typeof context?.priceVsSMA50 === 'number' ? context.priceVsSMA50 / 100 : null;
+    const priceChange = ctxBias !== null ? ctxBias : this.calculatePriceChange();
+
+    if (priceChange < -0.02) {
       signal = "bullish"; // Potential accumulation opportunity
-      confidence = 0.5;
+      confidence = Math.min(0.5 + Math.abs(priceChange) * 2, 0.7);
       strength = Math.min(Math.abs(priceChange) * 5, 0.6);
-    } else if (priceChange > 0.05) {
+    } else if (priceChange > 0.03) {
       signal = "bearish"; // Potential distribution
-      confidence = 0.5;
+      confidence = Math.min(0.5 + Math.abs(priceChange) * 2, 0.7);
       strength = Math.min(Math.abs(priceChange) * 5, 0.6);
     }
 
