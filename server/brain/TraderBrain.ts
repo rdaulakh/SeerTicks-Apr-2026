@@ -658,6 +658,61 @@ class TraderBrain {
       }
     }
 
+    // Phase 93.22 — Gate 8: EXTENSION-EXHAUSTION block (don't FOMO-buy the top
+    // / FOMO-sell the bottom).
+    //
+    // Post-Phase-93.21 audit (40min, 6 trades): all 6 trades were LONG (Gates
+    // 6/7 correctly filter shorts in this uptrend). All 6 lost. Reason: the
+    // brain confirmed direction with TechnicalAnalyst but didn't check whether
+    // price was already over-extended. ETH entry at RSI=68, bbPctB=1.11
+    // (already above the upper Bollinger band) → lost $12.33 in one trade.
+    //
+    // Mean-reversion is real at extremes. When the technical sensor says the
+    // trend is bullish AND price is already extended above its statistical
+    // band (overbought), entering long has poor expectancy regardless of
+    // direction agreement.
+    //
+    // Long extension thresholds (don't long when ANY two of):
+    //   rsi > 75          (overbought)
+    //   bbPctB > 1.05     (above upper Bollinger band by >5%)
+    //   vwapDevPct > 1.0  (>1% above VWAP)
+    //
+    // Short extension thresholds (don't short when ANY two of):
+    //   rsi < 25
+    //   bbPctB < -0.05
+    //   vwapDevPct < -1.0
+    if (tech) {
+      if (opp.direction === 'long') {
+        const longOverbought = [
+          tech.rsi > 75,
+          tech.bbPctB > 1.05,
+          tech.vwapDevPct > 1.0,
+        ].filter(Boolean).length;
+        if (longOverbought >= 2) {
+          return {
+            kind: 'abstain',
+            pipelineStep: 'should_enter:long_extension_exhaustion',
+            reason: `long at extension exhaustion (rsi=${tech.rsi.toFixed(0)}, bbPctB=${tech.bbPctB.toFixed(2)}, vwapDev=${tech.vwapDevPct.toFixed(2)}%) — ${longOverbought}/3 overbought signals`,
+            symbol,
+          };
+        }
+      } else if (opp.direction === 'short') {
+        const shortOversold = [
+          tech.rsi < 25,
+          tech.bbPctB < -0.05,
+          tech.vwapDevPct < -1.0,
+        ].filter(Boolean).length;
+        if (shortOversold >= 2) {
+          return {
+            kind: 'abstain',
+            pipelineStep: 'should_enter:short_extension_exhaustion',
+            reason: `short at extension exhaustion (rsi=${tech.rsi.toFixed(0)}, bbPctB=${tech.bbPctB.toFixed(2)}, vwapDev=${tech.vwapDevPct.toFixed(2)}%) — ${shortOversold}/3 oversold signals`,
+            symbol,
+          };
+        }
+      }
+    }
+
     // Sizing — Phase 93.3 (confidence-weighted, evolved from 93.2)
     //
     // Combines THREE independent confidence signals into a unified "brain
