@@ -84,6 +84,14 @@ export interface BrainConfig {
    *  exits fire. Hard-stop still fires immediately (it's the safety floor).
    *  Default 5 min. Tunable via systemConfig brain.minHoldMinutes. */
   minHoldMinutes?: number;
+  /** Phase 93.24 — consensus-flip debounce in seconds. Require the opposite
+   *  direction to PERSIST for this long before firing consensus_flip exit.
+   *  Default 90s. Tunable via systemConfig brain.consensusFlipPersistSec.
+   *  Audit on 2026-05-15: brain-opened paper trades exit at consensus_flip
+   *  within 5-13 min with $0.06-$0.67 magnitude — the flip fires on
+   *  transient opposite-direction conviction that may flip back seconds
+   *  later. Debouncing protects against flicker. */
+  consensusFlipPersistSec?: number;
 }
 
 const DEFAULT_CONFIG: BrainConfig = {
@@ -109,6 +117,8 @@ const DEFAULT_CONFIG: BrainConfig = {
   defaultStopLossPercent: 1.2,
   defaultTakeProfitPercent: 1.0,
   candidateSymbols: ['BTC-USD', 'ETH-USD', 'SOL-USD'],
+  // Phase 93.24 — 90s debounce on consensus_flip.
+  consensusFlipPersistSec: 90,
 };
 
 class TraderBrain {
@@ -152,6 +162,12 @@ class TraderBrain {
    * an exit is in flight. Cleared after the executor returns.
    */
   private inFlightExits = new Set<string | number>();
+  /** Phase 93.24 — when consensus first appears to have flipped on a
+   *  position, record the timestamp. The consensus_flip exit only fires
+   *  if the flip persists for `consensusFlipPersistSec` seconds. Cleared
+   *  any tick where the flip condition is NOT met (so transient flips
+   *  reset the timer rather than accumulating). */
+  private flipDetectStartMs = new Map<string | number, number>();
   /**
    * The live IEM's last action per position, fed in via setLiveIEMAction().
    * Used in dryRun mode for side-by-side comparison.
@@ -278,6 +294,7 @@ class TraderBrain {
         'stalePeakPnlPct', 'adaptiveTargetAtrMult',
         'entryCooldownMs', // Phase 93.16 — added so 5s default is tunable from DB.
         'minHoldMinutes',  // Phase 93.17 — min hold time before discretionary exits.
+        'consensusFlipPersistSec', // Phase 93.24 — debounce window for consensus_flip exit.
       ]);
       for (const r of rows) {
         const shortKey = r.configKey.replace(/^brain\./, '');
@@ -411,6 +428,17 @@ class TraderBrain {
         } catch (err) {
           logger.warn('[TraderBrain] entry-decision error', { symbol, error: (err as Error)?.message });
         }
+      }
+    }
+
+    // Phase 93.24 — GC the flip-debounce map for positions that have closed
+    // so a re-opened position with the same id starts fresh. Sensorium prunes
+    // closed positions, so any id in our map that isn't in sensorium's active
+    // list is dead.
+    if (this.flipDetectStartMs.size > 0) {
+      const activeSet = new Set(this.activePositionIds(sensorium).map(String));
+      for (const id of this.flipDetectStartMs.keys()) {
+        if (!activeSet.has(String(id))) this.flipDetectStartMs.delete(id);
       }
     }
 
@@ -1057,14 +1085,37 @@ class TraderBrain {
       // Tier A: in profit + base threshold met (default 0.30).
       // Tier B: strong flip (≥ 0.75) regardless of P&L — protects losing positions
       //         from running indefinitely when consensus has decisively flipped.
-      const flipDetected = (inProfit && baseFlipped) || strongFlipped;
+      const flipConditionMet = (inProfit && baseFlipped) || strongFlipped;
+
+      // Phase 93.24 — DEBOUNCE. Consensus can flicker; a single 100ms tick
+      // seeing opposite-direction consensus is not yet a real "flip". Require
+      // the condition to hold continuously for `consensusFlipPersistSec`
+      // (default 90s) before the exit fires.
+      const persistSec = this.config.consensusFlipPersistSec ?? 90;
+      const now = Date.now();
+      let flipDetected = false;
+      if (flipConditionMet) {
+        const startedAt = this.flipDetectStartMs.get(positionId);
+        if (startedAt === undefined) {
+          // First tick of the flip — start the timer.
+          this.flipDetectStartMs.set(positionId, now);
+        } else if (now - startedAt >= persistSec * 1000) {
+          flipDetected = true;
+        }
+      } else {
+        // Flip condition no longer met — clear the timer (transient flicker).
+        this.flipDetectStartMs.delete(positionId);
+      }
+
       if (flipDetected) {
         const tier = inProfit && baseFlipped && !strongFlipped ? 'A' : 'B';
         const entryLabel = stance.entryDirection ?? `${effectiveEntryDirection}(implied)`;
+        const heldFlipSec = (now - (this.flipDetectStartMs.get(positionId) ?? now)) / 1000;
+        this.flipDetectStartMs.delete(positionId); // clear after firing
         return {
           kind: 'exit_full',
           pipelineStep: 'consensus_flip',
-          reason: `Consensus flipped ${entryLabel}→${stance.currentDirection} @ ${(stance.currentConsensus * 100).toFixed(0)}% conviction (tier ${tier}, pnl=${pos.unrealizedPnlPercent.toFixed(2)}%); trade thesis dead`,
+          reason: `Consensus flipped ${entryLabel}→${stance.currentDirection} @ ${(stance.currentConsensus * 100).toFixed(0)}% conviction (tier ${tier}, pnl=${pos.unrealizedPnlPercent.toFixed(2)}%, persisted ${heldFlipSec.toFixed(0)}s); trade thesis dead`,
           urgency: 'now',
         };
       }
