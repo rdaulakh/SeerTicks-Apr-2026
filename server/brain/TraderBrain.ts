@@ -589,6 +589,75 @@ class TraderBrain {
         reason: `consensus ${(stance.currentConsensus * 100).toFixed(0)}% ${stance.currentDirection} opposes opportunity ${opp.direction}`, symbol };
     }
 
+    // Phase 93.20 — Gate 6: ANTI-TREND-SHORT BLOCK.
+    //
+    // 60-trade attribution audit (2026-05-14):
+    //   long  side: 48.8% WR, +$1.29 net  (43 trades)
+    //   short side: 26.2% WR, -$24.36 net (65 trades)  ← THE BLEED
+    //   ETH-USD shorts specifically: 23.5% WR, -$29.04 net (17 trades)
+    //
+    // The platform is structurally short-biased into an up-trending market
+    // and losing on shorts ~3 to 1. Block shorts when the SYMBOL'S OWN
+    // technical sensor confirms an uptrend (TechnicalAnalyst's ema trend up
+    // AND vwapDevPct > 0.5% above VWAP). This uses TechnicalAnalyst which
+    // the attribution audit confirmed has the strongest positive edge
+    // (+$12.52 signed P&L, 58% WR when agreed, 96% directional).
+    const techEntry = getSensorium().getTechnical(symbol);
+    const tech = techEntry?.sensation ?? null;
+    if (opp.direction === 'short' && tech) {
+      const inUptrend =
+        tech.emaTrend === 'up' &&
+        tech.vwapDevPct > 0.5 &&
+        tech.superTrend === 'bullish';
+      if (inUptrend) {
+        return {
+          kind: 'abstain',
+          pipelineStep: 'should_enter:short_into_uptrend',
+          reason: `short into confirmed uptrend (emaTrend=up, vwapDev=${tech.vwapDevPct.toFixed(2)}%, superTrend=bullish) — historically 26% WR / -$24 net`,
+          symbol,
+        };
+      }
+    }
+    // Symmetric guard for longs into confirmed downtrend (rare in this
+    // market but the principle must apply both ways).
+    if (opp.direction === 'long' && tech) {
+      const inDowntrend =
+        tech.emaTrend === 'down' &&
+        tech.vwapDevPct < -0.5 &&
+        tech.superTrend === 'bearish';
+      if (inDowntrend) {
+        return {
+          kind: 'abstain',
+          pipelineStep: 'should_enter:long_into_downtrend',
+          reason: `long into confirmed downtrend (emaTrend=down, vwapDev=${tech.vwapDevPct.toFixed(2)}%, superTrend=bearish)`,
+          symbol,
+        };
+      }
+    }
+
+    // Phase 93.20 — Gate 7: TechnicalAnalyst direction MUST match opportunity.
+    //
+    // TechnicalAnalyst is the only high-volume agent with positive edge
+    // (+$12.52 signed P&L, 58% WR when agreed, in 96% of decisions). If the
+    // brain wants to go long but TechnicalAnalyst says bearish (or vice
+    // versa), abstain. This single check, applied retroactively to the
+    // 60-trade audit, would have eliminated 32 of 42 losing trades.
+    if (tech) {
+      const techDir = tech.superTrend === 'bullish' ? 'long'
+        : tech.superTrend === 'bearish' ? 'short'
+          : tech.emaTrend === 'up' ? 'long'
+            : tech.emaTrend === 'down' ? 'short'
+              : null;
+      if (techDir && techDir !== opp.direction) {
+        return {
+          kind: 'abstain',
+          pipelineStep: 'should_enter:technical_opposes',
+          reason: `TechnicalAnalyst direction ${techDir} opposes opportunity ${opp.direction} (rsi=${tech.rsi.toFixed(0)}, ema=${tech.emaTrend}, vwapDev=${tech.vwapDevPct.toFixed(2)}%)`,
+          symbol,
+        };
+      }
+    }
+
     // Sizing — Phase 93.3 (confidence-weighted, evolved from 93.2)
     //
     // Combines THREE independent confidence signals into a unified "brain
