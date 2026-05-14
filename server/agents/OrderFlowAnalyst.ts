@@ -378,7 +378,9 @@ export class OrderFlowAnalyst extends AgentBase {
     reasoning: string;
   } {
     let signal: "bullish" | "bearish" | "neutral" = "neutral";
-    let confidence = 0.5;
+    // Phase 93.25 — silent-neutral demotion (was 0.5 phantom-vote bug). See attribution audit 2026-05-15.
+    // Initial value is the neutral fallback (|score| ≤ 20). All directional branches below reassign confidence.
+    let confidence = 0.02;
     let strength = 0.5;
 
     // A+ Grade: Use composite order book score as primary signal

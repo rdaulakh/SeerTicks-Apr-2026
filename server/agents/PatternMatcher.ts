@@ -93,14 +93,45 @@ export function computeUnvalidatedPatternConfidence(
 }
 
 /**
- * Phase 92 — multi-pattern coherence check.
+ * Phase 96 — timeframe weight for pattern coherence votes.
  *
- * Returns the dominant direction and a coherence ratio in [0, 1]. If the
- * set of detected patterns is contradictory (bullish vs bearish votes
- * each exceed 30% of the directional total), coherence drops below 0.70
- * and the caller emits NEUTRAL. This stops the agent from emitting a
- * directional vote when 5 bullish + 5 bearish patterns "match" the same
- * window — which is the actual production behavior observed today.
+ * Higher-timeframe patterns are higher quality signals. A 1d inverse H&S is
+ * far more meaningful than a 1m wedge that flips every five minutes.
+ * Weighting by TF makes the coherence calculation actually represent the
+ * relative reliability of each detection rather than treating 1m noise on
+ * equal footing with daily structure.
+ */
+export function timeframeWeight(timeframe: string | undefined): number {
+  switch ((timeframe || '').toLowerCase()) {
+    case '1d':
+      return 4.0;
+    case '4h':
+      return 2.0;
+    case '1h':
+      return 1.0;
+    case '15m':
+      return 0.75;
+    case '5m':
+      return 0.5;
+    case '1m':
+      return 0.25;
+    default:
+      return 1.0;
+  }
+}
+
+/**
+ * Phase 92 / Phase 96 — multi-pattern coherence check.
+ *
+ * Returns the dominant direction and a coherence ratio in [0, 1]. Patterns
+ * are weighted by both detection confidence AND timeframe (Phase 96):
+ * 1d=4×, 4h=2×, 1h=1×, 5m=0.5×, 1m=0.25×. This stops 1m noise from
+ * drowning out high-TF structure.
+ *
+ * Phase 96: coherence gate threshold dropped from 70% → 60% (oppositeShare
+ * threshold raised from 0.30 → 0.40) — previous gate produced 100% neutral
+ * in chop markets where moderate-coherence directional votes should still
+ * pass through to consensus.
  */
 export function computeMultiPatternCoherence(
   patterns: ReadonlyArray<DetectedPattern>,
@@ -115,8 +146,10 @@ export function computeMultiPatternCoherence(
   let bearishWeight = 0;
   for (const p of patterns) {
     const dir = classifyPatternDirection(p.name);
-    if (dir === 'bullish') bullishWeight += p.confidence;
-    else if (dir === 'bearish') bearishWeight += p.confidence;
+    const tfW = timeframeWeight((p as any).timeframe as string | undefined);
+    const w = p.confidence * tfW;
+    if (dir === 'bullish') bullishWeight += w;
+    else if (dir === 'bearish') bearishWeight += w;
   }
   const total = bullishWeight + bearishWeight;
   if (total <= 0) {
@@ -126,8 +159,10 @@ export function computeMultiPatternCoherence(
     bullishWeight >= bearishWeight ? 'bullish' : 'bearish';
   const dominantShare = Math.max(bullishWeight, bearishWeight) / total;
   const oppositeShare = Math.min(bullishWeight, bearishWeight) / total;
-  // Contradiction: opposite side has >30% share of the directional weight.
-  const contradiction = oppositeShare > 0.30;
+  // Phase 96: contradiction threshold loosened from oppositeShare > 0.30
+  // (70% dominant) to oppositeShare > 0.40 (60% dominant). Moderate-coherence
+  // setups now pass through; only true 50/50 chop remains gated to neutral.
+  const contradiction = oppositeShare > 0.40;
   return {
     dominantDirection,
     coherence: dominantShare,
@@ -380,9 +415,10 @@ export class PatternMatcher extends AgentBase {
 
         // Compute confidence via the new differentiated transform.
         const rawConfidence = computeUnvalidatedPatternConfidence(bestDetected.confidence);
-        // Coherence scaling: even a high raw confidence should be discounted
-        // if the directional consensus is barely above 70%.
-        const coherenceBonus = (coherence.coherence - 0.70) / 0.30; // 0..1 for coherence 0.70..1.00
+        // Phase 96: coherence scaling rebased on the 60% gate (was 70%).
+        // 0..1 for coherence 0.60..1.00. Below 60% is gated out above by
+        // the contradiction check.
+        const coherenceBonus = (coherence.coherence - 0.60) / 0.40;
         const coherenceMultiplier = 0.85 + Math.max(0, Math.min(1, coherenceBonus)) * 0.15; // 0.85..1.00
         let confidence = rawConfidence * coherenceMultiplier;
         confidence = Math.max(0.05, Math.min(0.80, confidence));

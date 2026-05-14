@@ -36,14 +36,30 @@ import { agentLogger } from "../utils/logger";
  * Top-of-book imbalance: (bidSize_top - askSize_top) / (bidSize_top + askSize_top).
  * Returns 0 when either side is empty (no signal). Range [-1, 1].
  * Positive = bid pressure (bullish), negative = ask pressure (bearish).
+ *
+ * Phase 93.25 — MIN-NOTIONAL FILTER (data-driven, 2026-05-15).
+ * Coinbase L2 batch updates can leave the best level briefly desynced
+ * (e.g. bid_qty=1.0 contracts while ask_qty=0.001) which saturates this
+ * ratio at ±1.0 from pure microstructure noise. Forensic audit attributed
+ * -$14.84 of P&L bleed to this artifact. Require BOTH sides to carry
+ * at least `minNotionalUsd` of resting depth before computing the ratio;
+ * otherwise return 0 (no signal) and let the depth-band buckets dominate.
  */
+const MIN_TOP_OF_BOOK_NOTIONAL_USD = 1000;
 export function computeTopOfBookImbalance(
   bids: Array<[number, number]>,
   asks: Array<[number, number]>,
+  minNotionalUsd: number = MIN_TOP_OF_BOOK_NOTIONAL_USD,
 ): number {
   if (bids.length === 0 || asks.length === 0) return 0;
+  const bidPrice = bids[0][0];
   const bidSize = bids[0][1];
+  const askPrice = asks[0][0];
   const askSize = asks[0][1];
+  // L2-batch artifact guard: thin side → no usable top-of-book signal.
+  if (bidPrice * bidSize < minNotionalUsd || askPrice * askSize < minNotionalUsd) {
+    return 0;
+  }
   const denom = bidSize + askSize;
   if (denom <= 0) return 0;
   return (bidSize - askSize) / denom;
@@ -95,9 +111,14 @@ export function computeDepthRatio(
  *     ratio 2.0 → +0.333, ratio 0.5 → -0.333, ratio 1.0 → 0.0.
  *   This avoids unbounded values when one side is thin.
  *
- * Weights: 0.5 top + 0.3 depth5bp + 0.2 depth20bp. Top of book matters most
- * because it's the next-fill price; deeper bands matter less but reveal
- * iceberg / hidden absorption.
+ * Weights (Phase 93.25, 2026-05-15): 0.3 top + 0.3 depth5bp + 0.4 depth20bp.
+ * Previous weights (0.5 / 0.3 / 0.2) let top-of-book L2 batch artifacts
+ * dominate the score and bled -$14.84 of attributed P&L. Deeper buckets are
+ * far more stable across batch boundaries and reveal genuine iceberg /
+ * hidden absorption, so the weight is pushed outward. Top-of-book still
+ * contributes (and the min-notional filter in computeTopOfBookImbalance
+ * suppresses thin-side artifacts) but it no longer outweighs the depth
+ * signal.
  */
 export function combineImbalanceScores(
   top: number,
@@ -111,7 +132,7 @@ export function combineImbalanceScores(
   const sig5 = ratioToSignal(depth5bp);
   const sig20 = ratioToSignal(depth20bp);
   const clampedTop = Math.max(-1, Math.min(1, top));
-  return 0.5 * clampedTop + 0.3 * sig5 + 0.2 * sig20;
+  return 0.3 * clampedTop + 0.3 * sig5 + 0.4 * sig20;
 }
 
 /**

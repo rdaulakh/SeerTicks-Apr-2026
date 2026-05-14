@@ -4,6 +4,7 @@ import { fetchWhaleAlerts, WhaleTransaction } from "../services/whaleAlertServic
 import { fallbackManager, MarketDataInput } from "./DeterministicFallback";
 import { getAggregatedWhaleData, getWhaleSignalFromAggregated } from "../services/MultiSourceWhaleService";
 import { IcebergOrderDetector, Trade, IcebergPattern, IcebergSignal } from "../services/IcebergOrderDetector";
+import { engineLogger } from "../utils/logger";
 
 /**
  * WhaleTracker Agent - Phase 2 Implementation
@@ -44,6 +45,11 @@ export class WhaleTracker extends AgentBase {
   // Iceberg Order Detection (Priority 1 Integration)
   private icebergDetector: IcebergOrderDetector;
   private lastIcebergSignal: Map<string, IcebergSignal> = new Map();
+
+  // Phase 93.22 — rate-limit the stale-cache warn to once per 5 min.
+  // Forensic audit: Whale Alert rate-limited 134+ consecutive attempts,
+  // upstream returned cached data; agent emitted at conf 0.53 as if fresh.
+  private lastStaleWarnAt = 0;
 
   constructor(config?: Partial<AgentConfig>) {
     super({
@@ -129,7 +135,53 @@ export class WhaleTracker extends AgentBase {
 
       // Get signal from aggregated data
       let signalResult = getWhaleSignalFromAggregated(aggregatedData);
-      
+
+      // Phase 93.22 — stale-cache demotion. MultiSourceWhaleService does not
+      // expose a `cached: boolean` flag, but we can infer staleness from the
+      // source set + per-source timestamps. Forensic audit found Whale Alert
+      // rate-limited 134+ consecutive times — upstream returned cached data
+      // and this agent emitted at conf 0.53 as if fresh, producing a 4.3x
+      // bearish skew from one hours-old flow. Two indicators of stale-cache
+      // emission:
+      //   (a) WhaleAlert is the ONLY real source AND its timestamp is older
+      //       than 5 min (the canonical "stale" cutoff for whale flow data).
+      //   (b) The only sources are estimates (no WhaleAlert / no real data).
+      // In either case, demote confidence to 0.05.
+      const nowMs = getActiveClock().now();
+      const STALE_MS = 5 * 60 * 1000;
+      const whaleAlertSource = aggregatedData.sources.find(s => s.source === "WhaleAlert");
+      const realSources = aggregatedData.sources.filter(
+        s => s.source !== "PriceBasedEstimate" && s.source !== "OrderBookEstimate" && s.source !== "TradeTapeEstimate"
+      );
+      const whaleAlertStale =
+        whaleAlertSource !== undefined &&
+        nowMs - whaleAlertSource.timestamp > STALE_MS;
+      const onlyEstimates = realSources.length === 0;
+      const whaleAlertOnlyAndStale =
+        realSources.length === 1 &&
+        realSources[0]?.source === "WhaleAlert" &&
+        whaleAlertStale;
+      const staleCacheEmission = whaleAlertOnlyAndStale || onlyEstimates;
+      if (staleCacheEmission && signalResult.signal !== "neutral") {
+        if (nowMs - this.lastStaleWarnAt > 300_000) {
+          this.lastStaleWarnAt = nowMs;
+          engineLogger.warn('WhaleTracker demoted (stale-cache emission)', {
+            agent: this.config.name,
+            symbol,
+            originalConfidence: signalResult.confidence,
+            whaleAlertOnlyAndStale,
+            onlyEstimates,
+            sourceCount: aggregatedData.sourceCount,
+            sources: aggregatedData.sources.map(s => s.source),
+          });
+        }
+        signalResult = {
+          ...signalResult,
+          confidence: 0.05,
+          reasoning: `${signalResult.reasoning} [demoted: stale-cache emission — upstream not fresh]`,
+        };
+      }
+
       // ========================================
       // COMBINE ICEBERG SIGNAL WITH WHALE SIGNAL
       // Iceberg detection enhances confidence when aligned

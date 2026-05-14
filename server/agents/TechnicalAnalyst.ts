@@ -190,17 +190,23 @@ export class TechnicalAnalyst extends AgentBase {
         sr,
         signal
       );
-      confidence = Math.max(0.05, Math.min(0.95, confidence + priceDeviationAdjustment));
+      // Phase 96 — cap stacked bonuses at 0.85 (was 0.95). Forensic audit
+      // found 55% of signals saturating near 0.95 due to Dune+MTF+regime
+      // bonuses stacking on top of the 0.9 base cap from
+      // computeTechnicalAnalystConfidence. Hard ceiling at 0.85 across all
+      // bonus stages prevents the saturation.
+      confidence = Math.max(0.05, Math.min(0.85, confidence + priceDeviationAdjustment));
 
       // Apply multi-timeframe bonus
       const bonusResult = this.applyTimeframeBonus(confidence, signal, timeframeTrends, reasoning);
-      confidence = bonusResult.confidence;
+      confidence = Math.min(0.85, bonusResult.confidence);
       reasoning = bonusResult.reasoning;
 
       // Apply Dune Analytics on-chain signal integration
       const onChainResult = await this.applyOnChainSignalBonus(signal, confidence, strength, reasoning);
       signal = onChainResult.signal;
-      confidence = onChainResult.confidence;
+      // Phase 96 — clamp post-Dune confidence to 0.85 stacked ceiling.
+      confidence = Math.min(0.85, onChainResult.confidence);
       strength = onChainResult.strength;
       reasoning = onChainResult.reasoning;
 
@@ -212,7 +218,7 @@ export class TechnicalAnalyst extends AgentBase {
         
         // In trending markets: boost trend-following signals, dampen counter-trend
         if ((regime === 'trending_up' && signal === 'bullish') || (regime === 'trending_down' && signal === 'bearish')) {
-          confidence = Math.min(0.95, confidence * (1 + 0.1 * regimeConfidence));
+          confidence = Math.min(0.85, confidence * (1 + 0.1 * regimeConfidence));
           reasoning += ` [Regime: ${regime} confirms direction, confidence boosted]`;
         } else if ((regime === 'trending_up' && signal === 'bearish') || (regime === 'trending_down' && signal === 'bullish')) {
           // Counter-trend signal in strong trend — reduce confidence
@@ -231,10 +237,10 @@ export class TechnicalAnalyst extends AgentBase {
           const range = (context.resistance as number) - (context.support as number);
           const posInRange = range > 0 ? (currentPrice - (context.support as number)) / range : 0.5;
           if (signal === 'bullish' && posInRange < 0.25) {
-            confidence = Math.min(0.95, confidence * 1.15);
+            confidence = Math.min(0.85, confidence * 1.15);
             reasoning += ' [Near range support: bullish signal boosted]';
           } else if (signal === 'bearish' && posInRange > 0.75) {
-            confidence = Math.min(0.95, confidence * 1.15);
+            confidence = Math.min(0.85, confidence * 1.15);
             reasoning += ' [Near range resistance: bearish signal boosted]';
           }
         }
@@ -266,6 +272,10 @@ export class TechnicalAnalyst extends AgentBase {
 
       const processingTime = getActiveClock().now() - startTime;
       const dataFreshness = (getActiveClock().now() - candles[candles.length - 1].timestamp) / 1000;
+
+      // Phase 96 — final hard cap at 0.85 to defend against any future bonus
+      // stages that might push above the stacked ceiling.
+      confidence = Math.max(0.05, Math.min(0.85, confidence));
 
       // Debug log execution score
       agentLogger.debug('Execution score calculated', { agent: 'TechnicalAnalyst', symbol, executionScore, signal, confidence: (confidence * 100).toFixed(1) + '%' });
@@ -803,29 +813,70 @@ export class TechnicalAnalyst extends AgentBase {
     );
     const strength = Math.min(Math.abs(netSignal) * 1.5, 1.0);
 
-    // OVEREXTENSION CHECK: Prevent bullish signals when market is already overextended
-    // This is the key fix for the 76.5% bullish bias - most bullish signals come during
-    // already-extended moves where RSI is high and price is above upper Bollinger
+    // OVEREXTENSION → MEAN REVERSION CALL (Phase 96 fix for F5)
+    //
+    // Forensic finding: previous logic silenced bullish-at-top by downgrading
+    // to NEUTRAL with `confidence *= 0.6`. Result: 0 bearish signals in 3h of
+    // production data, 41.5% of output stacked at exactly conf=0.4608.
+    //
+    // The market being overbought is itself a BEARISH (mean-reversion) signal,
+    // not a reason to be silent. Symmetric for oversold → bullish reversal.
+    //
+    // Strong evidence (3 of 3): emit the opposite-direction reversal call.
+    // Mild (1-2 of 3): keep neutral but with a flat low confidence (0.4),
+    // not multiplied off a saturated ceiling.
+    //
+    // We derive bbPctB from the band edges to apply the threshold uniformly
+    // regardless of whether the indicator pipeline pre-populated it.
+    const bbWidth = indicators.bollingerBands.upper - indicators.bollingerBands.lower;
+    const bbPctB =
+      typeof (indicators.bollingerBands as any)?.pctB === 'number'
+        ? (indicators.bollingerBands as any).pctB as number
+        : bbWidth > 0
+          ? (currentPrice - indicators.bollingerBands.lower) / bbWidth
+          : 0.5;
+
     if (signal === "bullish") {
-      const isOverextended = indicators.rsi > 65 && currentPrice > indicators.bollingerBands.upper * 0.98;
-      const isAboveVwap = vwapDeviation > 2.0; // More than 2% above VWAP
-      if (isOverextended && isAboveVwap) {
+      const overboughtRsi = indicators.rsi > 70;
+      const overboughtBb = bbPctB > 1.05;
+      const overboughtVwap = vwapDeviation > 1.5;
+      const overboughtVotes = (overboughtRsi ? 1 : 0) + (overboughtBb ? 1 : 0) + (overboughtVwap ? 1 : 0);
+      if (overboughtVotes === 3) {
+        // Strong mean-reversion: flip to BEARISH reversal call
+        const reversalConfidence = Math.max(0.5, confidence * 0.7);
+        signal = "bearish";
+        confidence = reversalConfidence;
+        agentLogger.debug('Overextension → bearish reversal call', {
+          agent: 'TechnicalAnalyst',
+          rsi: indicators.rsi.toFixed(1),
+          bbPctB: bbPctB.toFixed(3),
+          vwapDev: vwapDeviation.toFixed(2),
+          confidence: reversalConfidence.toFixed(3),
+        });
+      } else if (overboughtVotes >= 1) {
+        // Mild overextension: neutral with flat low confidence (not ceiling × 0.6)
         signal = "neutral";
-        confidence *= 0.6;
-      } else if (isOverextended || isAboveVwap) {
-        confidence *= 0.75; // Reduce confidence for partially overextended
+        confidence = 0.4;
       }
-    }
-    
-    // OVERSOLD CHECK: Boost bearish-to-neutral transitions when market is oversold
-    if (signal === "bearish") {
-      const isOversold = indicators.rsi < 35 && currentPrice < indicators.bollingerBands.lower * 1.02;
-      const isBelowVwap = vwapDeviation < -2.0;
-      if (isOversold && isBelowVwap) {
+    } else if (signal === "bearish") {
+      const oversoldRsi = indicators.rsi < 30;
+      const oversoldBb = bbPctB < -0.05;
+      const oversoldVwap = vwapDeviation < -1.5;
+      const oversoldVotes = (oversoldRsi ? 1 : 0) + (oversoldBb ? 1 : 0) + (oversoldVwap ? 1 : 0);
+      if (oversoldVotes === 3) {
+        const reversalConfidence = Math.max(0.5, confidence * 0.7);
+        signal = "bullish";
+        confidence = reversalConfidence;
+        agentLogger.debug('Oversold → bullish reversal call', {
+          agent: 'TechnicalAnalyst',
+          rsi: indicators.rsi.toFixed(1),
+          bbPctB: bbPctB.toFixed(3),
+          vwapDev: vwapDeviation.toFixed(2),
+          confidence: reversalConfidence.toFixed(3),
+        });
+      } else if (oversoldVotes >= 1) {
         signal = "neutral";
-        confidence *= 0.6;
-      } else if (isOversold || isBelowVwap) {
-        confidence *= 0.75;
+        confidence = 0.4;
       }
     }
     

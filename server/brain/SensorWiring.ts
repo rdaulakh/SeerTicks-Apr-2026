@@ -326,10 +326,11 @@ async function pullAllAgentSignals(): Promise<void> {
       }
     }
 
-    // ─── Build vote (every agent contributes) ─────────────────────────
-    // Phase 93.20 reverted: vote-tally exclusion was a band-aid. The agents
-    // themselves must be corrected. Reference TOXIC_AGENTS_EXCLUDED_FROM_VOTE
-    // remains defined above for telemetry / future contrarian-mode use.
+    // ─── Build vote (every NON-TOXIC agent contributes) ──────────────
+    // Phase 93.25 — re-enabled toxic agent exclusion as belt-and-suspenders
+    // alongside the per-agent corrections. Once the agents themselves emit
+    // balanced signals, this exclusion can be lifted again.
+    if (TOXIC_AGENTS_EXCLUDED_FROM_VOTE.has(agentName)) continue;
     const vote: AgentVote = {
       agentName,
       direction: normalizeDirection(sd),

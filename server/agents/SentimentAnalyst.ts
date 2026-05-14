@@ -147,14 +147,47 @@ export class SentimentAnalyst extends AgentBase {
           fearGreedIndex: this.fearGreedCache?.value,
         };
         const fb = fallbackManager.getSentimentFallback(symbol, marketData);
+
+        // Phase 93.22 — demote fallback emissions when upstream sentiment data
+        // is unreliable. Forensic audit (3,077/3,077 bullish at 0.60) traced to
+        // this exact branch emitting the fallback's 0.60 confidence whenever
+        // the LLM social call timed out or F&G was unavailable. The fallback
+        // is a price-based proxy, NOT real sentiment — it must not vote at
+        // full weight in the brain consensus.
+        const fgUnavailable = fearGreed === null || fearGreed?.value === undefined;
+        const llmSourcesMissing = !socialSentiment.sources || socialSentiment.sources.length === 0;
+        const dataUnreliable = fgUnavailable || llmSourcesMissing;
+        let fallbackConfidence = fb.confidence;
+        let fallbackReasoning = `[ZScore-insufficient → deterministic] ${fb.reasoning}`;
+        if (dataUnreliable) {
+          const nowMs = getActiveClock().now();
+          if (nowMs - this.lastFeedWarnAt > 300_000) {
+            this.lastFeedWarnAt = nowMs;
+            engineLogger.warn('SentimentAnalyst fallback demoted (upstream data unreliable)', {
+              agent: this.config.name,
+              symbol,
+              fgUnavailable,
+              llmSourcesMissing,
+              originalConfidence: fb.confidence,
+            });
+          }
+          fallbackConfidence = Math.min(fb.confidence, 0.05);
+          fallbackReasoning += ' [demoted: F&G or LLM social unavailable]';
+        }
         return {
           agentName: this.config.name,
           symbol,
           signal: fb.signal,
-          confidence: fb.confidence,
+          confidence: fallbackConfidence,
           strength: fb.strength,
-          reasoning: `[ZScore-insufficient → deterministic] ${fb.reasoning}`,
-          evidence: { fallbackReason: fb.fallbackReason, isDeterministic: true },
+          reasoning: fallbackReasoning,
+          evidence: {
+            fallbackReason: fb.fallbackReason,
+            isDeterministic: true,
+            dataAvailable: !dataUnreliable,
+            fgUnavailable,
+            llmSourcesMissing,
+          },
           timestamp: getActiveClock().now(),
           processingTime: getActiveClock().now() - startTime,
           dataFreshness: 0,
@@ -281,17 +314,35 @@ export class SentimentAnalyst extends AgentBase {
       };
       
       const fallbackResult = fallbackManager.getSentimentFallback(symbol, marketData);
-      
+
+      // Phase 93.22 — when the analyze pipeline throws, sentiment data is by
+      // definition unreliable (LLM timeout or F&G fetch failure). The
+      // deterministic fallback is a price-based proxy that previously emitted
+      // at 0.60 confidence — the dominant source of the 100% bullish skew in
+      // the forensic audit. Demote to 0.05 and flag dataAvailable=false.
+      const nowMs = getActiveClock().now();
+      if (nowMs - this.lastFeedWarnAt > 300_000) {
+        this.lastFeedWarnAt = nowMs;
+        engineLogger.warn('SentimentAnalyst catch-fallback demoted (analyze threw)', {
+          agent: this.config.name,
+          symbol,
+          originalConfidence: fallbackResult.confidence,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+      const demotedConfidence = Math.min(fallbackResult.confidence, 0.05);
+
       return {
         agentName: this.config.name,
         symbol,
         signal: fallbackResult.signal,
-        confidence: fallbackResult.confidence,
+        confidence: demotedConfidence,
         strength: fallbackResult.strength,
-        reasoning: fallbackResult.reasoning,
+        reasoning: `${fallbackResult.reasoning} [demoted: analyze pipeline threw, data unreliable]`,
         evidence: {
           fallbackReason: fallbackResult.fallbackReason,
           isDeterministic: true,
+          dataAvailable: false,
           originalError: error instanceof Error ? error.message : 'Unknown error',
         },
         timestamp: getActiveClock().now(),

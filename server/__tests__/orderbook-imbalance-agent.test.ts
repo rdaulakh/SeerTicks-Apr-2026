@@ -22,25 +22,27 @@ import {
 
 describe("OrderbookImbalanceAgent — pure helpers", () => {
   describe("computeTopOfBookImbalance", () => {
-    it("returns +1 when only bid side has volume at top", () => {
+    // Pure-math assertions use minNotionalUsd=0 to bypass the Phase 93.25
+    // L2-batch artifact guard. A dedicated test below locks the guard itself.
+    it("returns ~+1 when only bid side has volume at top", () => {
       // Single-side: bid 10 vs ask 0 → (10-0)/(10+0) = 1.0
-      const out = computeTopOfBookImbalance([[100, 10]], [[101, 0.000001]]);
+      const out = computeTopOfBookImbalance([[100, 10]], [[101, 0.000001]], 0);
       expect(out).toBeCloseTo(0.99999, 4);
     });
 
     it("is positive (bullish) when top bid > top ask size", () => {
-      const out = computeTopOfBookImbalance([[100, 8]], [[101, 2]]);
+      const out = computeTopOfBookImbalance([[100, 8]], [[101, 2]], 0);
       // (8-2)/(8+2) = 0.6
       expect(out).toBeCloseTo(0.6, 6);
     });
 
     it("is negative (bearish) when top ask > top bid size", () => {
-      const out = computeTopOfBookImbalance([[100, 2]], [[101, 8]]);
+      const out = computeTopOfBookImbalance([[100, 2]], [[101, 8]], 0);
       expect(out).toBeCloseTo(-0.6, 6);
     });
 
     it("is zero (neutral) when sides match", () => {
-      const out = computeTopOfBookImbalance([[100, 5]], [[101, 5]]);
+      const out = computeTopOfBookImbalance([[100, 5]], [[101, 5]], 0);
       expect(out).toBe(0);
     });
 
@@ -48,6 +50,22 @@ describe("OrderbookImbalanceAgent — pure helpers", () => {
       expect(computeTopOfBookImbalance([], [])).toBe(0);
       expect(computeTopOfBookImbalance([[100, 5]], [])).toBe(0);
       expect(computeTopOfBookImbalance([], [[101, 5]])).toBe(0);
+    });
+
+    it("Phase 93.25 — returns 0 when either side is below the min-notional floor", () => {
+      // Default min notional = $1000. Ask side here is 0.001 × $100 = $0.10
+      // (typical L2-batch desync between best-bid and best-ask updates).
+      // Without the guard, this saturates at +1.0 from microstructure noise.
+      const guarded = computeTopOfBookImbalance([[100, 10]], [[100.01, 0.001]]);
+      expect(guarded).toBe(0);
+
+      // Bid side too thin also blocks the signal.
+      const thinBid = computeTopOfBookImbalance([[100, 0.001]], [[100.01, 10]]);
+      expect(thinBid).toBe(0);
+
+      // Both sides at $1000+ notional → signal flows normally.
+      const healthy = computeTopOfBookImbalance([[100, 20]], [[100.01, 12]]);
+      expect(healthy).toBeGreaterThan(0);
     });
   });
 
@@ -123,11 +141,12 @@ describe("OrderbookImbalanceAgent — pure helpers", () => {
     });
 
     it("known mix yields predicted weighted result", () => {
+      // Phase 93.25 weights: 0.3 top + 0.3 depth5bp + 0.4 depth20bp.
       // top = +0.6, depth5bp = 2.0 → ratioToSignal = (2-1)/(2+1) = 0.333...
       // depth20bp = 1.5 → ratioToSignal = 0.5/2.5 = 0.2
-      // combined = 0.5 * 0.6 + 0.3 * 0.333 + 0.2 * 0.2 = 0.3 + 0.1 + 0.04 = 0.44
+      // combined = 0.3 * 0.6 + 0.3 * 0.333 + 0.4 * 0.2 = 0.18 + 0.1 + 0.08 = 0.36
       const out = combineImbalanceScores(0.6, 2.0, 1.5);
-      expect(out).toBeCloseTo(0.44, 2);
+      expect(out).toBeCloseTo(0.36, 2);
     });
 
     it("symmetric — bearish mirror of bullish", () => {
@@ -137,9 +156,11 @@ describe("OrderbookImbalanceAgent — pure helpers", () => {
     });
 
     it("clamps top imbalance to [-1, 1] range", () => {
-      // If a malformed top of 5 leaks through, weighting must cap at 0.5.
+      // Phase 93.25 weights: 0.3 top + 0.3 depth5bp + 0.4 depth20bp.
+      // If a malformed top of 5 leaks through, weighting must cap at 0.3
+      // (the new top weight after the rebalance).
       const out = combineImbalanceScores(5, 1.0, 1.0);
-      expect(out).toBeCloseTo(0.5, 6);
+      expect(out).toBeCloseTo(0.3, 6);
     });
 
     it("non-finite ratios are treated as neutral, not NaN", () => {
@@ -247,11 +268,13 @@ describe("OrderbookImbalanceAgent — book maintenance + signal emission", () =>
 
   it("emits a bullish signal when bid pressure dominates across all bands", () => {
     const agent = new OrderbookImbalanceAgent();
-    // Heavy bids near mid, thin asks. Mid = 100.005.
+    // Heavy bids near mid, lighter (but ABOVE the $1K notional floor) asks.
+    // Mid ≈ 100.005. Top ask = 100.01 × 15 = $1500 (clears the Phase 93.25
+    // min-notional guard so top-of-book imbalance contributes a real signal).
     agent.applySnapshot(
       "BTC-USD",
       [[100, 50], [99.99, 30], [99.95, 20], [99.80, 10]],
-      [[100.01, 1], [100.05, 1], [100.20, 1], [100.50, 1]],
+      [[100.01, 15], [100.05, 1], [100.20, 1], [100.50, 1]],
     );
     return agent.generateSignal("BTC-USD").then((signal) => {
       expect(signal.signal).toBe("bullish");
@@ -265,9 +288,11 @@ describe("OrderbookImbalanceAgent — book maintenance + signal emission", () =>
 
   it("emits a bearish signal when ask pressure dominates", () => {
     const agent = new OrderbookImbalanceAgent();
+    // Top bid = 100 × 15 = $1500 (clears the min-notional floor so the
+    // top-of-book signal contributes); ask side is heavier so combined < 0.
     agent.applySnapshot(
       "BTC-USD",
-      [[100, 1], [99.99, 1], [99.95, 1], [99.80, 1]],
+      [[100, 15], [99.99, 1], [99.95, 1], [99.80, 1]],
       [[100.01, 50], [100.05, 30], [100.20, 20], [100.50, 10]],
     );
     return agent.generateSignal("BTC-USD").then((signal) => {

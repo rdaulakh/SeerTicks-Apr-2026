@@ -23,6 +23,7 @@ import { AgentBase, AgentConfig, AgentSignal } from './AgentBase';
 import { getActiveClock } from '../_core/clock';
 import { FreeOnChainDataProvider } from './FreeOnChainDataProvider';
 import { rateLimitedFetch, retryWithBackoff, RateLimitError } from '../services/ExternalAPIRateLimiter';
+import { engineLogger } from '../utils/logger';
 
 interface WhaleTransaction {
   id: string;
@@ -58,6 +59,10 @@ export class OnChainAnalyst extends AgentBase {
   private metricsCache: Map<string, { metrics: OnChainMetrics; timestamp: number }> = new Map();
   private readonly CACHE_TTL = 900000; // 15 minutes (increased to reduce API calls)
   private freeDataProvider: FreeOnChainDataProvider;
+
+  // Phase 93.22 — rate-limit the dead-data-factory warn to once per 5 min.
+  // Forensic audit: 12,832 neutrals/24h at conf 0.45 with all 5 sub-inputs at 0.
+  private lastDeadDataWarnAt = 0;
 
   constructor(config?: Partial<AgentConfig>) {
     super({
@@ -154,8 +159,41 @@ export class OnChainAnalyst extends AgentBase {
         confidence *= 0.625; // additional -50% penalty (total -60%)
       }
 
+      // Phase 93.22 — dead-data-factory guard. When ALL 5 sub-signals are
+      // exactly 0 AND there are no whale transactions, the agent is being
+      // fed zero/neutral defaults from a broken upstream (Whale Alert + free
+      // provider both 401/429). Forensic showed 12,832 neutrals/24h at conf
+      // 0.45 with every sub-input at zero — that's an empty-cup vote that
+      // dilutes the brain's consensus tally. Demote to 0.05 and flag
+      // dataAvailable=false so the agent still appears but with near-zero
+      // weight.
+      const allSubSignalsZero =
+        whaleSignal === 0 &&
+        flowSignal === 0 &&
+        walletSignal === 0 &&
+        stablecoinSignal === 0 &&
+        minerSignal === 0;
+      const noWhaleTxs = metrics.whaleTransactions.length === 0;
+      const dataAvailable = !(allSubSignalsZero && noWhaleTxs);
+      if (!dataAvailable) {
+        const nowMs = getActiveClock().now();
+        if (nowMs - this.lastDeadDataWarnAt > 300_000) {
+          this.lastDeadDataWarnAt = nowMs;
+          engineLogger.warn('OnChainAnalyst demoted (all sub-signals zero — upstream dead)', {
+            agent: this.config.name,
+            symbol,
+            originalConfidence: confidence,
+            whaleTransactions: metrics.whaleTransactions.length,
+          });
+        }
+        confidence = 0.05;
+      }
+
       // Phase 30: Apply MarketContext regime adjustments
       let adjustedReasoning = isSyntheticData ? `[NO API KEY - DISABLED] ${reasoning}` : reasoning;
+      if (!dataAvailable) {
+        adjustedReasoning = `[DEAD-DATA: all sub-signals zero, upstream unavailable] ${adjustedReasoning}`;
+      }
       if (context?.regime) {
         const regime = context.regime as string;
         // On-chain data is a leading indicator in trending markets
@@ -194,6 +232,7 @@ export class OnChainAnalyst extends AgentBase {
           walletSignal,
           stablecoinSignal,
           minerSignal,
+          dataAvailable,
         },
         qualityScore: this.calculateQualityScore(metrics),
         processingTime,

@@ -640,16 +640,26 @@ class TraderBrain {
     // (+$12.52 signed P&L, 58% WR when agreed, 96% directional).
     const techEntry = getSensorium().getTechnical(symbol);
     const tech = techEntry?.sensation ?? null;
+    // Phase 93.25 — Relaxed anti-trend gate (2-of-3, data-driven 2026-05-15).
+    //
+    // Forensic audit found short_into_uptrend fired only 33×/24h vs 1,218
+    // approved short-entries — most losing shorts (SOL: 45 trades, 76% loss
+    // rate) slipped past because the AND-of-3 was too strict. SOL's vwapDev
+    // rarely clears the ±0.5% band even when emaTrend=up + superTrend=bullish.
+    //
+    // New rule: emaTrend confirms the trend, AND either vwapDev (now ±0.25%)
+    // OR superTrend confirms it. Catches the slow-grind regimes where price
+    // hugs VWAP but EMAs + SuperTrend agree.
+    const ANTI_TREND_VWAP_DEV_PCT = 0.25;
     if (opp.direction === 'short' && tech) {
-      const inUptrend =
-        tech.emaTrend === 'up' &&
-        tech.vwapDevPct > 0.5 &&
-        tech.superTrend === 'bullish';
+      const vwapConfirms = tech.vwapDevPct > ANTI_TREND_VWAP_DEV_PCT;
+      const superTrendConfirms = tech.superTrend === 'bullish';
+      const inUptrend = tech.emaTrend === 'up' && (vwapConfirms || superTrendConfirms);
       if (inUptrend) {
         return {
           kind: 'abstain',
           pipelineStep: 'should_enter:short_into_uptrend',
-          reason: `short into confirmed uptrend (emaTrend=up, vwapDev=${tech.vwapDevPct.toFixed(2)}%, superTrend=bullish) — historically 26% WR / -$24 net`,
+          reason: `short into uptrend (emaTrend=up, vwapDev=${tech.vwapDevPct.toFixed(2)}%, superTrend=${tech.superTrend}) — historically 26% WR / -$24 net`,
           symbol,
         };
       }
@@ -657,15 +667,14 @@ class TraderBrain {
     // Symmetric guard for longs into confirmed downtrend (rare in this
     // market but the principle must apply both ways).
     if (opp.direction === 'long' && tech) {
-      const inDowntrend =
-        tech.emaTrend === 'down' &&
-        tech.vwapDevPct < -0.5 &&
-        tech.superTrend === 'bearish';
+      const vwapConfirms = tech.vwapDevPct < -ANTI_TREND_VWAP_DEV_PCT;
+      const superTrendConfirms = tech.superTrend === 'bearish';
+      const inDowntrend = tech.emaTrend === 'down' && (vwapConfirms || superTrendConfirms);
       if (inDowntrend) {
         return {
           kind: 'abstain',
           pipelineStep: 'should_enter:long_into_downtrend',
-          reason: `long into confirmed downtrend (emaTrend=down, vwapDev=${tech.vwapDevPct.toFixed(2)}%, superTrend=bearish)`,
+          reason: `long into downtrend (emaTrend=down, vwapDev=${tech.vwapDevPct.toFixed(2)}%, superTrend=${tech.superTrend})`,
           symbol,
         };
       }
@@ -1158,15 +1167,30 @@ class TraderBrain {
     }
 
     // ─── Step 6: STALE-NO-PROGRESS ──────────────────────────────────────
+    // Phase 93.25 — DRAWDOWN REQUIREMENT (data-driven, 2026-05-15).
+    //
+    // 72h forensic audit (3 staleness buckets, 21 trades, 0 wins, avg -$1.07):
+    //   stale_no_progress @ 20min: 13 trades, 0W, -$0.75 avg
+    //   stale_no_progress @ 30min:  3 trades, 0W, -$1.45 avg
+    //   stale_no_progress @ 45min:  5 trades, 0W, -$1.98 avg
+    //
+    // The gate was firing on FLAT-PEAK trades (peak +0.10%, hold 20min) that
+    // were pre-thesis, not stale-dead — exiting them at a tiny loss when they
+    // might have resolved into profit. Require unrealized drawdown ≤ -0.30%
+    // so we only kill positions that are objectively bleeding. Flat positions
+    // remain held — they will either resolve into profit OR drift into the
+    // drawdown band where this exit then correctly fires.
+    const STALE_DRAWDOWN_THRESHOLD_PCT = -0.30;
     if (
       pos.holdMinutes > this.config.staleHoldMinutes &&
       pos.peakPnlPercent < this.config.stalePeakPnlPct &&
+      pos.unrealizedPnlPercent <= STALE_DRAWDOWN_THRESHOLD_PCT &&
       (!stance || stance.driftVelocityPerMin <= 0)
     ) {
       return {
         kind: 'exit_full',
         pipelineStep: 'stale_no_progress',
-        reason: `Held ${pos.holdMinutes.toFixed(0)}min, peak ${pos.peakPnlPercent.toFixed(2)}% < ${this.config.stalePeakPnlPct}%, consensus not strengthening — free the slot`,
+        reason: `Held ${pos.holdMinutes.toFixed(0)}min, peak ${pos.peakPnlPercent.toFixed(2)}% < ${this.config.stalePeakPnlPct}%, drawdown ${pos.unrealizedPnlPercent.toFixed(2)}% ≤ ${STALE_DRAWDOWN_THRESHOLD_PCT}%, consensus not strengthening — free the slot`,
         urgency: 'soon',
       };
     }

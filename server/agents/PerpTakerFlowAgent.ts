@@ -181,7 +181,8 @@ export class PerpTakerFlowAgent extends AgentBase {
       symbol,
       timestamp: getActiveClock().now(),
       signal: 'neutral',
-      confidence: 0.5,
+      // Phase 93.25 — silent-neutral demotion (was 0.5 phantom-vote bug). See attribution audit 2026-05-15.
+      confidence: 0.02,
       strength: 0,
       reasoning: reason,
       evidence: {},

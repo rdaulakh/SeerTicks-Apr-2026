@@ -143,6 +143,39 @@ export class VolumeProfileAnalyzer extends AgentBase {
         return this.createNeutralSignal(symbol, "Insufficient data for volume profile analysis");
       }
 
+      // Phase 94 — STALE CANDLE GUARD.
+      // Production audit (May 2026) found this agent emitting bearish at conf 0.38
+      // every tick because the latest 1h candle in cache was hours old: VWAP sat at
+      // $76,108 while spot was ~$81,500 (6.6% lag), pinning every read at
+      // `bandPosition = "extreme_high"` and firing mean-reversion bearish forever.
+      // Fix: if the newest candle's close time is older than ~5 minutes, refuse to
+      // trade on the stale picture. We can't fix the data source from here, but we
+      // can prevent the agent from voting on a broken view of the market.
+      const newestCandle = candles[candles.length - 1];
+      const candleAgeMs = getActiveClock().now() - newestCandle.timestamp;
+      const STALE_CANDLE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+      if (candleAgeMs > STALE_CANDLE_THRESHOLD_MS) {
+        engineLogger.warn(`[${this.config.name}] Stale candle data for ${symbol} — newest candle is ${(candleAgeMs / 1000).toFixed(0)}s old. Emitting low-confidence neutral.`);
+        return {
+          agentName: this.config.name,
+          symbol,
+          timestamp: getActiveClock().now(),
+          signal: "neutral",
+          confidence: 0.05,
+          strength: 0.05,
+          executionScore: 50,
+          reasoning: `Stale candle data — newest 1h candle is ${(candleAgeMs / 60000).toFixed(1)} min old (threshold 5 min). Refusing to vote on stale VWAP/bands.`,
+          evidence: {
+            staleData: true,
+            candleAgeSeconds: Math.round(candleAgeMs / 1000),
+            newestCandleTimestamp: newestCandle.timestamp,
+          },
+          qualityScore: 0,
+          processingTime: getActiveClock().now() - startTime,
+          dataFreshness: candleAgeMs,
+        };
+      }
+
       // Perform volume analysis
       const analysis = this.analyzeVolumeProfile(candles);
 
@@ -814,55 +847,71 @@ export class VolumeProfileAnalyzer extends AgentBase {
     const STRONG_BUY_DELTA = 0.25;
     const STRONG_SELL_DELTA = -0.25;
 
+    // Phase 94 — STRENGTHENED TREND-SUPPRESSION GATE.
+    // The strict `trend.direction === 'up'` check (requires VWAP slope AND close
+    // slope AND HH>LL simultaneously) was too narrow: in production, sample data
+    // with vwapSlopePct +0.0152 and HH=4 vs LL=2 still emitted bearish-at-extreme_high
+    // because closeSlope didn't clear the 0.3% threshold, so direction came back
+    // as 'flat'. We now use a looser "trending up" / "trending down" check that
+    // fires on EITHER strong slope OR clear structural bias — sufficient to
+    // suppress mean-reversion bearish even when the strict gate is borderline.
+    const VWAP_SLOPE_LOOSE = 0.005; // 0.5% — looser than strict 0.2% direction
+    const trendingUp =
+      trend.direction === 'up' ||
+      trend.vwapSlopePct > VWAP_SLOPE_LOOSE ||
+      trend.higherHighs > trend.lowerLows + 1;
+    const trendingDown =
+      trend.direction === 'down' ||
+      trend.vwapSlopePct < -VWAP_SLOPE_LOOSE ||
+      trend.lowerLows > trend.higherHighs + 1;
+
     switch (analysis.bandPosition) {
       case "extreme_high": {
-        // Trend up + net buying = breakout, NOT mean reversion. Don't go bearish.
-        if (trend.direction === 'up') {
+        // Trending up: NEVER emit bearish at +2σ — breakout, not exhaustion.
+        if (trendingUp) {
           if (normalizedDelta >= STRONG_BUY_DELTA) {
-            // Breakout with volume confirmation — bias slightly bullish,
-            // scaled by trend strength (max ~+0.4 to avoid over-committing
-            // on a single-band signal).
-            return Math.min(0.4, 0.2 + 0.2 * trend.strength);
+            // Breakout with volume confirmation — bias bullish, scaled by trend
+            // strength. Capped at +0.5 so a single-band reading can't dominate.
+            return Math.min(0.5, 0.3 + 0.2 * Math.max(0.3, trend.strength));
           }
-          // Trend up but no clear volume confirmation: stay neutral.
-          // The market is telling us mean-reversion is unsafe here, so
-          // we don't want to fire bearish, but we also don't have
-          // enough conviction to flip bullish.
-          return 0;
+          // Trend up without volume confirmation: still go mildly bullish
+          // (continuation bias) — emphatically NOT bearish. Audit found the old
+          // "return 0" here was upstream-overridden by other components and the
+          // signal still emerged bearish. A small positive value protects against that.
+          return 0.15;
         }
-        // Flat or downtrend: legitimate mean-reversion setup.
-        // If net selling confirms, full strength bearish; otherwise dampen.
+        // Flat (no trending bias either way): legitimate mean-reversion setup.
         if (normalizedDelta <= STRONG_SELL_DELTA) return -0.8;
         if (normalizedDelta >= STRONG_BUY_DELTA) return -0.3; // buying into the band — weak bear
         return -0.6;
       }
       case "high": {
         // +1σ: weaker signal, same trend filter.
-        if (trend.direction === 'up') {
+        if (trendingUp) {
           // In an uptrend, +1σ is healthy — don't lean bearish.
-          if (normalizedDelta >= STRONG_BUY_DELTA) return 0.2;
-          return 0;
+          if (normalizedDelta >= STRONG_BUY_DELTA) return 0.25;
+          return 0.10;
         }
         if (normalizedDelta <= STRONG_SELL_DELTA) return -0.4;
         return -0.25;
       }
       case "extreme_low": {
-        // Symmetric: trend down + net selling = breakdown continuation, NOT bounce.
-        if (trend.direction === 'down') {
+        // Trending down: NEVER emit bullish at -2σ — breakdown, not bounce.
+        if (trendingDown) {
           if (normalizedDelta <= STRONG_SELL_DELTA) {
-            return -Math.min(0.4, 0.2 + 0.2 * trend.strength);
+            return -Math.min(0.5, 0.3 + 0.2 * Math.max(0.3, trend.strength));
           }
-          return 0;
+          return -0.15;
         }
-        // Flat or uptrend: legitimate bounce setup.
+        // Flat: legitimate bounce setup.
         if (normalizedDelta >= STRONG_BUY_DELTA) return 0.8;
         if (normalizedDelta <= STRONG_SELL_DELTA) return 0.3; // selling into the band — weak bull
         return 0.6;
       }
       case "low": {
-        if (trend.direction === 'down') {
-          if (normalizedDelta <= STRONG_SELL_DELTA) return -0.2;
-          return 0;
+        if (trendingDown) {
+          if (normalizedDelta <= STRONG_SELL_DELTA) return -0.25;
+          return -0.10;
         }
         if (normalizedDelta >= STRONG_BUY_DELTA) return 0.4;
         return 0.25;

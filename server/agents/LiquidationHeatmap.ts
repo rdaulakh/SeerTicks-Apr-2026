@@ -560,7 +560,8 @@ export class LiquidationHeatmap extends AgentBase {
       } else {
         reasons.push(`Extreme long bias (${analysis.longShortRatio.toFixed(2)}:1) but uptrend intact - late stage`);
       }
-    } else if (analysis.longShortRatio > 1.7) {
+    } else if (analysis.longShortRatio > 2.0) {
+      // Phase 94 — raised from 1.7 (retail-noise baseline) to 2.0 (true bias)
       if (legacyTrend === 'up') {
         signal = "bullish";
         confidence += 0.10;
@@ -581,7 +582,8 @@ export class LiquidationHeatmap extends AgentBase {
       } else {
         reasons.push(`Extreme short bias (${analysis.longShortRatio.toFixed(2)}:1) but downtrend intact - late stage`);
       }
-    } else if (analysis.longShortRatio < 0.59) {
+    } else if (analysis.longShortRatio < 0.50) {
+      // Phase 94 — lowered from 0.59 (retail-noise mirror) to 0.50 (true bias)
       if (legacyTrend === 'down') {
         signal = "bearish";
         confidence += 0.10;
@@ -842,15 +844,31 @@ export class LiquidationHeatmap extends AgentBase {
     let confidence = 0.5;
     let strength = 0.5;
     const reasons: string[] = [];
+    // Phase 94 — set true when we deliberately want a near-zero confidence
+    // signal (e.g. retail-noise deadband). Bypasses exchange-count bonuses,
+    // regime multipliers, and the lower clamp.
+    let forceNeutralLowConf = false;
 
     const ratio = data.avgLongShortRatio;
     const trend = this.computeTrendBias(context);
 
-    // Phase 93 thresholds — true liquidation-cascade extremes only
-    const EXTREME_LONG = 2.5;   // >2.5x or >70% longs is real cluster risk
-    const EXTREME_SHORT = 0.4;  // <0.4x or >70% shorts
-    const STRONG_LONG = 1.7;    // strong long bias (not extreme)
-    const STRONG_SHORT = 0.59;  // mirror of STRONG_LONG (1/1.7)
+    // Phase 94 thresholds — tightened after May 2026 production audit found
+    // STRONG_LONG=1.7 catching the structural 1.7-2.0 retail L/S ratio that
+    // hovers as background noise on BTC/ETH/SOL perps. With trend=flat the agent
+    // emitted "mild contrarian bearish" at conf 0.64 every tick (722 bearish /
+    // 0 bullish in 2h). New thresholds:
+    //   - EXTREME_LONG raised effective floor to 2.5 (cascade risk only)
+    //   - STRONG_LONG raised 1.7 → 2.0  (true conviction bias, not retail noise)
+    //   - EXTREME_SHORT lowered to 0.4
+    //   - STRONG_SHORT lowered 0.59 → 0.50
+    // And flat-trend deadband [1.5, 2.0] / [0.5, 0.67] now emits low-conf neutral,
+    // not a 0.64 contrarian opinion.
+    const EXTREME_LONG = 2.5;   // >2.5x = real cluster risk
+    const EXTREME_SHORT = 0.4;  // <0.4x = real cluster risk
+    const STRONG_LONG = 2.0;    // strong long bias (was 1.7)
+    const STRONG_SHORT = 0.50;  // mirror (was 0.59)
+    const DEADBAND_LONG_LOW = 1.5;   // 1.5-2.0 = retail-noise zone, neutral when flat
+    const DEADBAND_SHORT_HIGH = 0.67; // 0.5-0.67 = retail-noise zone, neutral when flat
 
     reasons.push(`L/S ratio ${ratio.toFixed(2)}x, ${data.avgLongPercentage.toFixed(1)}% longs, trend=${trend}`);
 
@@ -891,11 +909,12 @@ export class LiquidationHeatmap extends AgentBase {
         strength += 0.10;
         reasons.push(`Long bias (${ratio.toFixed(2)}x) against downtrend — trapped longs, bearish continuation`);
       } else {
-        // Flat trend, strong long bias — mild contrarian
+        // Flat trend + truly strong long bias (>2.0x) — mild contrarian, but
+        // softer than before (audit showed this branch fired too often).
         signal = "bearish";
-        confidence += 0.06;
-        strength += 0.05;
-        reasons.push(`Long bias (${ratio.toFixed(2)}x) in flat market — mild contrarian bearish`);
+        confidence += 0.04;
+        strength += 0.03;
+        reasons.push(`Strong long bias (${ratio.toFixed(2)}x) in flat market — mild contrarian bearish`);
       }
     } else if (ratio < STRONG_SHORT) {
       if (trend === 'down') {
@@ -910,12 +929,27 @@ export class LiquidationHeatmap extends AgentBase {
         reasons.push(`Short bias (${ratio.toFixed(2)}x) against uptrend — trapped shorts, bullish continuation`);
       } else {
         signal = "bullish";
-        confidence += 0.06;
-        strength += 0.05;
-        reasons.push(`Short bias (${ratio.toFixed(2)}x) in flat market — mild contrarian bullish`);
+        confidence += 0.04;
+        strength += 0.03;
+        reasons.push(`Strong short bias (${ratio.toFixed(2)}x) in flat market — mild contrarian bullish`);
       }
     }
-    // --- Mild/balanced positioning (0.59–1.7): align with trend, no contrarian ---
+    // --- Retail-noise deadband (1.5-2.0 longs / 0.5-0.67 shorts) on flat trend:
+    //     emit low-conf neutral, NOT a contrarian opinion. This kills the 722
+    //     bearish/2h flood seen in May 2026 audit at the structural 1.7-2.0
+    //     baseline ratio. When trend is up/down, fall through to balanced branch
+    //     so we still get trend-confirmation bias.
+    else if (
+      (ratio >= DEADBAND_LONG_LOW && ratio <= STRONG_LONG && trend === 'flat') ||
+      (ratio >= STRONG_SHORT && ratio <= DEADBAND_SHORT_HIGH && trend === 'flat')
+    ) {
+      signal = "neutral";
+      confidence = 0.02;
+      strength = 0.02;
+      forceNeutralLowConf = true;
+      reasons.push(`L/S ratio ${ratio.toFixed(2)}x is structural retail-noise baseline (flat trend) — neutral, no edge`);
+    }
+    // --- Mild/balanced positioning: align with trend, no contrarian ---
     else {
       if (trend === 'up') {
         signal = "bullish";
@@ -930,43 +964,57 @@ export class LiquidationHeatmap extends AgentBase {
       }
     }
 
-    // Bonus confidence for multiple exchanges agreeing
-    if (data.exchangeCount >= 2) {
-      confidence += 0.08;
-      reasons.push(`Confirmed across ${data.exchangeCount} exchanges`);
-    }
-    if (data.exchangeCount >= 3) {
-      confidence += 0.05;
-    }
-
-    // Open interest analysis
-    if (data.totalOpenInterestValue > 0) {
-      reasons.push(`Total OI: $${(data.totalOpenInterestValue / 1e9).toFixed(2)}B`);
-    }
-
-    // Phase 30: Apply MarketContext regime adjustments
-    if (context?.regime) {
-      const regime = context.regime as string;
-      // In high volatility: liquidation data is CRITICAL (cascade risk)
-      if (regime === 'high_volatility') {
-        confidence = Math.min(0.95, confidence * 1.20);
-        reasons.push('[Regime: high_volatility — liquidation cascade risk elevated]');
+    // Phase 94 — skip bonuses/regime/clamp for retail-noise deadband neutral.
+    // We want this signal to carry ~0 weight in consensus, not get inflated by
+    // multi-exchange confirmation or "high_volatility" regime multiplier.
+    if (!forceNeutralLowConf) {
+      // Bonus confidence for multiple exchanges agreeing
+      if (data.exchangeCount >= 2) {
+        confidence += 0.08;
+        reasons.push(`Confirmed across ${data.exchangeCount} exchanges`);
       }
-      // In breakout: extreme positioning confirms breakout direction
-      if (regime === 'breakout' && (ratio > 1.5 || ratio < 0.67)) {
-        confidence = Math.min(0.95, confidence * 1.10);
-        reasons.push('[Regime: breakout — extreme positioning confirms direction]');
+      if (data.exchangeCount >= 3) {
+        confidence += 0.05;
       }
-      // In range-bound: positioning data less actionable
-      if (regime === 'range_bound') {
-        confidence *= 0.90;
-        reasons.push('[Regime: range_bound — positioning less actionable]');
-      }
-    }
 
-    // Clamp values
-    confidence = Math.max(0.1, Math.min(0.9, confidence));
-    strength = Math.max(0.1, Math.min(0.9, strength));
+      // Open interest analysis
+      if (data.totalOpenInterestValue > 0) {
+        reasons.push(`Total OI: $${(data.totalOpenInterestValue / 1e9).toFixed(2)}B`);
+      }
+
+      // Phase 30: Apply MarketContext regime adjustments
+      if (context?.regime) {
+        const regime = context.regime as string;
+        // In high volatility: liquidation data is CRITICAL (cascade risk)
+        if (regime === 'high_volatility') {
+          confidence = Math.min(0.95, confidence * 1.20);
+          reasons.push('[Regime: high_volatility — liquidation cascade risk elevated]');
+        }
+        // In breakout: extreme positioning confirms breakout direction
+        if (regime === 'breakout' && (ratio > 1.5 || ratio < 0.67)) {
+          confidence = Math.min(0.95, confidence * 1.10);
+          reasons.push('[Regime: breakout — extreme positioning confirms direction]');
+        }
+        // In range-bound: positioning data less actionable
+        if (regime === 'range_bound') {
+          confidence *= 0.90;
+          reasons.push('[Regime: range_bound — positioning less actionable]');
+        }
+      }
+
+      // Clamp values
+      confidence = Math.max(0.1, Math.min(0.9, confidence));
+      strength = Math.max(0.1, Math.min(0.9, strength));
+    } else {
+      // Open interest still informative for evidence/reasoning, but doesn't
+      // change confidence/strength on a deliberate near-zero signal.
+      if (data.totalOpenInterestValue > 0) {
+        reasons.push(`Total OI: $${(data.totalOpenInterestValue / 1e9).toFixed(2)}B`);
+      }
+      // Clamp very low — never above 0.05 on a noise-baseline signal.
+      confidence = Math.max(0.01, Math.min(0.05, confidence));
+      strength = Math.max(0.01, Math.min(0.05, strength));
+    }
 
     // Calculate execution score
     let executionScore = 50;
