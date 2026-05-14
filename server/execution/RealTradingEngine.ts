@@ -636,6 +636,19 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
     takeProfit?: number;
     strategy: string;
     traceId?: string;  // Phase 67 — propagated to TCA + FILL trace event
+    /**
+     * Phase 93.19 — CRITICAL: must be true when this order is REDUCING an
+     * existing position (a "close" or "partial close"). Entry-side guardrails
+     * (max position count, single-trade-size cap, ramp-up scaler, balance
+     * reservation) MUST NOT apply to exits — they actively prevent the system
+     * from de-risking when most needed.
+     *
+     * Real bug 2026-05-14: position #205 ETH-USD short, 13.4% of equity. The
+     * size-cap guard (10% of equity) blocked closePositionById() with "Single
+     * trade too large", looping ~10×/sec for hours and exhausting the DB
+     * pool. closePositionById now sets isExit=true.
+     */
+    isExit?: boolean;
   }): Promise<RealOrder> {
     // Ensure wallet is loaded before placing orders
     await this.waitForReady();
@@ -668,16 +681,25 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
 
     // ========================================
     // SAFETY GUARDRAIL #3: Max open positions
+    //
+    // Phase 93.19 — does NOT apply to exits. Closing a SHORT is a `buy`
+    // order; the original `params.side === 'buy'` check incorrectly fired
+    // on covers, refusing to close shorts when the platform was already at
+    // max-positions.
     // ========================================
-    if (params.side === 'buy' && this.positions.size >= this.maxOpenPositions) {
+    if (!params.isExit && params.side === 'buy' && this.positions.size >= this.maxOpenPositions) {
       throw new Error(`[RealTradingEngine] Max open positions reached (${this.positions.size}/${this.maxOpenPositions}). Close a position first.`);
     }
 
     // ========================================
     // SAFETY GUARDRAIL #4: Position size ramp-up
+    //
+    // Phase 93.19 — must skip on exits. Ramp-up at e.g. 50% scaled the close
+    // quantity to half the position, leaving the other half stuck open with
+    // no way to flatten it.
     // ========================================
     let adjustedQuantity = params.quantity;
-    if (this.positionSizeRampUp < 1.0) {
+    if (!params.isExit && this.positionSizeRampUp < 1.0) {
       adjustedQuantity = params.quantity * this.positionSizeRampUp;
       executionLogger.info('Ramp-up active', { rampUpPercent: (this.positionSizeRampUp * 100).toFixed(0), originalQty: params.quantity.toFixed(8), adjustedQty: adjustedQuantity.toFixed(8) });
       params = { ...params, quantity: adjustedQuantity };
@@ -685,8 +707,14 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
 
     // ========================================
     // SAFETY GUARDRAIL #5: Max single trade size
+    //
+    // Phase 93.19 — REAL BUG FIX. This guard previously fired on `side==='buy'`
+    // alone, blocking the cover-leg of every SHORT close that exceeded 10% of
+    // equity. Position #205 (ETH-USD short, 13.4% of equity) was stuck in a
+    // 10×/sec close-retry loop for hours because of this. Now scoped to
+    // entries only — exits MUST never be blocked by an entry size cap.
     // ========================================
-    if (params.side === 'buy' && params.price) {
+    if (!params.isExit && params.side === 'buy' && params.price) {
       const orderValue = adjustedQuantity * params.price;
       // Phase B-2.5 — use max(equity, balance, 1) as denominator. Earlier
       // logic was `equity > 0 ? orderValue/equity : 1` which silently rejected
@@ -702,8 +730,14 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
       }
     }
 
-    // Validate balance before placing order
-    if (params.side === 'buy') {
+    // Validate balance before placing order.
+    //
+    // Phase 93.19 — must skip on exits (`isExit=true`). The cover-leg of a
+    // SHORT close is a `buy`; reserving balance for it makes no sense (the
+    // short is already on-exchange, the close just releases margin). The
+    // pre-Phase-93.19 reservation could throw "Insufficient balance" and
+    // permanently lock a profitable short open.
+    if (!params.isExit && params.side === 'buy') {
       const orderValue = params.quantity * (params.price || 0);
 
       if (this.wallet.balance <= 0) {
@@ -1326,6 +1360,23 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
         closeQuantity = live.quantity;
       }
 
+      // Phase 93.19 — DUST GUARD: if the position notional is below Binance
+      // Futures' reduceOnly minNotional ($50 for BTC/ETH/SOL), the exchange
+      // will reject the close order. Detect this here and DB-close directly
+      // instead of looping the engine into endless rejections.
+      const notional = closeQuantity * currentPrice;
+      const DUST_THRESHOLD_USD = 50;
+      if (notional < DUST_THRESHOLD_USD) {
+        executionLogger.warn('closePositionById: position notional below dust threshold, DB-closing without exchange order', {
+          positionId, symbol: position.symbol,
+          notional: notional.toFixed(2), threshold: DUST_THRESHOLD_USD,
+          quantity: closeQuantity, price: currentPrice,
+        });
+        await this.markPositionDbClosedDirectly(position, currentPrice, `${strategy}:dust_threshold`);
+        this.closeInFlight.delete(positionId);
+        return;
+      }
+
       await this.placeOrder({
         symbol: position.symbol,
         type: 'market',
@@ -1333,6 +1384,12 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
         quantity: closeQuantity,
         price: currentPrice,
         strategy,
+        // Phase 93.19 — flag to bypass entry-side guardrails. Without this,
+        // closing a SHORT (which is a `buy` order) would hit the max-positions
+        // check, single-trade-size cap, balance reservation, and ramp-up
+        // scaler — all of which are entry concerns that have no business
+        // gating risk-reducing exits.
+        isExit: true,
       });
 
       // Phase 64 post-close verification (futures only). If the exchange
