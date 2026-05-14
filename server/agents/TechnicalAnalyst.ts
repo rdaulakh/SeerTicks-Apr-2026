@@ -836,6 +836,20 @@ export class TechnicalAnalyst extends AgentBase {
           ? (currentPrice - indicators.bollingerBands.lower) / bbWidth
           : 0.5;
 
+    // Phase 93.26 — refined mild-overextension handling.
+    //
+    // Phase 93.25's F5 fix (mild overextension → neutral conf 0.4) was too
+    // aggressive in production: in a sustained mild uptrend, vwapDev > 1.5%
+    // AND/OR bbPctB > 1.05 fire on every tick. Result: TechnicalAnalyst
+    // emitted 657/657 neutral at conf 0.4, killing the brain's directional
+    // confluence.
+    //
+    // New rules:
+    //   3-of-3 strong overbought → BEARISH reversal (unchanged from Phase 93.25)
+    //   2-of-3 mild overbought   → keep bullish, attenuate conf × 0.65
+    //   1-of-3 mild overbought   → keep bullish, attenuate conf × 0.85
+    //   0-of-3                   → no change
+    // Symmetric for oversold.
     if (signal === "bullish") {
       const overboughtRsi = indicators.rsi > 70;
       const overboughtBb = bbPctB > 1.05;
@@ -853,10 +867,10 @@ export class TechnicalAnalyst extends AgentBase {
           vwapDev: vwapDeviation.toFixed(2),
           confidence: reversalConfidence.toFixed(3),
         });
-      } else if (overboughtVotes >= 1) {
-        // Mild overextension: neutral with flat low confidence (not ceiling × 0.6)
-        signal = "neutral";
-        confidence = 0.4;
+      } else if (overboughtVotes === 2) {
+        confidence = confidence * 0.65;
+      } else if (overboughtVotes === 1) {
+        confidence = confidence * 0.85;
       }
     } else if (signal === "bearish") {
       const oversoldRsi = indicators.rsi < 30;
@@ -874,9 +888,10 @@ export class TechnicalAnalyst extends AgentBase {
           vwapDev: vwapDeviation.toFixed(2),
           confidence: reversalConfidence.toFixed(3),
         });
-      } else if (oversoldVotes >= 1) {
-        signal = "neutral";
-        confidence = 0.4;
+      } else if (oversoldVotes === 2) {
+        confidence = confidence * 0.65;
+      } else if (oversoldVotes === 1) {
+        confidence = confidence * 0.85;
       }
     }
     
