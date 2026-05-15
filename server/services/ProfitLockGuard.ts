@@ -76,6 +76,18 @@ const CATASTROPHIC_REASON_PATTERNS: readonly string[] = [
   'emergency_',
   'catastrophic_',
   'hard_stop_',
+  // Phase 93.33 — TraderBrain emits "fast_hard_stop:long@80754" and
+  // PriorityExitManager emits "[HARD_STOP_LOSS] ...". The original 'hard_stop_'
+  // pattern (trailing underscore) matched neither. Result: 152 hard_stop
+  // brain decisions on a single break-even-stop position (#226) were all
+  // BLOCKED by ProfitLockGuard's net-positive floor for 100+ minutes,
+  // letting price drift the position toward the catastrophic level while
+  // the brain repeatedly signaled "exit now". Add the colon-suffixed and
+  // bare-substring forms so the brain's actual emit format is recognized
+  // as a kill-class reason that bypasses the cost-drag floor.
+  'hard_stop:',
+  'fast_hard_stop',
+  'hard_stop_loss',
   'circuit_breaker_',
   'manual_override_',
   'regime_kill_',
