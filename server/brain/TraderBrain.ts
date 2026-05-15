@@ -363,7 +363,13 @@ class TraderBrain {
     }
 
     if (health.positions === 0 && emergencyHalted) return;
-    if (health.positions === 0) return;     // nothing to decide on
+    // Phase 93.28 — DO NOT return early when positions === 0. The brain MUST
+    // continue to run the entry-pipeline loop below to find new entries.
+    // Previously this early-return short-circuited the tick whenever the last
+    // position closed, leaving the platform unable to open new positions until
+    // process restart. Audit (2026-05-15) caught zero brainDecisions writes
+    // for 63 minutes after position #224 closed, despite agents emitting
+    // signals normally and opportunity scores > entry threshold.
 
     // Iterate every position. We access the underlying Map by symbol lookup —
     // Sensorium exposes positions via getPosition(id), but we also need the

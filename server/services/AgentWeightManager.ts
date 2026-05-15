@@ -448,6 +448,12 @@ export class AgentWeightManager extends EventEmitter {
     if (AGENT_CATEGORIES.FAST.includes(agentName as any)) return 'FAST';
     if (AGENT_CATEGORIES.SLOW.includes(agentName as any)) return 'SLOW';
     if (AGENT_CATEGORIES.PHASE2.includes(agentName as any)) return 'PHASE2';
+    // Phase 93.28 — LEAD_INFO category was missing from the category check.
+    // Result: 18 LEAD_INFO agents were silently logged as "Unknown agent"
+    // and contributed ZERO weight to consensus calculations, while their
+    // signals were being persisted to DB. Reinstates Tokyo-microstructure
+    // contribution to the consensus vote.
+    if (AGENT_CATEGORIES.LEAD_INFO.includes(agentName as any)) return 'LEAD_INFO';
     return null;
   }
   
