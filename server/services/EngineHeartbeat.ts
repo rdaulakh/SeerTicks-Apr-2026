@@ -220,6 +220,22 @@ export class EngineHeartbeat extends EventEmitter {
       executionLogger.error(`🚨 EngineHeartbeat AUTO-HALT: ${haltReason}`);
       this.emit('auto_halt', { reason: haltReason, status: this.status() });
     }
+    // Phase 93.29 — AUTO-CLEAR halt when the underlying conditions resolve.
+    // Previously the flag was sticky: once tripped (e.g. transient 5-min
+    // decision-silent on a slow startup or restart), the platform required
+    // an operator `resumeTrading()` call to recover. After Phase 90+ the
+    // brain is the authoritative decision engine; with TraderBrain calling
+    // recordDecision() every tick, an auto-halt on this signal is almost
+    // always a measurement artifact rather than a real outage. If conditions
+    // no longer report any halt-class reason AND the daily-PnL gate is OK,
+    // clear the flag and resume. Operator can still manually halt via
+    // `auto_halt` listeners (kill switch / emergency stop).
+    if (!halt && this.haltActive) {
+      this.haltActive = false;
+      this.haltReason = undefined;
+      executionLogger.info('✅ EngineHeartbeat: halt auto-cleared (decision pipeline recovered)');
+      this.emit('resumed');
+    }
     if (reasons.length > 0) {
       executionLogger.warn(`⚠️ EngineHeartbeat unhealthy: ${reasons.join('; ')}`);
       this.emit('unhealthy', { reasons });

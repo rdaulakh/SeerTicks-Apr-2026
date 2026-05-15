@@ -351,6 +351,13 @@ class TraderBrain {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getEngineHeartbeat } = require('../services/EngineHeartbeat') as typeof import('../services/EngineHeartbeat');
       const hb = getEngineHeartbeat();
+      // Phase 93.29 — TraderBrain is the authoritative decision engine (post
+      // Phase 90+). The legacy UserTradingSession path that used to call
+      // recordDecision() no longer runs the consensus loop. Without a fresh
+      // recordDecision() call, EngineHeartbeat's `decisionIdleThresholdMs`
+      // (5 min) trips → haltActive=true → entriesAllowed=false → brain blocks
+      // its own new entries. Each brain tick is a decision pass; signal it.
+      hb.recordDecision?.();
       if (hb.isHalted?.()) {
         emergencyHalted = true;
         haltReason = (hb as any).status?.()?.haltReason ?? 'engine_halt';
