@@ -634,12 +634,27 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
         (orderFlowAnalyst as any).setCurrentPrice(this.currentPrice);
       }
 
-      // Debounce fast agent analysis (2s window)
-      if (this.fastAgentDebounceTimer) {
-        clearTimeout(this.fastAgentDebounceTimer);
-      }
-
-      this.fastAgentDebounceTimer = setTimeout(async () => {
+      // Phase 93.30 — THROTTLE (not debounce) fast agent analysis.
+      //
+      // Old behaviour: every new tick called clearTimeout()+setTimeout(2s),
+      // which is TRAILING-edge debounce — it ran fast agents only after
+      // 2s of TICK INACTIVITY. For BTC-USD (continuous order flow, multiple
+      // ticks per second) the timer was reset on every tick and fast agents
+      // essentially never ran. Audit on 2026-05-15 (Loop N+5) caught
+      // BTC-USD at 20 fast-agent emissions in 5 min vs 1,156 for SOL-USD
+      // — a 60× starvation. Brain's opportunity score for BTC was stuck at
+      // 0.25 because directional sensors (TechnicalAnalyst, PatternMatcher,
+      // OrderFlowAnalyst, LEAD_INFO) were silent on the highest-volume
+      // symbol the platform tracks.
+      //
+      // Fix: only SCHEDULE a new run if none is already pending. The
+      // already-scheduled run will fire in ≤2s regardless of how many
+      // ticks arrive in the interim. Caps the max wait at 2s.
+      if (!this.fastAgentDebounceTimer) {
+        this.fastAgentDebounceTimer = setTimeout(async () => {
+        // Phase 93.30 — clear the handle FIRST so the next inbound tick can
+        // schedule a fresh run while we're executing.
+        this.fastAgentDebounceTimer = null;
         try {
           // Phase 30: Get MarketContext from MarketRegimeAI (Intent Analyzer)
           // This provides regime, volatility, trend, and per-agent guidance to every agent
@@ -761,6 +776,7 @@ export class GlobalSymbolAnalyzer extends EventEmitter {
           console.error(`[GlobalSymbolAnalyzer] Fast agent error for ${this.symbol}:`, (err as Error)?.message);
         }
       }, this.FAST_AGENT_DEBOUNCE_MS);
+      } // Phase 93.30 — close the `if (!this.fastAgentDebounceTimer)` block
     } catch (err) {
       console.error(`[GlobalSymbolAnalyzer] Tick handling error for ${this.symbol}:`, (err as Error)?.message);
     }
