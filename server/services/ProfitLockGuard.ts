@@ -88,6 +88,18 @@ const CATASTROPHIC_REASON_PATTERNS: readonly string[] = [
   'hard_stop:',
   'fast_hard_stop',
   'hard_stop_loss',
+  // Phase 93.34 — catch IntelligentExitManager's actual emit format:
+  //   "Stop-Loss hit: Price $80584.58 breached SL $80754.00 (-0.21%)"
+  // Audit on 2026-05-15 (Loop N+11) caught 100+ stop-loss exits BLOCKED at
+  // -0.21% gross (net -0.46%), held open by ProfitLockGuard's net-positive
+  // floor until the position deteriorated further. Hard stops — whether
+  // from brain, IEM, or PriorityExitManager — must bypass the cost-drag
+  // floor. They fire only when the protective stop is breached, which
+  // means the trade risk envelope was already violated. Continuing to hold
+  // turns a -0.21% planned loss into a -1.0%+ catastrophic loss.
+  'stop-loss hit',
+  'breached sl',
+  'stop_loss_hit',
   'circuit_breaker_',
   'manual_override_',
   'regime_kill_',
