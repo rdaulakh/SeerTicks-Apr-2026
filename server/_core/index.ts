@@ -888,6 +888,46 @@ async function startServer() {
     console.warn(`[${new Date().toLocaleTimeString()}] ⚠️ DataGapResilience failed to start:`, resilienceError.message);
   }
 
+  // 6b. Phase 94.4 — START THE TICK-TO-CANDLE AGGREGATOR + persist closed candles.
+  //
+  // Forensic audit on 2026-05-15 caught BTC/ETH/SOL 1h-4h-1d-5m historicalCandles
+  // FROZEN since 2026-04-22 (23 days). 1m frozen since 2026-05-11 (4 days). Result:
+  // the brain's TechnicalAnalyst (and every other candle-reading agent) has been
+  // computing RSI / BollingerBands / VWAP on three-week-old data the entire time.
+  // Indicator values were identical to 16 decimal places for hours: e.g.
+  // BTC rsi=69.17078153485355 across 15+ minutes. extension_exhaustion gate fired
+  // 100+ times per 5 minutes on a permanently overbought snapshot — preventing
+  // every single brain entry since the orphan re-import loop was killed in 93.31.
+  //
+  // Root cause (two bugs, each silent):
+  //   (1) TickToCandleAggregator's singleton getter creates the instance but
+  //       `start()` is never called. `processTick()` returns early on
+  //       `!this.isRunning`. Every WS tick was dropped into a black hole.
+  //   (2) The aggregator's `candle_closed` event (and the cache's, in
+  //       WebSocketCandleCache:87) had ZERO listeners. Even with (1) fixed,
+  //       completed candles would never reach `historicalCandles` — meaning
+  //       process restart would re-load stale data.
+  //
+  // Fix: start the aggregator AND subscribe a persistence listener that writes
+  // closed candles to the DB via saveCandlesToDatabase.
+  try {
+    const { getTickToCandleAggregator } = await import('../services/TickToCandleAggregator');
+    const { saveCandlesToDatabase } = await import('../db/candleStorage');
+    const aggregator = getTickToCandleAggregator();
+    aggregator.start();
+    aggregator.on('candle_closed', async (event: { symbol: string; interval: string; candle: { timestamp: number; open: number; high: number; low: number; close: number; volume: number } }) => {
+      try {
+        await saveCandlesToDatabase(event.symbol, event.interval, [event.candle]);
+      } catch (persistErr) {
+        // Non-fatal — in-memory cache still has the candle, brain still works.
+        console.warn(`[TickToCandleAggregator] persist failed for ${event.symbol} ${event.interval}: ${(persistErr as Error)?.message}`);
+      }
+    });
+    console.log(`[${new Date().toLocaleTimeString()}] 🕯️  TickToCandleAggregator started + persistence wired (Phase 94.4)`);
+  } catch (aggErr: any) {
+    console.error(`[${new Date().toLocaleTimeString()}] ❌ TickToCandleAggregator failed to start:`, aggErr?.message);
+  }
+
   // ============================================
   // DATABASE PRE-WARMING & CACHE POPULATION
   // ============================================
