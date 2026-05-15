@@ -640,14 +640,35 @@ async function pullOpportunitySensor(): Promise<void> {
     //                         (a 5-0 split is stronger than a 1-0 split)
     //
     // Final score = ratio × presence. Both ∈ [0,1]; product ∈ [0,1].
+    //
+    // Phase 94.2 — DYNAMIC PRESENCE DENOMINATOR.
+    //
+    // The Phase 86 hardcoded `dom/4` requires 4+ agents on one side for full
+    // presence. Architectural audit on 2026-05-15 (Stream A + Stream D) caught
+    // the current quiet-market regime producing only 3–4 total directional
+    // voices per symbol (most non-toxic agents emit `neutral conf 0.02`).
+    // Under those conditions a clean 3-vs-1 split capped presence at 0.75 and
+    // score at 0.56 — below the 0.55 threshold AFTER protective-gate filtering.
+    // Result: BRAIN HAS NEVER OPENED AN ORGANIC TRADE in the visible history
+    // (every position in paperPositions is `strategy=hydrated_from_exchange`).
+    //
+    // Fix: scale the denominator with the active directional corpus.
+    //   presenceDenom = max(3, activeDirectional × 0.6)
+    // - 3 active, 2 on one side  → presence = 2/3   = 0.67  (still requires real ratio to clear)
+    // - 4 active, 3 on one side  → presence = 3/3   = 1.0
+    // - 6 active, 4 on one side  → presence = 4/3.6 = 1.0  (capped)
+    // - 1 active                 → presence = 1/3   = 0.33  (single voice doesn't trade)
+    // The min-3 floor preserves the original sanity check (don't trade on 1-0
+    // splits); the 0.6 factor keeps presence reachable when the active corpus
+    // expands during volatile sessions.
     const dominantConfluence = direction === 'long' ? confluenceLong : direction === 'short' ? confluenceShort : 0;
     const directionalAgents = confluenceLong + confluenceShort;
     const ratio = direction === 'abstain' ? 0
       : dominantWeight / Math.max(0.05, totalWeight);          // pure share of dominant voice
-    const presence = Math.min(1, dominantConfluence / 4);      // 4+ agents on one side = full presence
+    const presenceDenom = Math.max(3, directionalAgents * 0.6);
+    const presence = Math.min(1, dominantConfluence / presenceDenom);
     const score = direction === 'abstain' ? 0 : ratio * presence;
     const confluenceCount = dominantConfluence;
-    void directionalAgents;
 
     const sensation: OpportunitySensation = {
       symbol,
