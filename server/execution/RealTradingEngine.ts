@@ -472,6 +472,36 @@ export class RealTradingEngine extends EventEmitter implements ITradingEngine {
           continue;
         }
 
+        // Phase 93.31 — DUST GUARD on hydration. The closePositionById path
+        // already short-circuits to a DB-only close for positions whose
+        // notional dropped below $50 (Binance Futures' reduceOnly minNotional).
+        // The exchange position survives that close — so on the next reconcile
+        // tick this hydration loop sees it as "unknown" and inserts a NEW
+        // paperPositions row with strategy='hydrated_from_exchange'. Audit on
+        // 2026-05-15 (Loop N+6) traced 5 consecutive BTC long opens (#222 →
+        // #226) all at the SAME entryPrice 80754 across 8+ hours — the platform
+        // appeared to be "trading" but was re-importing the same orphaned
+        // testnet position each cycle, faking PROFIT_TARGET wins.
+        //
+        // Fix: skip hydration when notional is below the dust threshold.
+        // The exchange-side orphan persists but won't pollute the DB or the
+        // brain's decision pipeline. Operator can clean up manually.
+        const exNotional = ex.quantity * ex.currentPrice;
+        const DUST_THRESHOLD_USD = 50;
+        if (exNotional < DUST_THRESHOLD_USD) {
+          executionLogger.warn('Skipping hydration of dust-sized exchange position (would re-create orphan loop)', {
+            symbol: canonical,
+            side: ex.side,
+            quantity: ex.quantity,
+            currentPrice: ex.currentPrice,
+            notionalUsd: exNotional.toFixed(2),
+            threshold: DUST_THRESHOLD_USD,
+            entryPrice: ex.entryPrice,
+            action: 'Manual cleanup required on exchange — DB will not re-import this dust position',
+          });
+          continue;
+        }
+
         // No DB row for this exchange position — insert one so the IEM can manage it.
         const symbolForDb = canonical;
         const exchangeForDb = 'binance';
