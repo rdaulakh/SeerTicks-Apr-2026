@@ -93,7 +93,12 @@ class BrainExecutor extends EventEmitter {
             logger.warn(`[BrainExecutor] 🧠⚠️  LIVE exit requested for position ${numericId} but no live engine adapter for user ${liveRow.userId}`);
             return { ok: false, affectedRows: 0, error: 'no_live_adapter', reason };
           }
-          const r = await adapter.closePosition(0, liveRow.symbol, String(numericId), `brain:${reason}`)
+          // Phase 94.1 — bypassProfitLock=true. The brain decided this exit;
+          // ProfitLockGuard's cost-drag floor was a legacy safety net for the
+          // pre-Phase-82 rule manager. Auditing the Phase 93.33/.34 fires
+          // proved the allow-list approach is fragile — any new reason string
+          // the brain emits is a silent block. Brain takes accountability.
+          const r = await adapter.closePosition(0, liveRow.symbol, String(numericId), `brain:${reason}`, true)
             .catch((err: Error) => ({ success: false, error: err?.message } as any));
           if ((r as any)?.success) {
             // Phase 93.5 — use the ACTUAL exchange fill price + engine-reported
@@ -169,7 +174,9 @@ class BrainExecutor extends EventEmitter {
             logger.warn(`[BrainExecutor] 🧠⚠️  LIVE-mode paperPositions row ${numericId} but no engine adapter for user ${row.userId}`);
             return { ok: false, affectedRows: 0, error: 'no_live_adapter', reason };
           }
-          const r = await adapter.closePosition(0, row.symbol, String(numericId), `brain:${reason}`)
+          // Phase 94.1 — bypassProfitLock=true on this LIVE-in-paperPositions
+          // branch too. Same reasoning as the primary live branch above.
+          const r = await adapter.closePosition(0, row.symbol, String(numericId), `brain:${reason}`, true)
             .catch((err: Error) => ({ success: false, error: err?.message } as any));
           if ((r as any)?.success) {
             // Phase 93.5 — same fix as the primary LIVE branch above: prefer the

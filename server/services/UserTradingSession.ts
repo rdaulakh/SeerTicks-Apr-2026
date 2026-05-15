@@ -1493,6 +1493,7 @@ export class UserTradingSession extends EventEmitter {
   async requestManualClose(
     positionId: string,
     reason: string = 'manual_close',
+    bypassProfitLock: boolean = false,
   ): Promise<{
     success: true;
     /**
@@ -1533,6 +1534,21 @@ export class UserTradingSession extends EventEmitter {
       );
     }
 
+    // Phase 94.1 — BRAIN BYPASS. Post-Phase-82 the TraderBrain is the authoritative
+    // decision engine for ALL discretionary exits (hard_stop, consensus_flip,
+    // momentum_crash, take-profit, stale_no_progress, etc). ProfitLockGuard's
+    // cost-drag floor was designed for the legacy fixed-rule manager which
+    // couldn't reason about regime or signal quality; on a brain-originated
+    // exit it is a 26-string allow-list (CATASTROPHIC_REASON_PATTERNS) that
+    // silently blocks legitimate stops whenever the brain's reason text
+    // doesn't match a pattern. Phase 93.33 + 93.34 patched two such holes;
+    // Loop N+11 logged 100+ -0.21% stops held past the protective level until
+    // they deteriorated to catastrophic. The brain takes accountability for
+    // its own exits — PLG is bypassed entirely when the caller declares.
+    //
+    // The PLG check is RETAINED for non-brain manual closes (UI close button,
+    // legacy session paths) — those still need the net-positive floor as a
+    // safety net.
     const guard = profitLockShouldAllowClose(
       {
         side: position.side as 'long' | 'short',
@@ -1543,7 +1559,7 @@ export class UserTradingSession extends EventEmitter {
       reason,
     );
 
-    if (!guard.allow) {
+    if (!guard.allow && !bypassProfitLock) {
       console.log(
         `[UserTradingSession] 🛡️ MANUAL CLOSE BLOCKED by ProfitLockGuard pos=${positionId} ${symbol} ${position.side}: ` +
           `${guard.reason} | gross=${guard.grossPnlPercent.toFixed(3)}% net=${guard.netPnlPercent.toFixed(3)}%`,
@@ -1556,6 +1572,11 @@ export class UserTradingSession extends EventEmitter {
       (err as any).grossPnlPercent = guard.grossPnlPercent;
       (err as any).netPnlPercent = guard.netPnlPercent;
       throw err;
+    }
+    if (bypassProfitLock) {
+      console.log(
+        `[UserTradingSession] 🧠 BRAIN BYPASS: PLG check skipped for pos=${positionId} ${symbol} ${position.side} | gross=${guard.grossPnlPercent.toFixed(3)}% net=${guard.netPnlPercent.toFixed(3)}% reason="${reason}"`,
+      );
     }
 
     // Guard allowed — execute via the engine. Phase 46 phantom-close prevention:

@@ -637,9 +637,12 @@ export class EngineAdapter extends EventEmitter {
    * but no longer authoritative — we resolve the symbol from the actual
    * in-memory position so there's one source of truth.
    */
-  async closePosition(_exchangeId: number, _symbol: string, positionId: string, reason: string) {
+  async closePosition(_exchangeId: number, _symbol: string, positionId: string, reason: string, bypassProfitLock: boolean = false) {
     try {
-      const result = await this.session.requestManualClose(positionId, reason);
+      // Phase 94.1 — propagate brain-bypass flag through to ProfitLockGuard
+      // check. Brain-originated exits skip the cost-drag floor; UI/manual
+      // close paths pass false (default) and still get gated.
+      const result = await this.session.requestManualClose(positionId, reason, bypassProfitLock);
       this.emit('exit_executed', {
         positionId,
         reason,
