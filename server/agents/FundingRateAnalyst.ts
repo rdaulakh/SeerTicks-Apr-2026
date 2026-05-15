@@ -663,19 +663,25 @@ export class FundingRateAnalyst extends AgentBase {
       confidence += 0.12;
       strength += 0.1;
       reasons.push(`Negative funding (${ratePercentage}) - short bias`);
-    } else if (avgRate > 0) {
-      // Phase 92.5 — even mild positive funding = longs paying shorts =
-      // weak contrarian-bearish. Previously this branch stayed "neutral"
-      // and the agent dropped out of consensus. Tiny confidence bump only.
+    } else if (avgRate >= 0.00005) {
+      // Phase 93.27 — TIGHTENED. Phase 92.5's "any non-zero" branch was firing
+      // on funding rates inside noise (e.g. 0.0001%), making the agent emit
+      // 352/352 bearish in 30 min — see audit 2026-05-15.
+      // New: only fire mild-contrarian on |avgRate| >= 0.005% (5e-5 in
+      // decimal). Anything inside ±0.005% is noise → silent neutral 0.02.
       if (signal === "neutral") signal = "bearish";
       confidence += 0.04;
       reasons.push(`Mildly positive funding (${ratePercentage}) - weak long bias`);
-    } else if (avgRate < 0) {
+    } else if (avgRate <= -0.00005) {
       if (signal === "neutral") signal = "bullish";
       confidence += 0.04;
       reasons.push(`Mildly negative funding (${ratePercentage}) - weak short bias`);
     } else {
-      reasons.push(`Perfectly neutral funding (${ratePercentage})`);
+      // Phase 93.27 — deadband: rates within ±0.005% are noise. Emit silent
+      // neutral so the agent doesn't drown out other voters.
+      signal = "neutral";
+      confidence = 0.02;
+      reasons.push(`Funding within noise band (${ratePercentage}) - no signal`);
     }
 
     // Bonus confidence for multiple exchanges agreeing
