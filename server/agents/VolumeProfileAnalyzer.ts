@@ -615,15 +615,22 @@ export class VolumeProfileAnalyzer extends AgentBase {
     // price in uptrends and always sat above VAH). Now uses real last-close.
     const currentPrice = analysis.currentPrice;
     let signal: "bullish" | "bearish" | "neutral" = "neutral";
-    let confidence = 0.5;
-    let strength = 0.5;
+    // Phase 94.6 — silent-neutral defaults. Forensic audit (Stream C,
+    // 2026-05-15) caught this agent emitting `signal='neutral', confidence=0.5`
+    // because the `let confidence = 0.5` default was never overwritten on the
+    // neutral branch below. With ~22 non-toxic voters in the brain's corpus,
+    // a phantom-neutral at conf 0.5 had ~25× the weight it should — diluting
+    // every consensus measurement. Default to 0.02 (silent-neutral floor)
+    // so a non-directional output contributes ~nothing.
+    let confidence = 0.02;
+    let strength = 0.02;
 
     // VWAP band position signals
     const bandSignal = this.analyzeBandPosition(analysis);
-    
+
     // Value area signals
     const vaSignal = this.analyzeValueArea(analysis);
-    
+
     // Volume delta signals
     const deltaSignal = this.analyzeVolumeDelta(analysis);
 

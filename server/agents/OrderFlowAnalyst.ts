@@ -140,7 +140,16 @@ export class OrderFlowAnalyst extends AgentBase {
       
       // A++ Grade: Apply dynamic confidence adjustment based on live price
       const priceAdjustment = this.calculatePriceDeviationAdjustment(metrics, this.currentPrice);
-      let confidence = Math.max(0.1, Math.min(0.99, baseConfidence + priceAdjustment));
+      // Phase 94.6 — RESURRECT Phase 93.25's silent-neutral 0.02 floor.
+      // The original Phase 93.25 fix set `confidence = 0.02` for the neutral
+      // branch of calculateSignalFromOrderFlow (line ~383). It was clobbered
+      // here by `Math.max(0.1, ...)` — re-floored to 0.1 on EVERY signal
+      // including neutrals. Forensic audit (Stream A, 2026-05-15) caught this:
+      // a phantom-neutral conf 0.1 dilutes the active-directional corpus that
+      // Phase 94.2's presence-formula denominator depends on. Only re-floor
+      // to 0.1 when the signal is directional; neutrals stay at 0.02.
+      const minFloor = signal === 'neutral' ? 0.02 : 0.1;
+      let confidence = Math.max(minFloor, Math.min(0.99, baseConfidence + priceAdjustment));
 
       // Phase 30: Apply MarketContext regime adjustments
       if (context?.regime) {
